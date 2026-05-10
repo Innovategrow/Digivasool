@@ -1,0 +1,35 @@
+# Environments
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+env/
+.pytest_cache/
+backend/venv/
+backend/__pycache__/
+
+# Node
+node_modules/
+mobile/node_modules/
+web/node_modules/
+/package-lock.json
+
+# OS Files
+.DS_Store
+
+# Expo
+.expo/
+mobile/.expo/
+
+# Misc
+*.log
+
+# App Data
+backend/digital_khata.db
+backend/uploads/
