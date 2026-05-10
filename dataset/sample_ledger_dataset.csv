@@ -1,5 +1,0 @@
-transaction_id,merchant_id,customer_id,customer_name,customer_phone,transaction_type,amount,outstanding_amount,interest_rate_monthly,due_date,created_at,notes,reminder_day_offsets
-tx-1001,m-001,cust-001,Ramesh Traders,+919999000111,GAVE,8200,8200,2.5,2026-04-10,2026-03-01T10:00:00,Seed inventory on weekly credit,"5|7|10|60"
-tx-1002,m-001,cust-002,Priya Textiles,+919999000222,GAVE,4600,3100,1.75,2026-04-05,2026-03-05T14:30:00,Festival stock top-up,"5|7|10|60"
-tx-1003,m-001,cust-003,Karan Electronics,+919999000333,GOT,1500,0,, ,2026-03-08T16:45:00,Partial repayment received,
-tx-1004,m-001,cust-004,Noor Dairy,+919999000444,GAVE,2200,2200,1.2,2026-04-18,2026-03-10T09:20:00,Milk route short-term advance,"5|7|10|60"
