@@ -1,272 +1,269 @@
-import sqlite3
+"""
+Firebase Firestore database layer.
+Replaces the previous SQLite implementation with Cloud Firestore.
+"""
+
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from datetime import date
 
-DB_PATH = "digital_khata.db"
+import firebase_admin
+from firebase_admin import credentials, firestore
 
+# ── Firebase Init ────────────────────────────────────────────────────────────
+
+_db = None
+
+SERVICE_ACCOUNT_PATH = os.environ.get(
+    "FIREBASE_SERVICE_ACCOUNT_PATH",
+    os.path.join(os.path.dirname(__file__), "firebase-service-account.json"),
+)
+
+
+def init_firebase():
+    """Initialise the Firebase Admin SDK (idempotent)."""
+    global _db
+    if _db is not None:
+        return
+
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
+        firebase_admin.initialize_app(cred)
+
+    _db = firestore.client()
+    print("✅ Firebase Firestore initialised")
+
+    # Seed only if loans collection is empty
+    loans_ref = _db.collection("loans").limit(1).get()
+    if len(loans_ref) == 0:
+        seed_db()
+
+
+def get_firestore_client():
+    """Return the Firestore client, initialising if needed."""
+    global _db
+    if _db is None:
+        init_firebase()
+    return _db
+
+
+# Alias for backward-compatibility with main.py
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Returns the Firestore client (replaces SQLite connection)."""
+    return get_firestore_client()
+
 
 def init_db():
-    conn = get_db_connection()
-    c = conn.cursor()
+    """Called on app startup — initialises Firebase."""
+    init_firebase()
 
-    # Transactions table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS transactions (
-            id TEXT PRIMARY KEY,
-            customer_id TEXT,
-            customer_name TEXT,
-            customer_phone TEXT,
-            type TEXT,
-            amount REAL,
-            outstanding_amount REAL,
-            interest_rate_monthly REAL,
-            due_date TEXT,
-            notes TEXT,
-            created_at TEXT,
-            shopkeeper_id TEXT
-        )
-    """)
 
-    # Reminders table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transaction_id TEXT,
-            customer_id TEXT,
-            channel TEXT,
-            day_offset INTEGER,
-            scheduled_for TEXT,
-            status TEXT
-        )
-    """)
+# ── Seed Data ────────────────────────────────────────────────────────────────
 
-    # Loans table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS loans (
-            id TEXT PRIMARY KEY,
-            customer_id TEXT,
-            customer_name TEXT,
-            loan_amount REAL,
-            interest_document REAL,
-            start_date TEXT,
-            closing_date TEXT,
-            due_amount REAL,
-            collected_amount REAL,
-            pending_amount REAL,
-            status TEXT,
-            total_days_paid INTEGER,
-            total_days_not_paid INTEGER,
-            created_at TEXT
-        )
-    """)
+def seed_db():
+    """Seed Firestore with demo transactions and reminders."""
+    db = get_firestore_client()
+    from services.reminders import build_whatsapp_reminder_schedule
 
-    # Loan Payments table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS loan_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            loan_id TEXT,
-            amount REAL,
-            payment_method TEXT,
-            payment_date TEXT,
-            collector_name TEXT,
-            collector_phone TEXT,
-            notes TEXT,
-            FOREIGN KEY(loan_id) REFERENCES loans(id)
-        )
-    """)
-
-    # Audit log table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor TEXT,
-            action TEXT,
-            detail TEXT,
-            created_at TEXT
-        )
-    """)
-
-    # ── Safe migrations for new columns on existing DB ──────────────────────────
-    loan_new_cols = [
-        ("customer_email",        "TEXT"),
-        ("customer_phone",        "TEXT"),
-        ("customer_address",      "TEXT"),
-        ("repayment_frequency",   "TEXT DEFAULT 'monthly'"),
-        ("repayment_amount",      "REAL DEFAULT 0"),
+    # Demo seed transactions
+    seed_transactions = [
+        {
+            "id": "tx-1001",
+            "customer_id": "cust-001",
+            "customer_name": "Ramesh Traders",
+            "customer_phone": "+919999000111",
+            "type": "GAVE",
+            "amount": 8200.0,
+            "outstanding_amount": 8200.0,
+            "interest_rate_monthly": 2.5,
+            "due_date": "2026-04-10",
+            "notes": "Seed inventory on weekly credit",
+            "created_at": "2026-03-01T10:00:00",
+        },
+        {
+            "id": "tx-1002",
+            "customer_id": "cust-002",
+            "customer_name": "Priya Textiles",
+            "customer_phone": "+919999000222",
+            "type": "GAVE",
+            "amount": 4600.0,
+            "outstanding_amount": 3100.0,
+            "interest_rate_monthly": 1.75,
+            "due_date": "2026-04-05",
+            "notes": "Festival stock top-up",
+            "created_at": "2026-03-05T14:30:00",
+        },
+        {
+            "id": "tx-1003",
+            "customer_id": "cust-003",
+            "customer_name": "Karan Electronics",
+            "customer_phone": "+919999000333",
+            "type": "GOT",
+            "amount": 1500.0,
+            "outstanding_amount": 0.0,
+            "interest_rate_monthly": None,
+            "due_date": None,
+            "notes": "Partial repayment received",
+            "created_at": "2026-03-08T16:45:00",
+        },
     ]
-    for col, coltype in loan_new_cols:
-        try:
-            c.execute(f"ALTER TABLE loans ADD COLUMN {col} {coltype}")
-        except Exception:
-            pass  # column already exists
 
-    payment_new_cols = [
-        ("collector_name",  "TEXT"),
-        ("collector_phone", "TEXT"),
-        ("notes",           "TEXT"),
-    ]
-    for col, coltype in payment_new_cols:
-        try:
-            c.execute(f"ALTER TABLE loan_payments ADD COLUMN {col} {coltype}")
-        except Exception:
-            pass
+    for tx in seed_transactions:
+        db.collection("transactions").document(tx["id"]).set(tx)
 
-    conn.commit()
+    # Build reminders for GAVE transactions
+    for tx in seed_transactions:
+        if tx["type"] == "GAVE":
+            reminders = build_whatsapp_reminder_schedule(
+                transaction_id=tx["id"],
+                customer_id=tx["customer_id"],
+                due_date=tx["due_date"],
+            )
+            for rm in reminders:
+                db.collection("reminders").add(rm)
 
-    # Seed only if transactions are empty
-    c.execute("SELECT COUNT(*) FROM transactions")
-    if c.fetchone()[0] == 0:
-        seed_db(conn)
-
-    conn.close()
+    print("🌱 Seeded Firestore with demo data")
 
 
-def seed_db(conn):
-    c = conn.cursor()
-    from data_store import FALLBACK_TRANSACTIONS, FALLBACK_REMINDERS
+# ── Transaction Helpers ──────────────────────────────────────────────────────
 
-    for tx in FALLBACK_TRANSACTIONS:
-        c.execute("""
-            INSERT INTO transactions (id, customer_id, customer_name, customer_phone, type, amount, outstanding_amount, interest_rate_monthly, due_date, notes, created_at, shopkeeper_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (tx['id'], tx['customer_id'], tx['customer_name'], tx.get('customer_phone'), tx['type'], tx['amount'], tx['outstanding_amount'], tx.get('interest_rate_monthly'), tx.get('due_date'), tx.get('notes'), tx['created_at'], 'default_shop'))
-
-    for rm in FALLBACK_REMINDERS:
-        c.execute("""
-            INSERT INTO reminders (transaction_id, customer_id, channel, day_offset, scheduled_for, status)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (rm['transaction_id'], rm['customer_id'], rm.get('channel', 'whatsapp'), rm['day_offset'], rm['scheduled_for'], rm.get('status', 'scheduled')))
-
-    conn.commit()
+def append_transaction_db(record: Dict[str, Any]):
+    db = get_firestore_client()
+    doc_id = record.get("id", None)
+    if doc_id:
+        db.collection("transactions").document(doc_id).set(record)
+    else:
+        db.collection("transactions").add(record)
 
 
-# ── DB Helper Functions ──────────────────────────────────────────────────────
-
-def append_transaction_db(record):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO transactions (id, customer_id, customer_name, customer_phone, type, amount, outstanding_amount, interest_rate_monthly, due_date, notes, created_at, shopkeeper_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (record['id'], record['customer_id'], record['customer_name'], record.get('customer_phone'), record['type'], record['amount'], record['outstanding_amount'], record.get('interest_rate_monthly'), record.get('due_date'), record.get('notes'), record['created_at'], record.get('shopkeeper_id')))
-    conn.commit()
-    conn.close()
-
-
-def append_reminders_db(reminders):
-    conn = get_db_connection()
-    c = conn.cursor()
+def append_reminders_db(reminders: List[Dict[str, Any]]):
+    db = get_firestore_client()
     for rm in reminders:
-        c.execute("""
-            INSERT INTO reminders (transaction_id, customer_id, channel, day_offset, scheduled_for, status)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (rm['transaction_id'], rm['customer_id'], rm.get('channel', 'whatsapp'), rm['day_offset'], rm['scheduled_for'], rm.get('status', 'scheduled')))
-    conn.commit()
-    conn.close()
+        db.collection("reminders").add(rm)
 
 
-def get_dashboard_summary_db():
-    conn = get_db_connection()
-    c = conn.cursor()
+# ── Dashboard ────────────────────────────────────────────────────────────────
 
-    c.execute("SELECT SUM(outstanding_amount) FROM transactions WHERE type='GAVE'")
-    you_will_give = c.fetchone()[0] or 0.0
+def get_dashboard_summary_db() -> Dict[str, Any]:
+    db = get_firestore_client()
 
-    c.execute("SELECT SUM(amount) FROM transactions WHERE type='GOT'")
-    you_will_get = c.fetchone()[0] or 0.0
+    # Aggregate transactions
+    gave_docs = db.collection("transactions").where("type", "==", "GAVE").get()
+    got_docs = db.collection("transactions").where("type", "==", "GOT").get()
 
-    c.execute("SELECT COUNT(*) FROM transactions WHERE type='GAVE'")
-    active_lending_count = c.fetchone()[0] or 0
+    you_will_give = sum(doc.to_dict().get("outstanding_amount", 0) for doc in gave_docs)
+    you_will_get = sum(doc.to_dict().get("amount", 0) for doc in got_docs)
+    active_lending_count = len(gave_docs)
 
     # Today's collections
-    today = __import__('datetime').date.today().isoformat()
-    c.execute("SELECT SUM(amount) FROM loan_payments WHERE payment_date LIKE ?", (f"{today}%",))
-    today_collected = c.fetchone()[0] or 0.0
+    today_str = date.today().isoformat()
+    payment_docs = db.collection("loan_payments").get()
+    today_collected = 0.0
+    collector_totals: Dict[str, float] = {}
 
-    # By-collector breakdown (all time)
-    c.execute("""
-        SELECT collector_name, SUM(amount) as total
-        FROM loan_payments
-        WHERE collector_name IS NOT NULL
-        GROUP BY collector_name
-        ORDER BY total DESC
-    """)
-    collector_breakdown = [{"name": row["collector_name"], "total": row["total"]} for row in c.fetchall()]
+    for doc in payment_docs:
+        p = doc.to_dict()
+        pd_str = p.get("payment_date", "")
+        if pd_str and pd_str.startswith(today_str):
+            today_collected += p.get("amount", 0)
+        cn = p.get("collector_name")
+        if cn:
+            collector_totals[cn] = collector_totals.get(cn, 0) + p.get("amount", 0)
 
-    # Total active loans
-    c.execute("SELECT COUNT(*) FROM loans WHERE status='active'")
-    active_loans = c.fetchone()[0] or 0
+    collector_breakdown = [{"name": k, "total": v} for k, v in sorted(collector_totals.items(), key=lambda x: -x[1])]
 
-    conn.close()
+    # Active loans count
+    active_loan_docs = db.collection("loans").where("status", "==", "active").get()
 
     from services.reminders import WHATSAPP_REMINDER_DAY_OFFSETS
     return {
         "you_will_give": round(you_will_give, 2),
         "you_will_get": round(you_will_get, 2),
         "active_lending_count": active_lending_count,
-        "active_loans": active_loans,
+        "active_loans": len(active_loan_docs),
         "today_collected": round(today_collected, 2),
         "collector_breakdown": collector_breakdown,
         "reminder_day_offsets": list(WHATSAPP_REMINDER_DAY_OFFSETS),
     }
 
 
-def get_admin_lendings_db():
-    conn = get_db_connection()
-    c = conn.cursor()
+# ── Admin Lendings ───────────────────────────────────────────────────────────
 
-    c.execute("SELECT * FROM transactions WHERE type='GAVE'")
-    transactions = [dict(row) for row in c.fetchall()]
+def get_admin_lendings_db() -> List[Dict[str, Any]]:
+    db = get_firestore_client()
 
+    gave_docs = db.collection("transactions").where("type", "==", "GAVE").get()
     lendings = []
-    for tx in transactions:
-        c.execute("SELECT * FROM reminders WHERE transaction_id=?", (tx['id'],))
-        reminders = [dict(row) for row in c.fetchall()]
+
+    for doc in gave_docs:
+        tx = doc.to_dict()
+        tx_id = tx.get("id", doc.id)
+
+        # Get reminders for this transaction
+        reminder_docs = db.collection("reminders").where("transaction_id", "==", tx_id).get()
+        reminders = [r.to_dict() for r in reminder_docs]
 
         lendings.append({
-            "transaction_id": tx["id"],
-            "customer_id": tx["customer_id"],
-            "customer_name": tx["customer_name"],
+            "transaction_id": tx_id,
+            "customer_id": tx.get("customer_id"),
+            "customer_name": tx.get("customer_name"),
             "customer_phone": tx.get("customer_phone"),
-            "amount": tx["amount"],
-            "outstanding_amount": tx["outstanding_amount"],
+            "amount": tx.get("amount"),
+            "outstanding_amount": tx.get("outstanding_amount"),
             "interest_rate_monthly": tx.get("interest_rate_monthly") or 0.0,
             "due_date": tx.get("due_date"),
             "notes": tx.get("notes"),
             "reminder_schedule": reminders,
         })
 
-    conn.close()
     return lendings
 
 
-def get_loan_payments_db(loan_id: str):
+# ── Loan Payments ────────────────────────────────────────────────────────────
+
+def get_loan_payments_db(loan_id: str) -> List[Dict[str, Any]]:
     """Return all payment records for a given loan, newest first."""
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT * FROM loan_payments WHERE loan_id=? ORDER BY payment_date DESC
-    """, (loan_id,))
-    rows = [dict(row) for row in c.fetchall()]
-    conn.close()
+    db = get_firestore_client()
+    docs = (
+        db.collection("loan_payments")
+        .where("loan_id", "==", loan_id)
+        .order_by("payment_date", direction=firestore.Query.DESCENDING)
+        .get()
+    )
+    rows = []
+    for doc in docs:
+        d = doc.to_dict()
+        d["id"] = d.get("id", doc.id)
+        rows.append(d)
     return rows
 
 
-def get_collector_payments_db(collector_name: str):
+def get_collector_payments_db(collector_name: str) -> List[Dict[str, Any]]:
     """Return all payments logged by a specific collector, newest first."""
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT lp.*, l.customer_name, l.customer_phone
-        FROM loan_payments lp
-        JOIN loans l ON lp.loan_id = l.id
-        WHERE LOWER(lp.collector_name)=LOWER(?)
-        ORDER BY lp.payment_date DESC
-    """, (collector_name,))
-    rows = [dict(row) for row in c.fetchall()]
-    conn.close()
+    db = get_firestore_client()
+
+    # Firestore is case-sensitive, so we search as-is (collector names are stored consistently)
+    docs = (
+        db.collection("loan_payments")
+        .where("collector_name", "==", collector_name)
+        .order_by("payment_date", direction=firestore.Query.DESCENDING)
+        .get()
+    )
+
+    rows = []
+    for doc in docs:
+        p = doc.to_dict()
+        p["id"] = p.get("id", doc.id)
+        loan_id = p.get("loan_id")
+
+        # Join with loan to get borrower info
+        if loan_id:
+            loan_doc = db.collection("loans").document(loan_id).get()
+            if loan_doc.exists:
+                loan = loan_doc.to_dict()
+                p["customer_name"] = loan.get("customer_name")
+                p["customer_phone"] = loan.get("customer_phone")
+
+        rows.append(p)
+
     return rows

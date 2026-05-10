@@ -6,7 +6,6 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from supabase import create_client, Client
 from dotenv import load_dotenv
 
 from db import (
@@ -15,7 +14,7 @@ from db import (
     append_reminders_db,
     get_admin_lendings_db,
     get_dashboard_summary_db,
-    get_db_connection,
+    get_firestore_client,
     get_loan_payments_db,
     get_collector_payments_db,
 )
@@ -44,18 +43,8 @@ from services.reminders import (
 
 load_dotenv()
 
-# --- ENVIRONMENT CONFIG ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://mock.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "mock_key")
-
-try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception as e:
-    print(f"Warning: Could not initialize Supabase client. Set SUPABASE_URL and SUPABASE_KEY. Error: {e}")
-    supabase = None
-
 # --- APP INIT ---
-app = FastAPI(title="DigitKhata Pro API", description="3-Role Money Lending Tracker")
+app = FastAPI(title="DigiVasool API", description="3-Role Money Lending Tracker — Powered by Firebase")
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,14 +68,13 @@ from config_admins import ADMIN_USERS, ADMIN_SECRET_KEYWORD, COLLECTOR_USERS, AD
 
 
 def _write_audit(actor: str, action: str, detail: str = ""):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO audit_log (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (actor, action, detail, datetime.utcnow().isoformat()),
-    )
-    conn.commit()
-    conn.close()
+    db = get_firestore_client()
+    db.collection("audit_log").add({
+        "actor": actor,
+        "action": action,
+        "detail": detail,
+        "created_at": datetime.utcnow().isoformat(),
+    })
 
 
 def _build_whatsapp_url(phone: str, message: str) -> str:
@@ -107,10 +95,8 @@ async def request_otp(body: OTPRequest):
 
     elif body.role == "collector":
         collector_phones = [c["phone"].replace(" ", "") for c in COLLECTOR_USERS]
-        # Contact can be phone for collectors
         if contact.replace(" ", "") not in [p.lower() for p in collector_phones] and \
            contact not in [p.lstrip("+") for p in collector_phones]:
-            # Also allow matching by name if collector_name provided
             if not body.collector_name:
                 raise HTTPException(status_code=404, detail="Collector not found. Check your phone number.")
             collector_names = [c["name"].lower() for c in COLLECTOR_USERS]
@@ -118,15 +104,17 @@ async def request_otp(body: OTPRequest):
                 raise HTTPException(status_code=404, detail="Collector not found")
 
     elif body.role == "member":
-        conn = get_db_connection()
-        c = conn.cursor()
-        c.execute(
-            "SELECT id FROM loans WHERE LOWER(customer_email)=? OR LOWER(customer_phone)=? LIMIT 1",
-            (contact, contact),
-        )
-        row = c.fetchone()
-        conn.close()
-        if not row:
+        db = get_firestore_client()
+        # Search by email or phone in Firestore loans
+        found = False
+        email_docs = db.collection("loans").where("customer_email", "==", contact).limit(1).get()
+        if email_docs:
+            found = True
+        else:
+            phone_docs = db.collection("loans").where("customer_phone", "==", contact).limit(1).get()
+            if phone_docs:
+                found = True
+        if not found:
             raise HTTPException(status_code=404, detail="No account found with this email/phone")
 
     otp = otp_store.generate_and_store(contact)
@@ -145,7 +133,6 @@ async def verify_otp(body: OTPVerify):
         return {"role": "admin", "name": body.admin_name}
 
     if body.role == "collector":
-        # Match by name from collector_name param
         matched = None
         for col in COLLECTOR_USERS:
             if body.collector_name and col["name"].lower() == body.collector_name.lower():
@@ -161,17 +148,17 @@ async def verify_otp(body: OTPVerify):
         return {"role": "collector", "name": matched["name"], "phone": matched["phone"]}
 
     # Member login
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute(
-        "SELECT customer_name, customer_phone FROM loans WHERE LOWER(customer_email)=? OR LOWER(customer_phone)=? LIMIT 1",
-        (contact, contact),
-    )
-    row = c.fetchone()
-    conn.close()
-    if not row:
+    db = get_firestore_client()
+    member_name = None
+    email_docs = db.collection("loans").where("customer_email", "==", contact).limit(1).get()
+    if email_docs:
+        member_name = email_docs[0].to_dict().get("customer_name")
+    else:
+        phone_docs = db.collection("loans").where("customer_phone", "==", contact).limit(1).get()
+        if phone_docs:
+            member_name = phone_docs[0].to_dict().get("customer_name")
+    if not member_name:
         raise HTTPException(status_code=404, detail="Account not found")
-    member_name = row["customer_name"]
     _write_audit(member_name, "LOGIN", f"Member logged in via {contact}")
     return {"role": "member", "name": member_name}
 
@@ -181,17 +168,14 @@ from schemas import MemberSignup
 @app.post("/api/auth/signup")
 async def signup(body: MemberSignup):
     """Register a new member."""
+    db = get_firestore_client()
     loan_id = str(uuid4())
     created_at = datetime.utcnow().isoformat()
 
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute(
-        "SELECT id FROM loans WHERE LOWER(customer_email)=? OR LOWER(customer_phone)=? LIMIT 1",
-        (body.email.lower(), body.phone),
-    )
-    if c.fetchone():
-        conn.close()
+    # Check if user already exists
+    email_docs = db.collection("loans").where("customer_email", "==", body.email.lower()).limit(1).get()
+    phone_docs = db.collection("loans").where("customer_phone", "==", body.phone).limit(1).get()
+    if email_docs or phone_docs:
         raise HTTPException(status_code=400, detail="User with this email or phone already exists")
 
     record = {
@@ -213,22 +197,10 @@ async def signup(body: MemberSignup):
         "total_days_not_paid": 0,
         "repayment_frequency": "monthly",
         "repayment_amount": 0.0,
-        "created_at": created_at
+        "created_at": created_at,
     }
 
-    c.execute("""
-        INSERT INTO loans (id, customer_id, customer_name, customer_email, customer_phone, customer_address,
-            loan_amount, interest_document, start_date, closing_date, due_amount, collected_amount,
-            pending_amount, status, total_days_paid, total_days_not_paid,
-            repayment_frequency, repayment_amount, created_at)
-        VALUES (:id, :customer_id, :customer_name, :customer_email, :customer_phone, :customer_address,
-            :loan_amount, :interest_document, :start_date, :closing_date, :due_amount, :collected_amount,
-            :pending_amount, :status, :total_days_paid, :total_days_not_paid,
-            :repayment_frequency, :repayment_amount, :created_at)
-    """, record)
-    conn.commit()
-    conn.close()
-
+    db.collection("loans").document(loan_id).set(record)
     _write_audit(body.name, "SIGNUP", f"New user signed up: {body.email}")
     return {"status": "success", "message": "Signup successful. You can now login.", "id": loan_id}
 
@@ -300,18 +272,9 @@ async def create_transaction(
         else []
     )
 
-    if supabase:
-        try:
-            supabase.table("transactions").insert(transaction_record).execute()
-            if reminders:
-                supabase.table("reminder_jobs").insert(reminders).execute()
-        except Exception as exc:
-            print(f"Warning: falling back to SQLite. Error: {exc}")
-            append_transaction_db(transaction_record)
-            append_reminders_db(reminders)
-    else:
-        append_transaction_db(transaction_record)
-        append_reminders_db(reminders)
+    # Store in Firestore
+    append_transaction_db(transaction_record)
+    append_reminders_db(reminders)
 
     if reminders:
         background_tasks.add_task(queue_whatsapp_reminders, reminders)
@@ -343,6 +306,7 @@ async def get_collectors():
 
 @app.post("/api/loans/", response_model=LoanRecord)
 async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
+    db = get_firestore_client()
     loan_id = str(uuid4())
     create_time = datetime.utcnow()
     created_at = create_time.isoformat()
@@ -365,23 +329,10 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
         "total_days_not_paid": 0,
         "repayment_frequency": loan.repayment_frequency,
         "repayment_amount": loan.repayment_amount or 0.0,
-        "created_at": created_at
+        "created_at": created_at,
     }
 
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO loans (id, customer_id, customer_name, customer_email, customer_phone, customer_address,
-            loan_amount, interest_document, start_date, closing_date, due_amount, collected_amount,
-            pending_amount, status, total_days_paid, total_days_not_paid,
-            repayment_frequency, repayment_amount, created_at)
-        VALUES (:id, :customer_id, :customer_name, :customer_email, :customer_phone, :customer_address,
-            :loan_amount, :interest_document, :start_date, :closing_date, :due_amount, :collected_amount,
-            :pending_amount, :status, :total_days_paid, :total_days_not_paid,
-            :repayment_frequency, :repayment_amount, :created_at)
-    """, record)
-    conn.commit()
-    conn.close()
+    db.collection("loans").document(loan_id).set(record)
 
     _write_audit(loan.customer_name, "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created, freq={loan.repayment_frequency}")
 
@@ -400,59 +351,70 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
 
 @app.get("/api/loans/", response_model=List[LoanRecord])
 async def get_loans():
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT * FROM loans")
-    loans = [dict(row) for row in c.fetchall()]
+    db = get_firestore_client()
+    docs = db.collection("loans").get()
+    loans = []
 
-    for l in loans:
-        c.execute("SELECT * FROM reminders WHERE transaction_id=?", (l['id'],))
-        l['reminder_schedule'] = [dict(row) for row in c.fetchall()]
-        # Ensure new fields have defaults for old records
-        l.setdefault('repayment_frequency', 'monthly')
-        l.setdefault('repayment_amount', 0.0)
+    for doc in docs:
+        l = doc.to_dict()
+        l.setdefault("id", doc.id)
+        l.setdefault("repayment_frequency", "monthly")
+        l.setdefault("repayment_amount", 0.0)
 
-    conn.close()
+        # Get reminders
+        reminder_docs = db.collection("reminders").where("transaction_id", "==", l["id"]).get()
+        l["reminder_schedule"] = [r.to_dict() for r in reminder_docs]
+
+        loans.append(l)
+
     return [LoanRecord(**l) for l in loans]
 
 
 @app.post("/api/loans/{loan_id}/payments", response_model=PaymentResponse)
 async def record_payment(loan_id: str, payment: LoanPaymentCreate):
-    conn = get_db_connection()
-    c = conn.cursor()
+    db = get_firestore_client()
 
-    c.execute("SELECT * FROM loans WHERE id=?", (loan_id,))
-    loan = c.fetchone()
-    if not loan:
-        conn.close()
+    loan_ref = db.collection("loans").document(loan_id)
+    loan_doc = loan_ref.get()
+    if not loan_doc.exists:
         raise HTTPException(status_code=404, detail="Loan not found")
 
+    loan = loan_doc.to_dict()
     payment_date = payment.payment_date or datetime.utcnow().isoformat()
 
-    # Insert payment with collector info
-    c.execute("""
-        INSERT INTO loan_payments (loan_id, amount, payment_method, payment_date, collector_name, collector_phone, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (loan_id, payment.amount, payment.payment_method, payment_date,
-          payment.collector_name, payment.collector_phone, payment.notes))
+    # Create a unique payment ID
+    payment_id = str(uuid4())
+
+    # Insert payment into Firestore
+    payment_record = {
+        "id": payment_id,
+        "loan_id": loan_id,
+        "amount": payment.amount,
+        "payment_method": payment.payment_method,
+        "payment_date": payment_date,
+        "collector_name": payment.collector_name,
+        "collector_phone": payment.collector_phone,
+        "notes": payment.notes,
+    }
+    db.collection("loan_payments").document(payment_id).set(payment_record)
 
     # Update loan totals
-    new_collected = loan['collected_amount'] + payment.amount
-    new_pending = loan['due_amount'] - new_collected
-    new_days_paid = loan['total_days_paid'] + 1
-    new_status = 'closed' if new_pending <= 0 else loan['status']
+    new_collected = loan["collected_amount"] + payment.amount
+    new_pending = loan["due_amount"] - new_collected
+    new_days_paid = loan["total_days_paid"] + 1
+    new_status = "closed" if new_pending <= 0 else loan["status"]
 
-    c.execute("""
-        UPDATE loans SET collected_amount=?, pending_amount=?, total_days_paid=?, status=? WHERE id=?
-    """, (new_collected, new_pending, new_days_paid, new_status, loan_id))
+    loan_ref.update({
+        "collected_amount": new_collected,
+        "pending_amount": new_pending,
+        "total_days_paid": new_days_paid,
+        "status": new_status,
+    })
 
-    conn.commit()
-
-    c.execute("SELECT * FROM loans WHERE id=?", (loan_id,))
-    updated_loan = dict(c.fetchone())
-    updated_loan.setdefault('repayment_frequency', 'monthly')
-    updated_loan.setdefault('repayment_amount', 0.0)
-    conn.close()
+    # Read updated loan
+    updated_loan = loan_ref.get().to_dict()
+    updated_loan.setdefault("repayment_frequency", "monthly")
+    updated_loan.setdefault("repayment_amount", 0.0)
 
     _write_audit(
         payment.collector_name or "system",
@@ -481,12 +443,12 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate):
         f"Your payment of ₹{payment.amount:,.0f} ({payment.payment_method}) has been received.\n"
         f"📅 Date: {date_str}\n"
         f"💰 Remaining Balance: ₹{max(new_pending, 0):,.0f}\n"
-        f"Thank you! — DigitKhata Pro"
+        f"Thank you! — DigiVasool"
     )
 
     admin_url = _build_whatsapp_url(ADMIN_WHATSAPP, admin_msg)
     borrower_url = None
-    borrower_phone = loan.get('customer_phone') or ''
+    borrower_phone = loan.get("customer_phone") or ""
     if borrower_phone:
         borrower_url = _build_whatsapp_url(borrower_phone, borrower_msg)
 
@@ -510,41 +472,40 @@ async def get_loan_payment_history(loan_id: str):
 @app.get("/api/loans/by-customer", response_model=List[LoanRecord])
 async def get_loans_by_customer(name: str):
     """Member-facing: returns loans matching the given customer name."""
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT * FROM loans WHERE LOWER(customer_name)=LOWER(?)", (name.strip(),))
-    loans = [dict(row) for row in c.fetchall()]
+    db = get_firestore_client()
+    docs = db.collection("loans").where("customer_name", "==", name.strip()).get()
 
-    for l in loans:
-        c.execute("SELECT * FROM reminders WHERE transaction_id=?", (l['id'],))
-        l['reminder_schedule'] = [dict(row) for row in c.fetchall()]
-        l.setdefault('repayment_frequency', 'monthly')
-        l.setdefault('repayment_amount', 0.0)
-
-    conn.close()
-    if not loans:
+    if not docs:
         raise HTTPException(status_code=404, detail="No loans found for this name")
+
+    loans = []
+    for doc in docs:
+        l = doc.to_dict()
+        l.setdefault("id", doc.id)
+        l.setdefault("repayment_frequency", "monthly")
+        l.setdefault("repayment_amount", 0.0)
+
+        reminder_docs = db.collection("reminders").where("transaction_id", "==", l["id"]).get()
+        l["reminder_schedule"] = [r.to_dict() for r in reminder_docs]
+        loans.append(l)
+
     return [LoanRecord(**l) for l in loans]
 
 
 @app.get("/api/loans/{loan_id}/stats", response_model=LoanStatsResponse)
 async def get_loan_stats(loan_id: str):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT * FROM loans WHERE id=?", (loan_id,))
-    loan = c.fetchone()
-    if not loan:
-        conn.close()
+    db = get_firestore_client()
+    loan_doc = db.collection("loans").document(loan_id).get()
+    if not loan_doc.exists:
         raise HTTPException(status_code=404, detail="Loan not found")
 
-    stats = {
-        "total_days_paid": loan['total_days_paid'],
-        "total_days_not_paid": loan['total_days_not_paid'],
-        "total_paid_amount": loan['collected_amount'],
-        "total_balance_due": loan['pending_amount']
-    }
-    conn.close()
-    return LoanStatsResponse(**stats)
+    loan = loan_doc.to_dict()
+    return LoanStatsResponse(
+        total_days_paid=loan.get("total_days_paid", 0),
+        total_days_not_paid=loan.get("total_days_not_paid", 0),
+        total_paid_amount=loan.get("collected_amount", 0),
+        total_balance_due=loan.get("pending_amount", 0),
+    )
 
 
 @app.get("/api/collector/payments")

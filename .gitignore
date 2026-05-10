@@ -31,5 +31,5 @@ mobile/.expo/
 *.log
 
 # App Data
-backend/digital_khata.db
+backend/firebase-service-account.json
 backend/uploads/
