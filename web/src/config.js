@@ -1,5 +1,5 @@
-// Backend API base URL (FastAPI server on LAN)
-export const API_BASE_URL = 'http://10.207.100.191:8000';
+// Backend API base URL
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // Firebase web config — see firebase.js for full initialization
 // The backend handles all Firestore operations via the API.
