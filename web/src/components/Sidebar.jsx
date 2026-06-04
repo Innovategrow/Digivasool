@@ -11,7 +11,7 @@ const NAV = [
   { section: 'Main' },
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/borrowers',icon: Users,           label: 'Borrowers' },
-  { to: '/new-loan', icon: PlusCircle,      label: 'New Loan',  highlight: true },
+  { to: '/new-loan', icon: PlusCircle,      label: 'New Borrower & Loan',  highlight: true },
   { to: '/ledger',   icon: BookOpen,        label: 'Ledger' },
   { section: 'Finance' },
   { to: '/expenses', icon: Receipt,         label: 'Expenses' },

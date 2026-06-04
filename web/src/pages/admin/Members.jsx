@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  UserPlus, Calendar, IndianRupee, ShieldCheck, Mail, Phone, MapPin,
-  RefreshCw, Camera, Eye, EyeOff, CheckCircle, AlertCircle, Building2,
-  Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, SortAsc, GitMerge
+  UserPlus, IndianRupee, ShieldCheck, Mail, Phone, MapPin,
+  RefreshCw, CheckCircle, Building2,
+  Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
+import { ZONES } from '../../context/AppDataContext';
+import PhotoCapture from '../../components/PhotoCapture';
 
 const FREQ_OPTIONS = [
   { value: 'daily',   label: '📅 Daily',   desc: 'Collected every day' },
@@ -21,7 +23,7 @@ const SORT_OPTIONS = [
 ];
 
 // ── OTP Verifier sub-component ─────────────────────────────────────────────
-function OtpVerifier({ phone, onVerified, onReset }) {
+function OtpVerifier({ phone, onVerified }) {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [devOtp, setDevOtp] = useState('');
   const [sent, setSent] = useState(false);
@@ -146,11 +148,11 @@ export default function Members() {
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
+  const [zoneFilter, setZoneFilter] = useState('all');
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [showOtpSection, setShowOtpSection] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
-  const fileRef = useRef();
 
   const handleMerge = async (id1, id2) => {
     setLoading(true);
@@ -174,7 +176,7 @@ export default function Members() {
   };
 
   const [formData, setFormData] = useState({
-    name: '', email: '', phone: '', alternate_phone: '', address: '',
+    name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '',
     shop_name: '', aadhaar_number: '',
     guarantor_name: '', guarantor_phone: '', guarantor_address: '',
     amount: '', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
@@ -194,21 +196,13 @@ export default function Members() {
     .reduce((s, v) => s + (parseFloat(v) || 0), 0);
   const totalDue = (parseFloat(formData.amount) || 0) + totalFees;
 
-  const handlePhotoChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => setPhotoPreview(ev.target.result);
-    reader.readAsDataURL(file);
-  };
-
   const resetModal = () => {
     setShowModal(false);
     setPhoneVerified(false);
     setPhotoPreview(null);
     setShowOtpSection(false);
     setFormData({
-      name: '', email: '', phone: '', alternate_phone: '', address: '',
+      name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '',
       shop_name: '', aadhaar_number: '',
       guarantor_name: '', guarantor_phone: '', guarantor_address: '',
       amount: '', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
@@ -219,8 +213,8 @@ export default function Members() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.phone || !formData.amount || !formData.closeDate) {
-      alert('Name, Phone, Amount and Due Date are required.'); return;
+    if (!formData.name || !formData.phone || !formData.zone || !formData.amount || !formData.closeDate) {
+      alert('Name, Phone, Zone, Amount and Due Date are required.'); return;
     }
     setLoading(true);
     const payload = {
@@ -230,6 +224,8 @@ export default function Members() {
       customer_phone: formData.phone,
       customer_address: formData.address,
       alternate_phone: formData.alternate_phone,
+      zone: formData.zone,
+      photo_url: photoPreview || '',
       shop_name: formData.shop_name,
       aadhaar_number: formData.aadhaar_number,
       guarantor_name: formData.guarantor_name,
@@ -257,7 +253,8 @@ export default function Members() {
     finally { setLoading(false); }
   };
 
-  const sortedLoans = [...loans].sort((a, b) => {
+  const visibleLoans = loans.filter(l => zoneFilter === 'all' || l.zone === zoneFilter);
+  const sortedLoans = [...visibleLoans].sort((a, b) => {
     if (sortBy === 'name') return a.customer_name.localeCompare(b.customer_name);
     if (sortBy === 'balance') return b.pending_amount - a.pending_amount;
     if (sortBy === 'location') return (a.customer_address || '').localeCompare(b.customer_address || '');
@@ -276,9 +273,22 @@ export default function Members() {
             <GitMerge size={18} /> Merge
           </button>
           <button className="save-btn" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px' }} onClick={() => setShowModal(true)}>
-            <UserPlus size={18} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Add Borrower
+            <UserPlus size={18} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Add Borrower + Loan
           </button>
         </div>
+      </div>
+
+      {/* Zone Filter */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4, alignItems: 'center' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><MapPin size={13} /> Zone:</span>
+        {['all', ...ZONES].map(z => (
+          <button key={z} type="button" onClick={() => setZoneFilter(z)}
+            style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+              background: zoneFilter === z ? 'var(--brand)' : 'var(--surface)',
+              color: zoneFilter === z ? 'white' : 'var(--text-2)' }}>
+            {z === 'all' ? 'All Zones' : z}
+          </button>
+        ))}
       </div>
 
       {/* Sort Bar */}
@@ -316,6 +326,7 @@ export default function Members() {
                 </div>
               </div>
               {loan.customer_phone && <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>📱 {loan.customer_phone}{loan.alternate_phone ? ` · Alt: ${loan.alternate_phone}` : ''}</div>}
+              {loan.zone && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2 }}>🗺️ {loan.zone} zone</div>}
               {loan.customer_address && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2 }}>📍 {loan.customer_address.split(',')[0]}</div>}
               {loan.repayment_amount > 0 && (
                 <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>
@@ -335,14 +346,14 @@ export default function Members() {
         );
       })}
 
-      {loans.length === 0 && (
+      {sortedLoans.length === 0 && (
         <div style={{ textAlign: 'center', color: 'var(--text-2)', marginTop: '60px' }}>
           <ShieldCheck size={48} style={{ opacity: 0.15, marginBottom: '16px' }} />
-          <p>No borrowers yet. Click "Add Borrower" to begin.</p>
+          <p>No borrowers{zoneFilter !== 'all' ? ` in ${zoneFilter} zone` : ''} yet. Click "Add Borrower + Loan" to begin.</p>
         </div>
       )}
 
-      {/* ── Add Borrower Modal ─────────────────────────────────────────────── */}
+      {/* ── Add Borrower + Loan Modal ──────────────────────────────────────── */}
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
           <div className="card" style={{ width: '100%', maxWidth: '540px', marginBottom: '16px', animation: 'slideUp 0.3s ease', maxHeight: '94vh', overflowY: 'auto' }}>
@@ -355,16 +366,9 @@ export default function Members() {
             </div>
 
             <form onSubmit={handleCreate}>
-              {/* ── Photo Upload ── */}
-              <div style={{ textAlign: 'center', marginBottom: 20 }}>
-                <div onClick={() => fileRef.current.click()}
-                  style={{ width: 80, height: 80, borderRadius: 20, background: 'var(--surface-2)', border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 8px', overflow: 'hidden' }}>
-                  {photoPreview
-                    ? <img src={photoPreview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : <Camera size={28} style={{ color: 'var(--text-2)' }} />}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-2)' }}>Tap to upload photo</div>
-                <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+              {/* ── Photo: upload or live camera ── */}
+              <div style={{ marginBottom: 20 }}>
+                <PhotoCapture value={photoPreview} onChange={setPhotoPreview} label="Add photo (upload or camera)" />
               </div>
 
               {/* ── Personal Details ── */}
@@ -388,6 +392,16 @@ export default function Members() {
                   <label className="form-label">Alternate Mobile</label>
                   <IconInput icon={<PhoneCall size={16} />}><input type="tel" className="form-input" placeholder="+91 9876543211" {...field('alternate_phone')} /></IconInput>
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Zone *</label>
+                <IconInput icon={<MapPin size={16} />}>
+                  <select className="form-input" {...field('zone')}>
+                    <option value="">Select zone…</option>
+                    {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
+                  </select>
+                </IconInput>
               </div>
 
               {/* OTP Section */}

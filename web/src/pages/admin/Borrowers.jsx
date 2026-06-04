@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
-import { useAppData } from '../../context/AppDataContext';
-import { Search, Plus, X, Phone, MapPin, Star, CreditCard, CheckCircle, Clock, XCircle, Building2, PhoneCall, Key, Shield, GitMerge, SortAsc, Camera, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { useAppData, ZONES } from '../../context/AppDataContext';
+import { Search, Plus, X, Phone, MapPin, CreditCard, CheckCircle, Clock, XCircle, PhoneCall, Key, Shield, GitMerge, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
+import PhotoCapture from '../../components/PhotoCapture';
 
 const KYC_CONFIG = {
   verified: { label: 'Verified', cls: 'badge-green', icon: <CheckCircle size={10} /> },
@@ -10,13 +11,6 @@ const KYC_CONFIG = {
 };
 
 const SCHEME_LABEL = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', enterprise: 'Enterprise', interest_only: 'Interest Only' };
-
-const SORT_OPTIONS = [
-  { value: 'all',      label: 'All' },
-  { value: 'verified', label: 'Verified' },
-  { value: 'pending',  label: 'Pending' },
-  { value: 'rejected', label: 'Rejected' },
-];
 
 function HealthRing({ score }) {
   const r = 24, circ = 2 * Math.PI * r;
@@ -118,28 +112,15 @@ function OtpVerifier({ phone, onVerified }) {
 
 function AddBorrowerModal({ onClose, onAdd }) {
   const [form, setForm] = useState({
-    name: '', phone: '', alternate_phone: '', address: '',
+    name: '', phone: '', alternate_phone: '', zone: '', address: '',
     shop_name: '', aadhaar_number: '',
     guarantor: '', guarantor_phone: '', guarantor_address: '',
     rating: 4, kyc: 'pending', photo: null,
   });
-  const [photoPreview, setPhotoPreview] = useState(null);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [showOtpSection, setShowOtpSection] = useState(false);
-  const fileRef = useRef();
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const handlePhotoChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      setPhotoPreview(ev.target.result);
-      set('photo', ev.target.result);
-    };
-    reader.readAsDataURL(file);
-  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -149,16 +130,9 @@ function AddBorrowerModal({ onClose, onAdd }) {
           <button className="modal-close" onClick={onClose}><X size={16} /></button>
         </div>
 
-        {/* Photo Upload */}
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div onClick={() => fileRef.current.click()}
-            style={{ width: 80, height: 80, borderRadius: 20, background: 'var(--surface-2)', border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 8px', overflow: 'hidden' }}>
-            {photoPreview
-              ? <img src={photoPreview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <Camera size={28} style={{ color: 'var(--text-2)' }} />}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-2)' }}>Tap to upload photo</div>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+        {/* Photo: upload or live camera */}
+        <div style={{ marginBottom: 20 }}>
+          <PhotoCapture value={form.photo} onChange={v => set('photo', v)} label="Add photo (upload or camera)" />
         </div>
 
         {/* Personal */}
@@ -182,6 +156,13 @@ function AddBorrowerModal({ onClose, onAdd }) {
             <label className="form-label">Alternate Phone</label>
             <input className="form-input" value={form.alternate_phone} onChange={e => set('alternate_phone', e.target.value)} placeholder="Alt number" />
           </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={13} /> Zone *</label>
+          <select className="form-input" value={form.zone} onChange={e => set('zone', e.target.value)}>
+            <option value="">Select zone…</option>
+            {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
+          </select>
         </div>
 
         {/* OTP Section */}
@@ -243,8 +224,8 @@ function AddBorrowerModal({ onClose, onAdd }) {
           </div>
         </div>
 
-        <button className="btn btn-primary w-full" onClick={() => {
-          if (form.name && form.phone) { onAdd(form); onClose(); }
+        <button className="btn btn-primary w-full" disabled={!(form.name && form.phone && form.zone)} onClick={() => {
+          if (form.name && form.phone && form.zone) { onAdd(form); onClose(); }
         }}>
           <Plus size={16} /> Add Borrower
         </button>
@@ -253,7 +234,7 @@ function AddBorrowerModal({ onClose, onAdd }) {
   );
 }
 
-function BorrowerDrawer({ borrower, loans, onClose }) {
+function BorrowerDrawer({ borrower, loans, onClose, onVerify }) {
   const history = loans.filter(l => borrower.loans.includes(l.id));
   const aadhaar = borrower.aadhaar_number;
   const maskedAadhaar = aadhaar ? `XXXX XXXX ${aadhaar.slice(-4)}` : '—';
@@ -280,17 +261,31 @@ function BorrowerDrawer({ borrower, loans, onClose }) {
             {borrower.shop_name && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>🏪 {borrower.shop_name}</div>}
             <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               <span className={`badge ${KYC_CONFIG[borrower.kyc]?.cls}`}>{KYC_CONFIG[borrower.kyc]?.icon} {KYC_CONFIG[borrower.kyc]?.label}</span>
+              {borrower.zone && <span className="badge badge-indigo"><MapPin size={10} /> {borrower.zone}</span>}
               <span className="badge badge-indigo">{borrower.loans.length} Loan{borrower.loans.length !== 1 ? 's' : ''}</span>
             </div>
           </div>
           <HealthRing score={borrower.rating * 20} />
         </div>
 
+        {/* Zone-based KYC verification */}
+        {borrower.kyc !== 'verified' && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: 'var(--amber-soft)', border: '1px solid var(--amber)', borderRadius: 12, padding: '12px 14px', marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              Member in <strong>{borrower.zone || '—'}</strong> zone — KYC {borrower.kyc}.
+            </div>
+            <button className="btn btn-success btn-sm" onClick={() => onVerify(borrower.id)}>
+              <ShieldCheck size={14} /> Verify
+            </button>
+          </div>
+        )}
+
         {/* Details grid */}
         <div style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
           {[
             { icon: <Phone size={14} />,    label: 'Primary Phone',     value: borrower.phone },
             borrower.alternate_phone && { icon: <PhoneCall size={14} />, label: 'Alternate Phone', value: borrower.alternate_phone },
+            { icon: <MapPin size={14} />,   label: 'Zone',              value: borrower.zone || '—' },
             { icon: <MapPin size={14} />,   label: 'Address',           value: borrower.address },
             { icon: <Key size={14} />,      label: 'Aadhaar',           value: maskedAadhaar },
           ].filter(Boolean).map(d => (
@@ -382,19 +377,24 @@ export default function Borrowers() {
   const { state, dispatch } = useAppData();
   const [search, setSearch] = useState('');
   const [kycFilter, setKycFilter] = useState('all');
+  const [zoneFilter, setZoneFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name');
   const [showAdd, setShowAdd] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
-  const [selected, setSelected] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+
+  const selected = selectedId ? state.borrowers.find(b => b.id === selectedId) : null;
 
   const filtered = state.borrowers.filter(b => {
     const q = search.toLowerCase();
     const matchSearch = b.name.toLowerCase().includes(q) || b.phone.includes(q);
     const matchKyc = kycFilter === 'all' || b.kyc === kycFilter;
-    return matchSearch && matchKyc;
+    const matchZone = zoneFilter === 'all' || b.zone === zoneFilter;
+    return matchSearch && matchKyc && matchZone;
   }).sort((a, b) => {
     if (sortBy === 'name') return a.name.localeCompare(b.name);
     if (sortBy === 'location') return (a.address || '').localeCompare(b.address || '');
+    if (sortBy === 'zone') return (a.zone || '').localeCompare(b.zone || '');
     if (sortBy === 'rating') return b.rating - a.rating;
     return 0;
   });
@@ -402,6 +402,12 @@ export default function Borrowers() {
   const handleMerge = (id1, id2) => {
     dispatch({ type: 'MERGE_BORROWERS', payload: { keepId: id1, mergeId: id2 } });
   };
+
+  const handleVerify = (id) => dispatch({ type: 'VERIFY_BORROWER', payload: { id, kyc: 'verified' } });
+
+  // "Verify members according to zone": bulk-verify everyone pending in the current view.
+  const pendingInView = filtered.filter(b => b.kyc !== 'verified');
+  const handleVerifyZone = () => pendingInView.forEach(b => handleVerify(b.id));
 
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
@@ -430,9 +436,33 @@ export default function Borrowers() {
         ))}
       </div>
 
+      {/* Zone filter — admins verify members zone by zone */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={13} /> Zone:</span>
+        {['all', ...ZONES].map(z => (
+          <button key={z} onClick={() => setZoneFilter(z)} className="btn btn-secondary btn-sm"
+            style={{ background: zoneFilter === z ? 'var(--brand-soft)' : undefined, color: zoneFilter === z ? 'var(--brand-light)' : undefined, borderColor: zoneFilter === z ? 'var(--brand)' : undefined }}>
+            {z === 'all' ? 'All Zones' : z}
+          </button>
+        ))}
+      </div>
+
+      {/* Zone verification banner */}
+      {pendingInView.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: 'var(--amber-soft)', border: '1px solid var(--amber)', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: 'var(--text)' }}>
+            <strong>{pendingInView.length}</strong> member{pendingInView.length !== 1 ? 's' : ''} awaiting KYC verification
+            {zoneFilter !== 'all' ? <> in <strong>{zoneFilter}</strong> zone</> : ' across all zones'}.
+          </div>
+          <button className="btn btn-success btn-sm" onClick={handleVerifyZone}>
+            <ShieldCheck size={14} /> Verify {zoneFilter !== 'all' ? `${zoneFilter} zone` : 'all'}
+          </button>
+        </div>
+      )}
+
       {/* Sort */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {[{ v: 'name', l: 'A-Z' }, { v: 'location', l: '📍 Location' }, { v: 'rating', l: '⭐ Rating' }].map(s => (
+        {[{ v: 'name', l: 'A-Z' }, { v: 'location', l: '📍 Location' }, { v: 'zone', l: '🗺️ Zone' }, { v: 'rating', l: '⭐ Rating' }].map(s => (
           <button key={s.v} onClick={() => setSortBy(s.v)} className="btn btn-secondary btn-sm"
             style={{ background: sortBy === s.v ? 'var(--amber-soft)' : undefined, color: sortBy === s.v ? 'var(--amber)' : undefined, borderColor: sortBy === s.v ? 'var(--amber)' : undefined }}>
             {s.l}
@@ -448,7 +478,7 @@ export default function Borrowers() {
           const health = b.rating * 20;
           return (
             <div key={b.id} className="card" style={{ cursor: 'pointer', transition: 'all .2s', border: '1px solid var(--border)' }}
-              onClick={() => setSelected(b)}
+              onClick={() => setSelectedId(b.id)}
               onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--brand)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
@@ -463,6 +493,7 @@ export default function Borrowers() {
                   {b.shop_name && <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 4 }}>🏪 {b.shop_name}</div>}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <span className={`badge ${kyc?.cls}`}>{kyc?.icon} {kyc?.label}</span>
+                    {b.zone && <span className="badge badge-indigo"><MapPin size={10} /> {b.zone}</span>}
                     {activeCount > 0 && <span className="badge badge-indigo"><CreditCard size={10} /> {activeCount} Active</span>}
                   </div>
                 </div>
@@ -473,8 +504,15 @@ export default function Borrowers() {
                 {b.alternate_phone && <span><PhoneCall size={12} style={{ display: 'inline', marginRight: 4 }} />{b.alternate_phone}</span>}
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><MapPin size={12} style={{ display: 'inline', marginRight: 4 }} />{(b.address || '—').split(',')[0]}</span>
               </div>
-              <div style={{ marginTop: 10, display: 'flex', gap: '2px' }}>
-                {[1,2,3,4,5].map(n => <span key={n} style={{ color: n <= b.rating ? 'var(--amber)' : 'var(--surface-3)', fontSize: 14 }}>★</span>)}
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', gap: '2px' }}>
+                  {[1,2,3,4,5].map(n => <span key={n} style={{ color: n <= b.rating ? 'var(--amber)' : 'var(--surface-3)', fontSize: 14 }}>★</span>)}
+                </div>
+                {b.kyc !== 'verified' && (
+                  <button className="btn btn-success btn-sm" onClick={e => { e.stopPropagation(); handleVerify(b.id); }}>
+                    <ShieldCheck size={13} /> Verify
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -483,7 +521,7 @@ export default function Borrowers() {
 
       {showAdd && <AddBorrowerModal onClose={() => setShowAdd(false)} onAdd={payload => dispatch({ type: 'ADD_BORROWER', payload })} />}
       {showMerge && <MergeModal borrowers={state.borrowers} onClose={() => setShowMerge(false)} onMerge={handleMerge} />}
-      {selected && <BorrowerDrawer borrower={selected} loans={state.loans} onClose={() => setSelected(null)} />}
+      {selected && <BorrowerDrawer borrower={selected} loans={state.loans} onClose={() => setSelectedId(null)} onVerify={handleVerify} />}
     </div>
   );
 }
