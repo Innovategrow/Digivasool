@@ -75,8 +75,22 @@ class LoanCreate(BaseModel):
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_address: Optional[str] = None
+    # New fields
+    alternate_phone: Optional[str] = None
+    shop_name: Optional[str] = None
+    aadhaar_number: Optional[str] = None
+    photo_url: Optional[str] = None
+    guarantor_name: Optional[str] = None
+    guarantor_phone: Optional[str] = None
+    guarantor_address: Optional[str] = None
+    # Loan amounts
     loan_amount: float
-    interest_document: float
+    # Flat ₹ interest & fee breakdown (replaces interest_document + interest_rate_monthly %)
+    monthly_interest_amount: float = Field(default=0.0, description="Monthly interest in flat ₹ (not %)")
+    field_visit_charge: float = Field(default=0.0, description="Field visit / verification charge ₹")
+    document_fee: float = Field(default=0.0, description="Document fee ₹")
+    processing_fee: float = Field(default=0.0, description="Processing / admin fee ₹")
+    # Dates & repayment
     start_date: str
     closing_date: str
     repayment_frequency: Literal["daily", "weekly", "monthly", "custom"] = "monthly"
@@ -122,10 +136,20 @@ class LoanRecord(BaseModel):
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_address: Optional[str] = None
+    # New fields
+    alternate_phone: Optional[str] = None
+    shop_name: Optional[str] = None
+    aadhaar_number: Optional[str] = None
+    photo_url: Optional[str] = None
+    guarantor_name: Optional[str] = None
+    guarantor_phone: Optional[str] = None
+    guarantor_address: Optional[str] = None
+    # Amounts
     loan_amount: float
-    interest_document: float
-    start_date: str
-    closing_date: str
+    monthly_interest_amount: Optional[float] = 0.0
+    field_visit_charge: Optional[float] = 0.0
+    document_fee: Optional[float] = 0.0
+    processing_fee: Optional[float] = 0.0
     due_amount: float
     collected_amount: float
     pending_amount: float
@@ -172,3 +196,18 @@ class PaymentResponse(BaseModel):
     status: str
     data: Dict[str, Any]
     whatsapp: WhatsAppLinks
+
+
+class BorrowerOTPRequest(BaseModel):
+    phone: str
+
+
+class BorrowerOTPVerify(BaseModel):
+    phone: str
+    otp: str
+
+
+class LoanMergeRequest(BaseModel):
+    primary_loan_id: str
+    secondary_loan_id: str
+

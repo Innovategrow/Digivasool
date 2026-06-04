@@ -1,10 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
-import { Search, Banknote, Wallet, ArrowLeft, CheckCircle2, MessageCircle, ExternalLink, User } from 'lucide-react';
+import { Search, Banknote, Wallet, ArrowLeft, CheckCircle2, MessageCircle, ExternalLink, User, MapPin, Filter } from 'lucide-react';
+
+const SORT_OPTIONS = [
+  { value: 'balance',  label: 'Highest Balance' },
+  { value: 'name',     label: 'Name A-Z' },
+  { value: 'location', label: '📍 By Location' },
+  { value: 'newest',   label: 'Newest First' },
+];
 
 export default function CollectPayment() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [loans, setLoans] = useState([]);
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [amount, setAmount] = useState('');
@@ -12,7 +19,9 @@ export default function CollectPayment() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [successData, setSuccessData] = useState(null); // holds payment result with WhatsApp links
+  const [sortBy, setSortBy] = useState('balance');
+  const [showFilters, setShowFilters] = useState(false);
+  const [successData, setSuccessData] = useState(null);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/loans/`)
@@ -22,9 +31,21 @@ export default function CollectPayment() {
   }, []);
 
   const filteredLoans = useMemo(() => {
-    if (!searchQuery) return loans;
-    return loans.filter(l => l.customer_name.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [loans, searchQuery]);
+    let list = loans;
+    if (searchQuery) {
+      list = loans.filter(l =>
+        l.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (l.customer_address || '').toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    return [...list].sort((a, b) => {
+      if (sortBy === 'balance') return b.pending_amount - a.pending_amount;
+      if (sortBy === 'name') return a.customer_name.localeCompare(b.customer_name);
+      if (sortBy === 'location') return (a.customer_address || '').localeCompare(b.customer_address || '');
+      if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
+      return 0;
+    });
+  }, [loans, searchQuery, sortBy]);
 
   const handleSave = async () => {
     if (!amount || !selectedLoan) return;
@@ -58,11 +79,7 @@ export default function CollectPayment() {
     return (
       <div className="screen-container pt-4">
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{
-            width: '80px', height: '80px', borderRadius: '50%', background: 'var(--positive-soft)',
-            border: '2px solid var(--positive)', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', margin: '0 auto 16px',
-          }}>
+          <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--positive-soft)', border: '2px solid var(--positive)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             <CheckCircle2 size={40} style={{ color: 'var(--positive)' }} />
           </div>
           <h2 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '6px' }}>Payment Recorded!</h2>
@@ -71,7 +88,6 @@ export default function CollectPayment() {
           </p>
         </div>
 
-        {/* Balance Update */}
         <div className="card" style={{ marginBottom: '16px', textAlign: 'center' }}>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Remaining Balance</div>
           <div style={{ fontSize: '36px', fontWeight: 900, color: loan.pending_amount > 0 ? 'var(--warning)' : 'var(--positive)' }}>
@@ -82,86 +98,70 @@ export default function CollectPayment() {
           )}
         </div>
 
-        {/* WhatsApp Notification Buttons */}
         <div className="card" style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <MessageCircle size={18} style={{ color: '#25D366' }} />
             <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Send WhatsApp Notifications</h3>
           </div>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-            Tap the buttons below to notify via WhatsApp. Each message is pre-filled and ready to send.
-          </p>
 
-          <a
-            href={whatsapp.notify_admin_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-              width: '100%', padding: '14px', borderRadius: '14px', marginBottom: '10px',
-              background: '#25D366', color: 'white', textDecoration: 'none',
-              fontWeight: 700, fontSize: '15px', border: 'none', cursor: 'pointer',
-              boxShadow: '0 4px 16px rgba(37,211,102,0.35)',
-            }}
-          >
-            <MessageCircle size={20} /> Notify Dad on WhatsApp
-            <ExternalLink size={14} style={{ opacity: 0.7 }} />
+          <a href={whatsapp.notify_admin_url} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '14px', borderRadius: '14px', marginBottom: '10px', background: '#25D366', color: 'white', textDecoration: 'none', fontWeight: 700, fontSize: '15px', boxShadow: '0 4px 16px rgba(37,211,102,0.35)' }}>
+            <MessageCircle size={20} /> Notify Admin on WhatsApp <ExternalLink size={14} style={{ opacity: 0.7 }} />
           </a>
 
           {whatsapp.notify_borrower_url && (
-            <a
-              href={whatsapp.notify_borrower_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                width: '100%', padding: '14px', borderRadius: '14px',
-                background: 'var(--positive-soft)', color: 'var(--positive)',
-                border: '1px solid rgba(16,185,129,0.3)', textDecoration: 'none',
-                fontWeight: 700, fontSize: '15px', cursor: 'pointer',
-              }}
-            >
-              <MessageCircle size={20} /> Confirm to Borrower
-              <ExternalLink size={14} style={{ opacity: 0.7 }} />
+            <a href={whatsapp.notify_borrower_url} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '14px', borderRadius: '14px', background: 'var(--positive-soft)', color: 'var(--positive)', border: '1px solid rgba(16,185,129,0.3)', textDecoration: 'none', fontWeight: 700, fontSize: '15px' }}>
+              <MessageCircle size={20} /> Confirm to Borrower <ExternalLink size={14} style={{ opacity: 0.7 }} />
             </a>
           )}
 
-          {/* Message Preview */}
           <div style={{ marginTop: '14px', background: 'var(--background)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)' }}>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Message Preview</div>
             <pre style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-family)', margin: 0 }}>{whatsapp.message_preview}</pre>
           </div>
         </div>
 
-        <button
-          className="save-btn"
-          onClick={() => { setSuccessData(null); setSelectedLoan(null); setAmount(''); setNotes(''); }}
-          style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
-        >
+        <button className="save-btn" onClick={() => { setSuccessData(null); setSelectedLoan(null); setAmount(''); setNotes(''); }}
+          style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}>
           Record Another Payment
         </button>
       </div>
     );
   }
 
-  // ── Select Borrower Screen ─────────────────────────────────────────────────
+  // ── Select Borrower Screen ──────────────────────────────────────────────────
   if (!selectedLoan) {
     return (
       <div className="screen-container pt-4">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Collect Payment</h2>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>as <strong>{user.name}</strong></p>
           </div>
+          <button onClick={() => setShowFilters(!showFilters)}
+            style={{ background: showFilters ? 'var(--brand-soft)' : 'var(--surface)', border: `1px solid ${showFilters ? 'var(--brand)' : 'var(--border)'}`, color: showFilters ? 'var(--brand)' : 'var(--text)', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
+            <Filter size={16} /> Sort
+          </button>
         </div>
+
+        {showFilters && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto' }}>
+            {SORT_OPTIONS.map(opt => (
+              <button key={opt.value} onClick={() => setSortBy(opt.value)}
+                style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: sortBy === opt.value ? 'var(--text)' : 'var(--surface)',
+                  color: sortBy === opt.value ? 'var(--bg)' : 'var(--text-2)' }}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div style={{ position: 'relative', marginBottom: '20px' }}>
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input
-            type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search borrower name..." className="form-input"
-            style={{ paddingLeft: '40px', borderRadius: '16px' }}
-          />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search name or location..." className="form-input" style={{ paddingLeft: '40px', borderRadius: '16px' }} />
         </div>
 
         {filteredLoans.length === 0 ? (
@@ -172,17 +172,19 @@ export default function CollectPayment() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {filteredLoans.map(loan => (
-              <div
-                key={loan.id} className="card"
-                onClick={() => setSelectedLoan(loan)}
-                style={{ padding: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', margin: 0, border: '1px solid var(--border)' }}
-              >
+              <div key={loan.id} className="card" onClick={() => setSelectedLoan(loan)}
+                style={{ padding: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', margin: 0, border: '1px solid var(--border)' }}>
                 <div className="party-avatar">{loan.customer_name.charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: '16px' }}>{loan.customer_name}</div>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                     📱 {loan.customer_phone || 'No phone'} · Due: {loan.closing_date}
                   </div>
+                  {loan.customer_address && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <MapPin size={10} /> {loan.customer_address.split(',')[0]}
+                    </div>
+                  )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Balance</div>
@@ -196,7 +198,7 @@ export default function CollectPayment() {
     );
   }
 
-  // ── Payment Form Screen ────────────────────────────────────────────────────
+  // ── Payment Form Screen ─────────────────────────────────────────────────────
   const progress = Math.min((selectedLoan.collected_amount / selectedLoan.due_amount) * 100, 100);
 
   return (
@@ -218,6 +220,9 @@ export default function CollectPayment() {
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               {selectedLoan.customer_phone && `📱 ${selectedLoan.customer_phone}`}
             </div>
+            {selectedLoan.customer_address && (
+              <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2 }}>📍 {selectedLoan.customer_address.split(',')[0]}</div>
+            )}
           </div>
         </div>
 
@@ -249,20 +254,12 @@ export default function CollectPayment() {
       <div className="card" style={{ padding: '24px' }}>
         <h3 style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payment Entry</h3>
 
-        {/* Amount */}
         <div style={{ position: 'relative', marginBottom: '16px' }}>
           <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', fontSize: '22px', color: 'var(--text-muted)', fontWeight: 800 }}>₹</span>
-          <input
-            type="number" value={amount} onChange={e => setAmount(e.target.value)}
-            placeholder="0.00"
-            style={{
-              width: '100%', background: 'var(--background)', border: '2px solid var(--brand-soft)', borderRadius: '16px',
-              padding: '18px 18px 18px 44px', fontSize: '30px', fontWeight: 800, color: 'var(--text)', outline: 'none',
-            }}
-          />
+          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00"
+            style={{ width: '100%', background: 'var(--background)', border: '2px solid var(--brand-soft)', borderRadius: '16px', padding: '18px 18px 18px 44px', fontSize: '30px', fontWeight: 800, color: 'var(--text)', outline: 'none' }} />
         </div>
 
-        {/* Collector Name (read-only from session) */}
         <div style={{ background: 'var(--background)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <User size={16} style={{ color: 'var(--text-muted)' }} />
           <div>
@@ -271,22 +268,13 @@ export default function CollectPayment() {
           </div>
         </div>
 
-        {/* Notes */}
         <div style={{ marginBottom: '16px' }}>
           <label style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Notes (optional)</label>
-          <textarea
-            value={notes} onChange={e => setNotes(e.target.value)}
-            placeholder="e.g. Partial payment, will pay rest tomorrow..."
-            rows={2}
-            style={{
-              width: '100%', background: 'var(--background)', border: '1px solid var(--border)', borderRadius: '12px',
-              padding: '12px', fontSize: '14px', color: 'var(--text)', outline: 'none', resize: 'none',
-              fontFamily: 'var(--font-family)',
-            }}
-          />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="e.g. Partial payment, will pay rest tomorrow..." rows={2}
+            style={{ width: '100%', background: 'var(--background)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px', fontSize: '14px', color: 'var(--text)', outline: 'none', resize: 'none', fontFamily: 'var(--font-family)' }} />
         </div>
 
-        {/* Payment Method */}
         <div className="payment-toggle" style={{ marginBottom: '20px' }}>
           <button className={`payment-btn ${paymentMethod === 'Cash' ? 'active' : ''}`} onClick={() => setPaymentMethod('Cash')}>
             <Banknote size={18} /> Cash

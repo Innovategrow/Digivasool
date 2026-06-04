@@ -159,6 +159,32 @@ function reducer(state, action) {
       return { ...state, staff: [...state.staff, { ...action.payload, id: `s${Date.now()}`, collected: 0, loans: 0 }] };
     case 'MARK_NOTIFICATIONS_READ':
       return { ...state, notifications: state.notifications.map(n => ({ ...n, read: true })) };
+    case 'MERGE_BORROWERS': {
+      const { keepId, mergeId } = action.payload;
+      const keepB = state.borrowers.find(b => b.id === keepId);
+      const mergeB = state.borrowers.find(b => b.id === mergeId);
+      if (!keepB || !mergeB) return state;
+
+      const mergedLoansList = [...new Set([...keepB.loans, ...mergeB.loans])];
+      const updatedBorrowers = state.borrowers
+        .map(b => b.id === keepId ? { ...b, loans: mergedLoansList } : b)
+        .filter(b => b.id !== mergeId);
+
+      const updatedLoans = state.loans.map(l =>
+        l.borrowerId === mergeId ? { ...l, borrowerId: keepId, borrowerName: keepB.name } : l
+      );
+
+      const updatedInstallments = state.installments.map(i =>
+        i.borrowerId === mergeId ? { ...i, borrowerId: keepId, borrowerName: keepB.name } : i
+      );
+
+      return {
+        ...state,
+        borrowers: updatedBorrowers,
+        loans: updatedLoans,
+        installments: updatedInstallments,
+      };
+    }
     default:
       return state;
   }

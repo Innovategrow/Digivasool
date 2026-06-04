@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { useAppData, calcDailyLoan, calcWeeklyLoan, calcMonthlyEMI, calcInterestOnly, generateAmortization } from '../../context/AppDataContext';
-import { Check, ChevronRight, User, CreditCard, FileText } from 'lucide-react';
+import { useAppData } from '../../context/AppDataContext';
+import { Check, ChevronRight, User, CreditCard, FileText, IndianRupee } from 'lucide-react';
 
 const SCHEMES = [
   { id: 'daily',         icon: '📅', name: 'Daily Collection',  desc: 'Fixed daily installments' },
@@ -10,18 +10,53 @@ const SCHEMES = [
   { id: 'interest_only', icon: '💹', name: 'Interest Only',     desc: 'Monthly interest, principal at end' },
 ];
 
-function useCalc(scheme, principal, rate, duration) {
+function useCalc(scheme, principal, monthlyInterest, duration) {
   return useMemo(() => {
-    const p = Number(principal) || 0, r = Number(rate) || 0, d = Number(duration) || 1;
+    const p = Number(principal) || 0;
+    const mi = Number(monthlyInterest) || 0;
+    const d = Number(duration) || 1;
     if (!p || !d) return null;
     try {
-      if (scheme === 'daily') return calcDailyLoan({ principal: p, interestRate: r, duration: d });
-      if (scheme === 'weekly') return calcWeeklyLoan({ principal: p, interestRate: r, weeks: d });
-      if (scheme === 'monthly' || scheme === 'enterprise') return calcMonthlyEMI({ principal: p, annualRate: r, months: d });
-      if (scheme === 'interest_only') return calcInterestOnly({ principal: p, monthlyRate: r, months: d });
+      // Calculate based on scheme using flat ₹ interest
+      if (scheme === 'daily') {
+        const totalInterest = mi * Math.ceil(d / 30); // approx months
+        const total = p + totalInterest;
+        const installment = Math.round(total / d);
+        return { installment, total, processingFee: 0 };
+      }
+      if (scheme === 'weekly') {
+        const months = Math.ceil(d / 4);
+        const totalInterest = mi * months;
+        const total = p + totalInterest;
+        const installment = Math.round(total / d);
+        return { installment, total, processingFee: 0 };
+      }
+      if (scheme === 'monthly' || scheme === 'enterprise') {
+        const totalInterest = mi * d;
+        const total = p + totalInterest;
+        const installment = Math.round(total / d);
+        return { installment, total, processingFee: 0 };
+      }
+      if (scheme === 'interest_only') {
+        const total = p + mi * d;
+        return { installment: mi, total, processingFee: 0 };
+      }
     } catch { return null; }
     return null;
-  }, [scheme, principal, rate, duration]);
+  }, [scheme, principal, monthlyInterest, duration]);
+}
+
+function generateAmortization({ type, startDate, installment, duration }) {
+  const rows = [];
+  const d = new Date(startDate);
+  for (let i = 1; i <= Math.min(duration, 12); i++) {
+    let due = new Date(d);
+    if (type === 'daily') due.setDate(d.getDate() + i);
+    else if (type === 'weekly') due.setDate(d.getDate() + i * 7);
+    else { due.setMonth(d.getMonth() + i); }
+    rows.push({ installmentNo: i, dueDate: due.toISOString().split('T')[0], amount: installment });
+  }
+  return rows;
 }
 
 const STEP_LABELS = ['Select Borrower', 'Loan Details', 'Confirm & Disburse'];
@@ -32,22 +67,27 @@ export default function NewLoan() {
   const [borrowerId, setBorrowerId] = useState('');
   const [scheme, setScheme] = useState('daily');
   const [principal, setPrincipal] = useState('');
-  const [rate, setRate] = useState('10');
+  const [monthlyInterest, setMonthlyInterest] = useState('');
+  const [fieldVisit, setFieldVisit] = useState('');
+  const [docFee, setDocFee] = useState('');
+  const [processingFee, setProcessingFee] = useState('');
   const [duration, setDuration] = useState('100');
   const [staff, setStaff] = useState('Collector 1');
   const [done, setDone] = useState(false);
 
   const borrower = state.borrowers.find(b => b.id === borrowerId);
-  const calc = useCalc(scheme, principal, rate, duration);
+  const calc = useCalc(scheme, principal, monthlyInterest, duration);
   const schemeObj = SCHEMES.find(s => s.id === scheme);
-
   const durationLabel = scheme === 'daily' ? 'Days' : scheme === 'weekly' ? 'Weeks' : 'Months';
+
+  const totalCharges = [fieldVisit, docFee, processingFee].reduce((s, v) => s + (parseFloat(v) || 0), 0);
+  const totalDue = (calc?.total || 0) + totalCharges;
 
   const amortization = useMemo(() => {
     if (!calc) return [];
     return generateAmortization({
       type: scheme, startDate: new Date().toISOString().split('T')[0],
-      installment: calc.installment, duration: Math.min(Number(duration), 12)
+      installment: calc.installment, duration: Math.min(Number(duration), 12),
     });
   }, [calc, scheme, duration]);
 
@@ -57,11 +97,12 @@ export default function NewLoan() {
       type: 'ADD_LOAN',
       payload: {
         borrowerId, borrowerName: borrower.name, type: scheme,
-        principal: Number(principal), interestRate: Number(rate),
+        principal: Number(principal), monthlyInterest: Number(monthlyInterest),
         duration: Number(duration), installment: calc.installment,
-        total: calc.total, startDate: new Date().toISOString().split('T')[0],
-        staff,
-      }
+        total: totalDue, startDate: new Date().toISOString().split('T')[0],
+        staff, fieldVisit: Number(fieldVisit) || 0, docFee: Number(docFee) || 0,
+        processingFee: Number(processingFee) || 0,
+      },
     });
     setDone(true);
   }
@@ -157,10 +198,11 @@ export default function NewLoan() {
                 <input className="form-input" type="number" value={principal} onChange={e => setPrincipal(e.target.value)} placeholder="e.g. 50000" />
               </div>
               <div className="form-group">
-                <label className="form-label">Interest Rate (%)</label>
-                <input className="form-input" type="number" value={rate} onChange={e => setRate(e.target.value)} placeholder="e.g. 10" />
+                <label className="form-label">Monthly Interest (₹)</label>
+                <input className="form-input" type="number" value={monthlyInterest} onChange={e => setMonthlyInterest(e.target.value)} placeholder="e.g. 500" />
               </div>
             </div>
+
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Duration ({durationLabel})</label>
@@ -174,18 +216,37 @@ export default function NewLoan() {
               </div>
             </div>
 
+            {/* Charges Section */}
+            <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 16, marginBottom: 16, border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Charges & Fees (₹)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <div>
+                  <label className="form-label">Field Visit</label>
+                  <input className="form-input" type="number" value={fieldVisit} onChange={e => setFieldVisit(e.target.value)} placeholder="₹0" />
+                </div>
+                <div>
+                  <label className="form-label">Document Fee</label>
+                  <input className="form-input" type="number" value={docFee} onChange={e => setDocFee(e.target.value)} placeholder="₹0" />
+                </div>
+                <div>
+                  <label className="form-label">Processing Fee</label>
+                  <input className="form-input" type="number" value={processingFee} onChange={e => setProcessingFee(e.target.value)} placeholder="₹0" />
+                </div>
+              </div>
+            </div>
+
             {/* Auto Calculation */}
             {calc && (
               <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 20, marginBottom: 20, border: '1px solid var(--brand-soft)' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-light)', marginBottom: 14 }}>📊 Auto-Calculated Summary</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
                   {[
-                    { label: 'Processing Fee', value: `₹${calc.processingFee.toLocaleString()}`, color: 'var(--amber)' },
-                    { label: 'Net Disbursement', value: `₹${calc.netDisbursement.toLocaleString()}`, color: 'var(--green)' },
                     { label: `Per ${durationLabel.slice(0,-1)}`, value: `₹${calc.installment.toLocaleString()}`, color: 'var(--brand-light)' },
-                    { label: 'Total Repayable', value: `₹${calc.total.toLocaleString()}`, color: 'var(--text)' },
-                    { label: 'Interest Earned', value: `₹${(calc.total - Number(principal)).toLocaleString()}`, color: 'var(--pink)' },
-                    { label: 'Duration', value: `${duration} ${durationLabel}`, color: 'var(--cyan)' },
+                    { label: 'Loan + Interest', value: `₹${calc.total.toLocaleString()}`, color: 'var(--text)' },
+                    { label: 'Field Visit', value: `₹${(Number(fieldVisit)||0).toLocaleString()}`, color: 'var(--amber)' },
+                    { label: 'Document Fee', value: `₹${(Number(docFee)||0).toLocaleString()}`, color: 'var(--amber)' },
+                    { label: 'Processing Fee', value: `₹${(Number(processingFee)||0).toLocaleString()}`, color: 'var(--amber)' },
+                    { label: 'Total Due', value: `₹${totalDue.toLocaleString()}`, color: 'var(--green)' },
                   ].map(i => (
                     <div key={i.label} style={{ background: 'var(--surface)', borderRadius: 10, padding: '10px 12px' }}>
                       <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{i.label}</div>
@@ -205,7 +266,7 @@ export default function NewLoan() {
           </div>
         )}
 
-        {/* Step 2: Amortization + Confirm */}
+        {/* Step 2: Confirm */}
         {step === 2 && (
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -218,16 +279,33 @@ export default function NewLoan() {
                   { label: 'Borrower', value: borrower?.name },
                   { label: 'Scheme', value: schemeObj?.name },
                   { label: 'Principal', value: `₹${Number(principal).toLocaleString()}` },
-                  { label: 'Net Amount', value: `₹${calc?.netDisbursement.toLocaleString()}` },
+                  { label: 'Monthly Interest', value: `₹${Number(monthlyInterest).toLocaleString() || 0}` },
                   { label: 'Installment', value: `₹${calc?.installment.toLocaleString()}/${durationLabel.toLowerCase().slice(0,-1)}` },
-                  { label: 'Total Due', value: `₹${calc?.total.toLocaleString()}` },
+                  { label: 'Total Due', value: `₹${totalDue.toLocaleString()}`, highlight: true },
                 ].map(i => (
                   <div key={i.label}>
                     <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{i.label}</div>
-                    <div style={{ fontWeight: 800, fontSize: 15 }}>{i.value}</div>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: i.highlight ? 'var(--green)' : undefined }}>{i.value}</div>
                   </div>
                 ))}
               </div>
+
+              {/* Charges breakdown */}
+              {totalCharges > 0 && (
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 12 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8 }}>CHARGES BREAKDOWN</div>
+                  {[
+                    { label: 'Field Visit', value: Number(fieldVisit) || 0 },
+                    { label: 'Document Fee', value: Number(docFee) || 0 },
+                    { label: 'Processing Fee', value: Number(processingFee) || 0 },
+                  ].filter(c => c.value > 0).map(c => (
+                    <div key={c.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                      <span style={{ color: 'var(--text-2)' }}>{c.label}</span>
+                      <span style={{ color: 'var(--amber)', fontWeight: 700 }}>₹{c.value.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Amortization Schedule (first 12) */}
@@ -255,7 +333,7 @@ export default function NewLoan() {
             <div style={{ display: 'flex', gap: 12 }}>
               <button className="btn btn-secondary" onClick={() => setStep(1)}>← Back</button>
               <button className="btn btn-success" style={{ flex: 1, fontSize: 15, fontWeight: 800 }} onClick={handleDisburse}>
-                ✅ Confirm & Disburse ₹{calc?.netDisbursement.toLocaleString()}
+                ✅ Confirm & Disburse ₹{Number(principal).toLocaleString()}
               </button>
             </div>
           </div>

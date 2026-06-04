@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAppData } from '../../context/AppDataContext';
-import { Search, Plus, X, Phone, MapPin, Star, CreditCard, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Search, Plus, X, Phone, MapPin, Star, CreditCard, CheckCircle, Clock, XCircle, Building2, PhoneCall, Key, Shield, GitMerge, SortAsc, Camera, ChevronDown, ChevronUp } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
 const KYC_CONFIG = {
   verified: { label: 'Verified', cls: 'badge-green', icon: <CheckCircle size={10} /> },
@@ -9,6 +10,13 @@ const KYC_CONFIG = {
 };
 
 const SCHEME_LABEL = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', enterprise: 'Enterprise', interest_only: 'Interest Only' };
+
+const SORT_OPTIONS = [
+  { value: 'all',      label: 'All' },
+  { value: 'verified', label: 'Verified' },
+  { value: 'pending',  label: 'Pending' },
+  { value: 'rejected', label: 'Rejected' },
+];
 
 function HealthRing({ score }) {
   const r = 24, circ = 2 * Math.PI * r;
@@ -25,34 +33,172 @@ function HealthRing({ score }) {
   );
 }
 
+function OtpVerifier({ phone, onVerified }) {
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [devOtp, setDevOtp] = useState('');
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [error, setError] = useState('');
+  const refs = useRef([]);
+
+  const sendOtp = async () => {
+    if (!phone) return;
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/borrower/send-otp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to send OTP');
+      if (data.dev_otp) setDevOtp(data.dev_otp);
+      setSent(true);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const verifyOtp = async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/borrower/verify-otp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, otp: otp.join('') }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Wrong OTP');
+      setVerified(true);
+      onVerified();
+    } catch (e) { setError(e.message); setOtp(['', '', '', '', '', '']); }
+    finally { setLoading(false); }
+  };
+
+  const handleChange = (val, i) => {
+    if (!/^\d?$/.test(val)) return;
+    const n = [...otp]; n[i] = val; setOtp(n);
+    if (val && i < 5) refs.current[i + 1]?.focus();
+  };
+  const handleKey = (e, i) => {
+    if (e.key === 'Backspace' && !otp[i] && i > 0) refs.current[i - 1]?.focus();
+  };
+
+  if (verified) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(16,185,129,.1)', borderRadius: 10, border: '1px solid rgba(16,185,129,.3)' }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>Phone verified ✓</span>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '12px', background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border)', marginTop: 8 }}>
+      {!sent ? (
+        <button type="button" onClick={sendOtp} disabled={!phone || loading}
+          style={{ width: '100%', padding: '10px', background: 'var(--brand-soft)', border: '1px solid var(--brand)', color: 'var(--brand-light)', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+          {loading ? 'Sending…' : '📱 Send OTP to verify phone'}
+        </button>
+      ) : (
+        <div>
+          {devOtp && <div style={{ fontSize: 12, color: 'var(--amber)', marginBottom: 8, fontWeight: 600 }}>🛠 Dev OTP: <strong style={{ letterSpacing: 3 }}>{devOtp}</strong></div>}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+            {otp.map((d, i) => (
+              <input key={i} ref={el => refs.current[i] = el} type="tel" maxLength={1} value={d}
+                onChange={e => handleChange(e.target.value, i)} onKeyDown={e => handleKey(e, i)}
+                style={{ width: 36, height: 42, textAlign: 'center', fontSize: 18, fontWeight: 800, background: d ? 'var(--brand-soft)' : 'var(--surface-3)', border: `2px solid ${d ? 'var(--brand)' : 'var(--border)'}`, borderRadius: 10, color: 'var(--text)', outline: 'none' }} />
+            ))}
+          </div>
+          {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>{error}</div>}
+          <button type="button" onClick={verifyOtp} disabled={otp.join('').length < 6 || loading}
+            style={{ width: '100%', padding: '10px', background: 'var(--green)', border: 'none', color: 'white', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+            {loading ? 'Verifying…' : '✅ Verify OTP'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddBorrowerModal({ onClose, onAdd }) {
-  const [form, setForm] = useState({ name: '', phone: '', address: '', guarantor: '', rating: 4, kyc: 'pending' });
+  const [form, setForm] = useState({
+    name: '', phone: '', alternate_phone: '', address: '',
+    shop_name: '', aadhaar_number: '',
+    guarantor: '', guarantor_phone: '', guarantor_address: '',
+    rating: 4, kyc: 'pending', photo: null,
+  });
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [showOtpSection, setShowOtpSection] = useState(false);
+  const fileRef = useRef();
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setPhotoPreview(ev.target.result);
+      set('photo', ev.target.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: '88vh', overflowY: 'auto', maxWidth: 500 }}>
         <div className="modal-header">
           <div className="modal-title">Add New Borrower</div>
           <button className="modal-close" onClick={onClose}><X size={16} /></button>
         </div>
+
+        {/* Photo Upload */}
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <div onClick={() => fileRef.current.click()}
+            style={{ width: 80, height: 80, borderRadius: 20, background: 'var(--surface-2)', border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 auto 8px', overflow: 'hidden' }}>
+            {photoPreview
+              ? <img src={photoPreview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <Camera size={28} style={{ color: 'var(--text-2)' }} />}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-2)' }}>Tap to upload photo</div>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+        </div>
+
+        {/* Personal */}
+        <SectionLabel>Personal Details</SectionLabel>
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Full Name *</label>
             <input className="form-input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Rajan Kumar" />
           </div>
           <div className="form-group">
-            <label className="form-label">Phone *</label>
-            <input className="form-input" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="10-digit mobile" />
+            <label className="form-label">Shop / Business Name</label>
+            <input className="form-input" value={form.shop_name} onChange={e => set('shop_name', e.target.value)} placeholder="e.g. Rajan Stores" />
           </div>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Address</label>
-          <input className="form-input" value={form.address} onChange={e => set('address', e.target.value)} placeholder="Full address" />
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Guarantor Name</label>
-            <input className="form-input" value={form.guarantor} onChange={e => set('guarantor', e.target.value)} placeholder="Guarantor name" />
+            <label className="form-label">Primary Phone *</label>
+            <input className="form-input" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="10-digit mobile" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Alternate Phone</label>
+            <input className="form-input" value={form.alternate_phone} onChange={e => set('alternate_phone', e.target.value)} placeholder="Alt number" />
+          </div>
+        </div>
+
+        {/* OTP Section */}
+        <div style={{ marginBottom: 12 }}>
+          <button type="button" onClick={() => setShowOtpSection(!showOtpSection)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--brand-light)', fontSize: 13, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+            <Shield size={14} /> {phoneVerified ? '✅ Phone Verified' : 'Verify Phone with OTP'}
+            {showOtpSection ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          {showOtpSection && !phoneVerified && (
+            <OtpVerifier phone={form.phone} onVerified={() => setPhoneVerified(true)} />
+          )}
+        </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Aadhaar Number</label>
+            <input className="form-input" value={form.aadhaar_number} onChange={e => set('aadhaar_number', e.target.value)} placeholder="XXXX XXXX XXXX" maxLength={14} />
           </div>
           <div className="form-group">
             <label className="form-label">KYC Status</label>
@@ -64,6 +210,29 @@ function AddBorrowerModal({ onClose, onAdd }) {
           </div>
         </div>
         <div className="form-group">
+          <label className="form-label">Address</label>
+          <input className="form-input" value={form.address} onChange={e => set('address', e.target.value)} placeholder="Full address" />
+        </div>
+
+        {/* Guarantor */}
+        <SectionLabel>Guarantor Details</SectionLabel>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Guarantor Name</label>
+            <input className="form-input" value={form.guarantor} onChange={e => set('guarantor', e.target.value)} placeholder="Guarantor name" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Guarantor Phone</label>
+            <input className="form-input" value={form.guarantor_phone} onChange={e => set('guarantor_phone', e.target.value)} placeholder="Guarantor phone" />
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Guarantor Address</label>
+          <input className="form-input" value={form.guarantor_address} onChange={e => set('guarantor_address', e.target.value)} placeholder="Guarantor full address" />
+        </div>
+
+        {/* Rating */}
+        <div className="form-group">
           <label className="form-label">Credit Rating (1-5)</label>
           <div style={{ display: 'flex', gap: 8 }}>
             {[1,2,3,4,5].map(n => (
@@ -73,7 +242,10 @@ function AddBorrowerModal({ onClose, onAdd }) {
             ))}
           </div>
         </div>
-        <button className="btn btn-primary w-full" onClick={() => { if (form.name && form.phone) { onAdd(form); onClose(); } }}>
+
+        <button className="btn btn-primary w-full" onClick={() => {
+          if (form.name && form.phone) { onAdd(form); onClose(); }
+        }}>
           <Plus size={16} /> Add Borrower
         </button>
       </div>
@@ -83,22 +255,29 @@ function AddBorrowerModal({ onClose, onAdd }) {
 
 function BorrowerDrawer({ borrower, loans, onClose }) {
   const history = loans.filter(l => borrower.loans.includes(l.id));
+  const aadhaar = borrower.aadhaar_number;
+  const maskedAadhaar = aadhaar ? `XXXX XXXX ${aadhaar.slice(-4)}` : '—';
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex' }}>
       <div style={{ flex: 1, background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={onClose} />
-      <div style={{ width: 420, background: 'var(--surface)', borderLeft: '1px solid var(--border-2)', overflowY: 'auto', animation: 'slideInRight .3s ease', padding: 28 }}>
+      <div style={{ width: 440, background: 'var(--surface)', borderLeft: '1px solid var(--border-2)', overflowY: 'auto', animation: 'slideInRight .3s ease', padding: 28 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 18, fontWeight: 800 }}>Borrower Profile</div>
           <button className="modal-close" onClick={onClose}><X size={16} /></button>
         </div>
 
-        {/* Avatar + Info */}
+        {/* Avatar */}
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 24 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 18, background: 'var(--brand-soft)', border: '2px solid var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 800, color: 'var(--brand-light)' }}>
-            {borrower.name.charAt(0)}
-          </div>
+          {borrower.photo
+            ? <img src={borrower.photo} alt="" style={{ width: 64, height: 64, borderRadius: 18, objectFit: 'cover' }} />
+            : <div style={{ width: 64, height: 64, borderRadius: 18, background: 'var(--brand-soft)', border: '2px solid var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 800, color: 'var(--brand-light)' }}>
+                {borrower.name.charAt(0)}
+              </div>
+          }
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 18, fontWeight: 800 }}>{borrower.name}</div>
+            {borrower.shop_name && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>🏪 {borrower.shop_name}</div>}
             <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               <span className={`badge ${KYC_CONFIG[borrower.kyc]?.cls}`}>{KYC_CONFIG[borrower.kyc]?.icon} {KYC_CONFIG[borrower.kyc]?.label}</span>
               <span className="badge badge-indigo">{borrower.loans.length} Loan{borrower.loans.length !== 1 ? 's' : ''}</span>
@@ -107,22 +286,36 @@ function BorrowerDrawer({ borrower, loans, onClose }) {
           <HealthRing score={borrower.rating * 20} />
         </div>
 
-        {/* Details */}
-        {[
-          { icon: <Phone size={14} />, label: 'Phone', value: borrower.phone },
-          { icon: <MapPin size={14} />, label: 'Address', value: borrower.address },
-          { icon: <Star size={14} />, label: 'Guarantor', value: borrower.guarantor },
-        ].map(d => (
-          <div key={d.label} style={{ display: 'flex', gap: 12, marginBottom: 14, alignItems: 'flex-start' }}>
-            <div style={{ color: 'var(--text-2)', marginTop: 2 }}>{d.icon}</div>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600 }}>{d.label}</div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{d.value}</div>
+        {/* Details grid */}
+        <div style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
+          {[
+            { icon: <Phone size={14} />,    label: 'Primary Phone',     value: borrower.phone },
+            borrower.alternate_phone && { icon: <PhoneCall size={14} />, label: 'Alternate Phone', value: borrower.alternate_phone },
+            { icon: <MapPin size={14} />,   label: 'Address',           value: borrower.address },
+            { icon: <Key size={14} />,      label: 'Aadhaar',           value: maskedAadhaar },
+          ].filter(Boolean).map(d => (
+            <div key={d.label} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ color: 'var(--text-2)', marginTop: 2 }}>{d.icon}</div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600 }}>{d.label}</div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{d.value}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
 
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20, marginTop: 8 }}>
+        {/* Guarantor */}
+        {(borrower.guarantor || borrower.guarantor_phone || borrower.guarantor_address) && (
+          <div style={{ background: 'var(--surface-2)', borderRadius: 12, padding: 14, marginBottom: 16, border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 10 }}>GUARANTOR</div>
+            {borrower.guarantor && <div style={{ fontWeight: 700, marginBottom: 4 }}>{borrower.guarantor}</div>}
+            {borrower.guarantor_phone && <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 2 }}>📱 {borrower.guarantor_phone}</div>}
+            {borrower.guarantor_address && <div style={{ fontSize: 13, color: 'var(--text-2)' }}>📍 {borrower.guarantor_address}</div>}
+          </div>
+        )}
+
+        {/* Loan History */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Loan History</div>
           {history.length === 0 ? <div style={{ color: 'var(--text-2)', fontSize: 13 }}>No loans yet</div> : history.map(loan => (
             <div key={loan.id} style={{ background: 'var(--surface-2)', borderRadius: 12, padding: 14, marginBottom: 10, border: '1px solid var(--border)' }}>
@@ -147,11 +340,51 @@ function BorrowerDrawer({ borrower, loans, onClose }) {
   );
 }
 
+function MergeModal({ borrowers, onClose, onMerge }) {
+  const [selected, setSelected] = useState([]);
+  const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : s.length < 2 ? [...s, id] : s);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">Merge Borrowers</div>
+          <button className="modal-close" onClick={onClose}><X size={16} /></button>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 16 }}>Select exactly 2 borrowers to merge. Their loan records will be combined under the first selected.</p>
+        <div style={{ display: 'grid', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
+          {borrowers.map(b => (
+            <div key={b.id} onClick={() => toggle(b.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, border: `2px solid ${selected.includes(b.id) ? 'var(--brand)' : 'var(--border)'}`, background: selected.includes(b.id) ? 'var(--brand-soft)' : 'var(--surface-2)', cursor: 'pointer' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--brand-light)' }}>{b.name.charAt(0)}</div>
+              <div>
+                <div style={{ fontWeight: 700 }}>{b.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{b.phone} · {b.loans.length} loans</div>
+              </div>
+              {selected.includes(b.id) && <CheckCircle size={18} style={{ marginLeft: 'auto', color: 'var(--green)' }} />}
+            </div>
+          ))}
+        </div>
+        <button className="btn btn-primary w-full" style={{ marginTop: 16 }} disabled={selected.length !== 2}
+          onClick={() => { onMerge(selected[0], selected[1]); onClose(); }}>
+          <GitMerge size={16} /> Merge Selected Borrowers
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SectionLabel({ children }) {
+  return <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '1px', margin: '16px 0 10px' }}>{children}</div>;
+}
+
 export default function Borrowers() {
   const { state, dispatch } = useAppData();
   const [search, setSearch] = useState('');
   const [kycFilter, setKycFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('name');
   const [showAdd, setShowAdd] = useState(false);
+  const [showMerge, setShowMerge] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const filtered = state.borrowers.filter(b => {
@@ -159,7 +392,16 @@ export default function Borrowers() {
     const matchSearch = b.name.toLowerCase().includes(q) || b.phone.includes(q);
     const matchKyc = kycFilter === 'all' || b.kyc === kycFilter;
     return matchSearch && matchKyc;
+  }).sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    if (sortBy === 'location') return (a.address || '').localeCompare(b.address || '');
+    if (sortBy === 'rating') return b.rating - a.rating;
+    return 0;
   });
+
+  const handleMerge = (id1, id2) => {
+    dispatch({ type: 'MERGE_BORROWERS', payload: { keepId: id1, mergeId: id2 } });
+  };
 
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
@@ -168,18 +410,32 @@ export default function Borrowers() {
           <div className="page-title">Borrowers</div>
           <div className="page-subtitle">{state.borrowers.length} registered borrowers</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} />Add Borrower</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => setShowMerge(true)}><GitMerge size={16} />Merge</button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} />Add Borrower</button>
+        </div>
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        <div className="search-bar">
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 180 }}>
           <Search size={16} style={{ color: 'var(--text-2)' }} />
-          <input placeholder="Search name or phone..." value={search} onChange={e => setSearch(e.target.value)} />
+          <input placeholder="Search name, phone..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         {['all', 'verified', 'pending', 'rejected'].map(f => (
-          <button key={f} onClick={() => setKycFilter(f)} className="btn btn-secondary btn-sm" style={{ background: kycFilter === f ? 'var(--brand-soft)' : undefined, color: kycFilter === f ? 'var(--brand-light)' : undefined, borderColor: kycFilter === f ? 'var(--brand)' : undefined }}>
+          <button key={f} onClick={() => setKycFilter(f)} className="btn btn-secondary btn-sm"
+            style={{ background: kycFilter === f ? 'var(--brand-soft)' : undefined, color: kycFilter === f ? 'var(--brand-light)' : undefined, borderColor: kycFilter === f ? 'var(--brand)' : undefined }}>
             {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Sort */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {[{ v: 'name', l: 'A-Z' }, { v: 'location', l: '📍 Location' }, { v: 'rating', l: '⭐ Rating' }].map(s => (
+          <button key={s.v} onClick={() => setSortBy(s.v)} className="btn btn-secondary btn-sm"
+            style={{ background: sortBy === s.v ? 'var(--amber-soft)' : undefined, color: sortBy === s.v ? 'var(--amber)' : undefined, borderColor: sortBy === s.v ? 'var(--amber)' : undefined }}>
+            {s.l}
           </button>
         ))}
       </div>
@@ -196,11 +452,15 @@ export default function Borrowers() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--brand)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--brand-soft)', border: '1px solid rgba(99,102,241,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, color: 'var(--brand-light)', flexShrink: 0 }}>
-                  {b.name.charAt(0)}
-                </div>
+                {b.photo
+                  ? <img src={b.photo} alt="" style={{ width: 48, height: 48, borderRadius: 14, objectFit: 'cover', flexShrink: 0 }} />
+                  : <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--brand-soft)', border: '1px solid rgba(99,102,241,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, color: 'var(--brand-light)', flexShrink: 0 }}>
+                      {b.name.charAt(0)}
+                    </div>
+                }
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{b.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{b.name}</div>
+                  {b.shop_name && <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 4 }}>🏪 {b.shop_name}</div>}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <span className={`badge ${kyc?.cls}`}>{kyc?.icon} {kyc?.label}</span>
                     {activeCount > 0 && <span className="badge badge-indigo"><CreditCard size={10} /> {activeCount} Active</span>}
@@ -208,9 +468,10 @@ export default function Borrowers() {
                 </div>
                 <HealthRing score={health} />
               </div>
-              <div style={{ marginTop: 14, display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-2)' }}>
+              <div style={{ marginTop: 14, display: 'flex', gap: 12, fontSize: 12, color: 'var(--text-2)', flexWrap: 'wrap' }}>
                 <span><Phone size={12} style={{ display: 'inline', marginRight: 4 }} />{b.phone}</span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><MapPin size={12} style={{ display: 'inline', marginRight: 4 }} />{b.address.split(',')[0]}</span>
+                {b.alternate_phone && <span><PhoneCall size={12} style={{ display: 'inline', marginRight: 4 }} />{b.alternate_phone}</span>}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><MapPin size={12} style={{ display: 'inline', marginRight: 4 }} />{(b.address || '—').split(',')[0]}</span>
               </div>
               <div style={{ marginTop: 10, display: 'flex', gap: '2px' }}>
                 {[1,2,3,4,5].map(n => <span key={n} style={{ color: n <= b.rating ? 'var(--amber)' : 'var(--surface-3)', fontSize: 14 }}>★</span>)}
@@ -221,6 +482,7 @@ export default function Borrowers() {
       </div>
 
       {showAdd && <AddBorrowerModal onClose={() => setShowAdd(false)} onAdd={payload => dispatch({ type: 'ADD_BORROWER', payload })} />}
+      {showMerge && <MergeModal borrowers={state.borrowers} onClose={() => setShowMerge(false)} onMerge={handleMerge} />}
       {selected && <BorrowerDrawer borrower={selected} loans={state.loans} onClose={() => setSelected(null)} />}
     </div>
   );

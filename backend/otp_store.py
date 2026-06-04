@@ -3,9 +3,9 @@ In-memory OTP store with 5-minute expiry.
 """
 import random
 import time
-from typing import Optional
+from typing import Dict, Tuple, Optional
 
-_store: dict[str, tuple[str, float]] = {}  # key → (otp, expires_at)
+_store: Dict[str, Tuple[str, float]] = {}  # key → (otp, expires_at)
 
 OTP_TTL = 300  # 5 minutes
 

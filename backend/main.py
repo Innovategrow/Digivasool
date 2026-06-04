@@ -34,6 +34,9 @@ from schemas import (
     OTPVerify,
     PaymentResponse,
     WhatsAppLinks,
+    BorrowerOTPRequest,
+    BorrowerOTPVerify,
+    LoanMergeRequest,
 )
 from services.reminders import (
     WHATSAPP_REMINDER_DAY_OFFSETS,
@@ -208,6 +211,23 @@ async def signup(body: MemberSignup):
 from fastapi import File, UploadFile
 import shutil
 
+@app.post("/api/auth/borrower/send-otp")
+async def borrower_send_otp(body: BorrowerOTPRequest):
+    """Send OTP to a borrower's phone for verification during registration."""
+    phone = body.phone.strip()
+    otp = otp_store.generate_and_store(phone)
+    return {"message": "OTP sent", "dev_otp": otp, "dev_mode": True}
+
+
+@app.post("/api/auth/borrower/verify-otp")
+async def borrower_verify_otp(body: BorrowerOTPVerify):
+    """Verify OTP for borrower phone verification."""
+    phone = body.phone.strip()
+    if not otp_store.verify(phone, body.otp):
+        raise HTTPException(status_code=401, detail="Wrong or expired OTP")
+    return {"verified": True, "phone": phone}
+
+
 @app.post("/api/loans/upload-proof")
 async def upload_proof(loan_id: str, file: UploadFile = File(...)):
     """Upload a proof document for a loan/user."""
@@ -310,6 +330,16 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
     loan_id = str(uuid4())
     create_time = datetime.utcnow()
     created_at = create_time.isoformat()
+
+    # Compute total due from flat fee breakdown
+    total_fees = (
+        loan.monthly_interest_amount +
+        loan.field_visit_charge +
+        loan.document_fee +
+        loan.processing_fee
+    )
+    due_amount = loan.loan_amount + total_fees
+
     record = {
         "id": loan_id,
         "customer_id": loan.customer_id,
@@ -317,13 +347,23 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
         "customer_email": loan.customer_email,
         "customer_phone": loan.customer_phone,
         "customer_address": loan.customer_address,
+        # New fields
+        "alternate_phone": loan.alternate_phone or "",
+        "shop_name": loan.shop_name or "",
+        "aadhaar_number": loan.aadhaar_number or "",
+        "photo_url": loan.photo_url or "",
+        "guarantor_name": loan.guarantor_name or "",
+        "guarantor_phone": loan.guarantor_phone or "",
+        "guarantor_address": loan.guarantor_address or "",
+        # Amounts
         "loan_amount": loan.loan_amount,
-        "interest_document": loan.interest_document,
-        "start_date": loan.start_date,
-        "closing_date": loan.closing_date,
-        "due_amount": loan.loan_amount + loan.interest_document,
+        "monthly_interest_amount": loan.monthly_interest_amount,
+        "field_visit_charge": loan.field_visit_charge,
+        "document_fee": loan.document_fee,
+        "processing_fee": loan.processing_fee,
+        "due_amount": due_amount,
         "collected_amount": 0.0,
-        "pending_amount": loan.loan_amount + loan.interest_document,
+        "pending_amount": due_amount,
         "status": "active",
         "total_days_paid": 0,
         "total_days_not_paid": 0,
@@ -334,7 +374,7 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
 
     db.collection("loans").document(loan_id).set(record)
 
-    _write_audit(loan.customer_name, "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created, freq={loan.repayment_frequency}")
+    _write_audit(loan.customer_name, "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created, freq={loan.repayment_frequency}, total_due=₹{due_amount}")
 
     reminders = build_whatsapp_reminder_schedule(
         transaction_id=loan_id,
@@ -349,6 +389,53 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
     return LoanRecord(**record)
 
 
+@app.post("/api/loans/merge")
+async def merge_loans(body: LoanMergeRequest):
+    db = get_firestore_client()
+
+    primary_ref = db.collection("loans").document(body.primary_loan_id)
+    primary_doc = primary_ref.get()
+
+    secondary_ref = db.collection("loans").document(body.secondary_loan_id)
+    secondary_doc = secondary_ref.get()
+
+    if not primary_doc.exists or not secondary_doc.exists:
+        raise HTTPException(status_code=404, detail="One or both loans not found")
+
+    p_data = primary_doc.to_dict()
+    s_data = secondary_doc.to_dict()
+
+    # Merge numeric fields
+    p_data["loan_amount"] = p_data.get("loan_amount", 0.0) + s_data.get("loan_amount", 0.0)
+    p_data["monthly_interest_amount"] = p_data.get("monthly_interest_amount", 0.0) + s_data.get("monthly_interest_amount", 0.0)
+    p_data["field_visit_charge"] = p_data.get("field_visit_charge", 0.0) + s_data.get("field_visit_charge", 0.0)
+    p_data["document_fee"] = p_data.get("document_fee", 0.0) + s_data.get("document_fee", 0.0)
+    p_data["processing_fee"] = p_data.get("processing_fee", 0.0) + s_data.get("processing_fee", 0.0)
+    p_data["due_amount"] = p_data.get("due_amount", 0.0) + s_data.get("due_amount", 0.0)
+    p_data["collected_amount"] = p_data.get("collected_amount", 0.0) + s_data.get("collected_amount", 0.0)
+    p_data["pending_amount"] = p_data.get("pending_amount", 0.0) + s_data.get("pending_amount", 0.0)
+
+    # Save primary loan
+    primary_ref.set(p_data)
+
+    # Reassign payments
+    payment_docs = db.collection("loan_payments").where("loan_id", "==", body.secondary_loan_id).get()
+    for doc in payment_docs:
+        doc.reference.update({"loan_id": body.primary_loan_id})
+
+    # Delete secondary loan
+    secondary_ref.delete()
+
+    # Write audit log
+    _write_audit(
+        p_data.get("customer_name", "system"),
+        "LOAN_MERGED",
+        f"Merged loan {body.secondary_loan_id} into {body.primary_loan_id}"
+    )
+
+    return {"status": "success", "message": "Loans merged successfully"}
+
+
 @app.get("/api/loans/", response_model=List[LoanRecord])
 async def get_loans():
     db = get_firestore_client()
@@ -360,6 +447,18 @@ async def get_loans():
         l.setdefault("id", doc.id)
         l.setdefault("repayment_frequency", "monthly")
         l.setdefault("repayment_amount", 0.0)
+        # New fields defaults for old records
+        l.setdefault("alternate_phone", "")
+        l.setdefault("shop_name", "")
+        l.setdefault("aadhaar_number", "")
+        l.setdefault("photo_url", "")
+        l.setdefault("guarantor_name", "")
+        l.setdefault("guarantor_phone", "")
+        l.setdefault("guarantor_address", "")
+        l.setdefault("monthly_interest_amount", l.pop("interest_document", 0.0))
+        l.setdefault("field_visit_charge", 0.0)
+        l.setdefault("document_fee", 0.0)
+        l.setdefault("processing_fee", 0.0)
 
         # Get reminders
         reminder_docs = db.collection("reminders").where("transaction_id", "==", l["id"]).get()
