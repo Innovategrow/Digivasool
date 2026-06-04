@@ -80,6 +80,7 @@ class LoanCreate(BaseModel):
     shop_name: Optional[str] = None
     aadhaar_number: Optional[str] = None
     photo_url: Optional[str] = None
+    zone: Optional[str] = None
     guarantor_name: Optional[str] = None
     guarantor_phone: Optional[str] = None
     guarantor_address: Optional[str] = None
@@ -141,6 +142,7 @@ class LoanRecord(BaseModel):
     shop_name: Optional[str] = None
     aadhaar_number: Optional[str] = None
     photo_url: Optional[str] = None
+    zone: Optional[str] = None
     guarantor_name: Optional[str] = None
     guarantor_phone: Optional[str] = None
     guarantor_address: Optional[str] = None
@@ -210,4 +212,3 @@ class BorrowerOTPVerify(BaseModel):
 class LoanMergeRequest(BaseModel):
     primary_loan_id: str
     secondary_loan_id: str
-

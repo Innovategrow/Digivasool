@@ -47,7 +47,7 @@ function AdminShell() {
   const location = useLocation();
 
   const pageTitle = {
-    '/': 'Dashboard', '/borrowers': 'Borrowers', '/new-loan': 'New Loan',
+    '/': 'Dashboard', '/borrowers': 'Borrowers', '/new-loan': 'New Borrower & Loan',
     '/ledger': 'Ledger', '/expenses': 'Expenses', '/reports': 'Reports',
     '/staff': 'Staff Management', '/settings': 'Settings',
     '/members': 'Members', '/collection': 'Collection Entry', '/profile': 'Profile',
