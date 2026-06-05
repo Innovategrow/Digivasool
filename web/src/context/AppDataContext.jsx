@@ -1,5 +1,9 @@
 import { createContext, useContext, useReducer, useMemo } from 'react';
 
+// ── Collection Zones ──────────────────────────────────────────────────────
+// Admins onboard a borrower into a zone, then verify members zone-by-zone.
+export const ZONES = ['North', 'South', 'East', 'West', 'Central'];
+
 // ── Interest Calculators ────────────────────────────────────────────────────
 export function calcDailyLoan({ principal, interestRate, duration }) {
   // Flat daily rate — total = P * (1 + rate/100)
@@ -41,16 +45,16 @@ const d = (offset) => { const x = new Date(today); x.setDate(today.getDate() + o
 const m = (offset) => { const x = new Date(today); x.setMonth(today.getMonth() + offset); return x.toISOString().split('T')[0]; };
 
 const SEED_BORROWERS = [
-  { id: 'b1', name: 'Rajan Kumar',    phone: '9876543210', address: '12 Gandhi Nagar, Chennai', guarantor: 'Suresh K', rating: 4, kyc: 'verified', photo: null, loans: ['l1', 'l4'] },
-  { id: 'b2', name: 'Meena Devi',     phone: '8765432109', address: '45 Anna Street, Coimbatore', guarantor: 'Ramesh M', rating: 5, kyc: 'verified', photo: null, loans: ['l2'] },
-  { id: 'b3', name: 'Selvam P',       phone: '7654321098', address: '7 Nehru Road, Madurai', guarantor: 'Kavitha S', rating: 3, kyc: 'pending', photo: null, loans: ['l3'] },
-  { id: 'b4', name: 'Priya Lakshmi',  phone: '6543210987', address: '89 KK Nagar, Chennai', guarantor: 'Venkat P', rating: 5, kyc: 'verified', photo: null, loans: ['l5'] },
-  { id: 'b5', name: 'Murugan S',      phone: '9988776655', address: '23 RS Puram, Coimbatore', guarantor: 'Arjun M', rating: 2, kyc: 'rejected', photo: null, loans: ['l6'] },
-  { id: 'b6', name: 'Anitha R',       phone: '9876541230', address: '56 T Nagar, Chennai', guarantor: 'Lakshmi A', rating: 4, kyc: 'verified', photo: null, loans: ['l7'] },
-  { id: 'b7', name: 'Karthik V',      phone: '8877665544', address: '34 Gandhipuram, Coimbatore', guarantor: 'Suresh V', rating: 3, kyc: 'pending', photo: null, loans: [] },
-  { id: 'b8', name: 'Saranya M',      phone: '7766554433', address: '11 Besant Nagar, Chennai', guarantor: 'Kumar M', rating: 5, kyc: 'verified', photo: null, loans: ['l8'] },
-  { id: 'b9', name: 'Vijay C',        phone: '6655443322', address: '78 Vadapalani, Chennai', guarantor: 'Devi C', rating: 4, kyc: 'verified', photo: null, loans: ['l9'] },
-  { id: 'b10', name: 'Deepa N',       phone: '9911223344', address: '45 Trichy Road, Madurai', guarantor: 'Nair D', rating: 3, kyc: 'pending', photo: null, loans: ['l10'] },
+  { id: 'b1', name: 'Rajan Kumar',    phone: '9876543210', address: '12 Gandhi Nagar, Chennai', zone: 'North', guarantor: 'Suresh K', rating: 4, kyc: 'verified', photo: null, loans: ['l1', 'l4'] },
+  { id: 'b2', name: 'Meena Devi',     phone: '8765432109', address: '45 Anna Street, Coimbatore', zone: 'West', guarantor: 'Ramesh M', rating: 5, kyc: 'verified', photo: null, loans: ['l2'] },
+  { id: 'b3', name: 'Selvam P',       phone: '7654321098', address: '7 Nehru Road, Madurai', zone: 'South', guarantor: 'Kavitha S', rating: 3, kyc: 'pending', photo: null, loans: ['l3'] },
+  { id: 'b4', name: 'Priya Lakshmi',  phone: '6543210987', address: '89 KK Nagar, Chennai', zone: 'Central', guarantor: 'Venkat P', rating: 5, kyc: 'verified', photo: null, loans: ['l5'] },
+  { id: 'b5', name: 'Murugan S',      phone: '9988776655', address: '23 RS Puram, Coimbatore', zone: 'West', guarantor: 'Arjun M', rating: 2, kyc: 'rejected', photo: null, loans: ['l6'] },
+  { id: 'b6', name: 'Anitha R',       phone: '9876541230', address: '56 T Nagar, Chennai', zone: 'Central', guarantor: 'Lakshmi A', rating: 4, kyc: 'verified', photo: null, loans: ['l7'] },
+  { id: 'b7', name: 'Karthik V',      phone: '8877665544', address: '34 Gandhipuram, Coimbatore', zone: 'West', guarantor: 'Suresh V', rating: 3, kyc: 'pending', photo: null, loans: [] },
+  { id: 'b8', name: 'Saranya M',      phone: '7766554433', address: '11 Besant Nagar, Chennai', zone: 'East', guarantor: 'Kumar M', rating: 5, kyc: 'verified', photo: null, loans: ['l8'] },
+  { id: 'b9', name: 'Vijay C',        phone: '6655443322', address: '78 Vadapalani, Chennai', zone: 'South', guarantor: 'Devi C', rating: 4, kyc: 'verified', photo: null, loans: ['l9'] },
+  { id: 'b10', name: 'Deepa N',       phone: '9911223344', address: '45 Trichy Road, Madurai', zone: 'South', guarantor: 'Nair D', rating: 3, kyc: 'pending', photo: null, loans: ['l10'] },
 ];
 
 const SEED_LOANS = [
@@ -131,10 +135,36 @@ function reducer(state, action) {
   switch (action.type) {
     case 'ADD_BORROWER':
       return { ...state, borrowers: [...state.borrowers, { ...action.payload, id: `b${Date.now()}`, loans: [] }] };
+    case 'VERIFY_BORROWER':
+      return {
+        ...state,
+        borrowers: state.borrowers.map(b =>
+          b.id === action.payload.id ? { ...b, kyc: action.payload.kyc || 'verified' } : b
+        ),
+      };
     case 'ADD_LOAN': {
       const loan = { ...action.payload, id: `l${Date.now()}`, collectedAmount: 0, status: 'active' };
       const updatedBorrowers = state.borrowers.map(b => b.id === loan.borrowerId ? { ...b, loans: [...b.loans, loan.id] } : b);
       return { ...state, loans: [loan, ...state.loans], borrowers: updatedBorrowers };
+    }
+    case 'ADD_BORROWER_WITH_LOAN': {
+      // Merged onboarding: create the borrower and disburse the first loan in one step.
+      const borrowerId = `b${Date.now()}`;
+      const { borrower, loan: loanInput } = action.payload;
+      const loan = {
+        ...loanInput,
+        id: `l${Date.now()}`,
+        borrowerId,
+        borrowerName: borrower.name,
+        collectedAmount: 0,
+        status: 'active',
+      };
+      const newBorrower = { ...borrower, id: borrowerId, loans: [loan.id] };
+      return {
+        ...state,
+        borrowers: [...state.borrowers, newBorrower],
+        loans: [loan, ...state.loans],
+      };
     }
     case 'ADD_PAYMENT': {
       const { installmentId, amount, penalty } = action.payload;

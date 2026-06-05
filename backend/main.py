@@ -366,6 +366,7 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
         "shop_name": loan.shop_name or "",
         "aadhaar_number": loan.aadhaar_number or "",
         "photo_url": loan.photo_url or "",
+        "zone": loan.zone or "",
         "guarantor_name": loan.guarantor_name or "",
         "guarantor_phone": loan.guarantor_phone or "",
         "guarantor_address": loan.guarantor_address or "",

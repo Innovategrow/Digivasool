@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { useAppData } from '../../context/AppDataContext';
-import { Check, ChevronRight, User, CreditCard, FileText, IndianRupee } from 'lucide-react';
+import { useAppData, ZONES } from '../../context/AppDataContext';
+import { Check, ChevronRight, User, CreditCard, FileText, MapPin, UserPlus, Users } from 'lucide-react';
+import PhotoCapture from '../../components/PhotoCapture';
 
 const SCHEMES = [
   { id: 'daily',         icon: '📅', name: 'Daily Collection',  desc: 'Fixed daily installments' },
@@ -10,6 +11,13 @@ const SCHEMES = [
   { id: 'interest_only', icon: '💹', name: 'Interest Only',     desc: 'Monthly interest, principal at end' },
 ];
 
+const EMPTY_BORROWER = {
+  name: '', phone: '', alternate_phone: '', zone: '', address: '',
+  shop_name: '', aadhaar_number: '',
+  guarantor: '', guarantor_phone: '', guarantor_address: '',
+  rating: 4, kyc: 'pending', photo: null,
+};
+
 function useCalc(scheme, principal, monthlyInterest, duration) {
   return useMemo(() => {
     const p = Number(principal) || 0;
@@ -17,9 +25,8 @@ function useCalc(scheme, principal, monthlyInterest, duration) {
     const d = Number(duration) || 1;
     if (!p || !d) return null;
     try {
-      // Calculate based on scheme using flat ₹ interest
       if (scheme === 'daily') {
-        const totalInterest = mi * Math.ceil(d / 30); // approx months
+        const totalInterest = mi * Math.ceil(d / 30);
         const total = p + totalInterest;
         const installment = Math.round(total / d);
         return { installment, total, processingFee: 0 };
@@ -59,12 +66,19 @@ function generateAmortization({ type, startDate, installment, duration }) {
   return rows;
 }
 
-const STEP_LABELS = ['Select Borrower', 'Loan Details', 'Confirm & Disburse'];
+const STEP_LABELS = ['Borrower', 'Loan Details', 'Confirm & Disburse'];
 
 export default function NewLoan() {
   const { state, dispatch } = useAppData();
   const [step, setStep] = useState(0);
+
+  // Borrower selection / creation
+  const [borrowerMode, setBorrowerMode] = useState('existing'); // 'existing' | 'new'
   const [borrowerId, setBorrowerId] = useState('');
+  const [newBorrower, setNewBorrower] = useState(EMPTY_BORROWER);
+  const setNB = (k, v) => setNewBorrower(f => ({ ...f, [k]: v }));
+
+  // Loan details
   const [scheme, setScheme] = useState('daily');
   const [principal, setPrincipal] = useState('');
   const [monthlyInterest, setMonthlyInterest] = useState('');
@@ -75,13 +89,21 @@ export default function NewLoan() {
   const [staff, setStaff] = useState('Collector 1');
   const [done, setDone] = useState(false);
 
-  const borrower = state.borrowers.find(b => b.id === borrowerId);
+  const existingBorrower = state.borrowers.find(b => b.id === borrowerId);
+  const isNew = borrowerMode === 'new';
+  const borrowerName = isNew ? newBorrower.name : existingBorrower?.name;
+  const borrowerZone = isNew ? newBorrower.zone : existingBorrower?.zone;
+
   const calc = useCalc(scheme, principal, monthlyInterest, duration);
   const schemeObj = SCHEMES.find(s => s.id === scheme);
   const durationLabel = scheme === 'daily' ? 'Days' : scheme === 'weekly' ? 'Weeks' : 'Months';
 
   const totalCharges = [fieldVisit, docFee, processingFee].reduce((s, v) => s + (parseFloat(v) || 0), 0);
   const totalDue = (calc?.total || 0) + totalCharges;
+
+  const borrowerReady = isNew
+    ? Boolean(newBorrower.name && newBorrower.phone && newBorrower.zone)
+    : Boolean(borrowerId);
 
   const amortization = useMemo(() => {
     if (!calc) return [];
@@ -91,19 +113,34 @@ export default function NewLoan() {
     });
   }, [calc, scheme, duration]);
 
+  function resetAll() {
+    setStep(0); setBorrowerMode('existing'); setBorrowerId('');
+    setNewBorrower(EMPTY_BORROWER); setPrincipal(''); setMonthlyInterest('');
+    setFieldVisit(''); setDocFee(''); setProcessingFee(''); setDuration('100'); setDone(false);
+  }
+
   function handleDisburse() {
-    if (!borrower || !calc) return;
-    dispatch({
-      type: 'ADD_LOAN',
-      payload: {
-        borrowerId, borrowerName: borrower.name, type: scheme,
-        principal: Number(principal), monthlyInterest: Number(monthlyInterest),
-        duration: Number(duration), installment: calc.installment,
-        total: totalDue, startDate: new Date().toISOString().split('T')[0],
-        staff, fieldVisit: Number(fieldVisit) || 0, docFee: Number(docFee) || 0,
-        processingFee: Number(processingFee) || 0,
-      },
-    });
+    if (!borrowerReady || !calc) return;
+    const loanPayload = {
+      type: scheme,
+      principal: Number(principal), monthlyInterest: Number(monthlyInterest),
+      duration: Number(duration), installment: calc.installment,
+      total: totalDue, startDate: new Date().toISOString().split('T')[0],
+      staff, fieldVisit: Number(fieldVisit) || 0, docFee: Number(docFee) || 0,
+      processingFee: Number(processingFee) || 0,
+    };
+
+    if (isNew) {
+      dispatch({
+        type: 'ADD_BORROWER_WITH_LOAN',
+        payload: { borrower: { ...newBorrower }, loan: loanPayload },
+      });
+    } else {
+      dispatch({
+        type: 'ADD_LOAN',
+        payload: { ...loanPayload, borrowerId, borrowerName: existingBorrower.name },
+      });
+    }
     setDone(true);
   }
 
@@ -111,8 +148,9 @@ export default function NewLoan() {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 16, animation: 'fadeUp .4s ease' }}>
       <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--green-soft)', border: '2px solid var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40 }}>✅</div>
       <div style={{ fontSize: 24, fontWeight: 800 }}>Loan Disbursed!</div>
-      <div style={{ color: 'var(--text-2)', fontSize: 15 }}>₹{Number(principal).toLocaleString()} disbursed to {borrower?.name}</div>
-      <button className="btn btn-primary" onClick={() => { setStep(0); setBorrowerId(''); setPrincipal(''); setDone(false); }}>
+      <div style={{ color: 'var(--text-2)', fontSize: 15 }}>₹{Number(principal).toLocaleString()} disbursed to {borrowerName}</div>
+      {isNew && <div style={{ color: 'var(--text-2)', fontSize: 13 }}>New borrower added to {borrowerZone} zone (KYC pending — verify on the Borrowers page).</div>}
+      <button className="btn btn-primary" onClick={resetAll}>
         Disburse Another Loan
       </button>
     </div>
@@ -122,8 +160,8 @@ export default function NewLoan() {
     <div style={{ maxWidth: 720, margin: '0 auto', animation: 'fadeUp .4s ease' }}>
       <div className="page-header">
         <div>
-          <div className="page-title">New Loan Disbursement</div>
-          <div className="page-subtitle">Complete all steps to disburse a loan</div>
+          <div className="page-title">New Borrower & Loan</div>
+          <div className="page-subtitle">Onboard a borrower and disburse their loan in one flow</div>
         </div>
       </div>
 
@@ -140,32 +178,108 @@ export default function NewLoan() {
       </div>
 
       <div className="card" style={{ padding: 28 }}>
-        {/* Step 0: Select Borrower */}
+        {/* Step 0: Borrower */}
         {step === 0 && (
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <User size={18} style={{ color: 'var(--brand-light)' }} /> Select Borrower
+              <User size={18} style={{ color: 'var(--brand-light)' }} /> Borrower
             </div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {state.borrowers.map(b => (
-                <div key={b.id} onClick={() => setBorrowerId(b.id)} style={{
-                  display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 12,
-                  border: `2px solid ${borrowerId === b.id ? 'var(--brand)' : 'var(--border)'}`,
-                  background: borrowerId === b.id ? 'var(--brand-soft)' : 'var(--surface-2)',
-                  cursor: 'pointer', transition: 'all .2s',
-                }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--brand-light)' }}>
-                    {b.name.charAt(0)}
+
+            {/* Mode toggle */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+              <button type="button" onClick={() => setBorrowerMode('existing')}
+                className={`btn ${borrowerMode === 'existing' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1 }}>
+                <Users size={16} /> Existing Borrower
+              </button>
+              <button type="button" onClick={() => setBorrowerMode('new')}
+                className={`btn ${borrowerMode === 'new' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1 }}>
+                <UserPlus size={16} /> New Borrower
+              </button>
+            </div>
+
+            {borrowerMode === 'existing' ? (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {state.borrowers.map(b => (
+                  <div key={b.id} onClick={() => setBorrowerId(b.id)} style={{
+                    display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 12,
+                    border: `2px solid ${borrowerId === b.id ? 'var(--brand)' : 'var(--border)'}`,
+                    background: borrowerId === b.id ? 'var(--brand-soft)' : 'var(--surface-2)',
+                    cursor: 'pointer', transition: 'all .2s',
+                  }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--brand-light)', overflow: 'hidden' }}>
+                      {b.photo ? <img src={b.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : b.name.charAt(0)}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700 }}>{b.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{b.phone} · {b.zone || '—'} zone · {b.loans.length} loan(s)</div>
+                    </div>
+                    {borrowerId === b.id && <Check size={18} style={{ color: 'var(--green)' }} />}
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700 }}>{b.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{b.phone} · {b.loans.length} loan(s)</div>
-                  </div>
-                  {borrowerId === b.id && <Check size={18} style={{ color: 'var(--green)' }} />}
+                ))}
+              </div>
+            ) : (
+              <div>
+                {/* Photo with live camera */}
+                <div style={{ marginBottom: 20 }}>
+                  <PhotoCapture value={newBorrower.photo} onChange={v => setNB('photo', v)} label="Add borrower photo (upload or camera)" />
                 </div>
-              ))}
-            </div>
-            <button className="btn btn-primary w-full" style={{ marginTop: 20 }} disabled={!borrowerId} onClick={() => setStep(1)}>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Full Name *</label>
+                    <input className="form-input" value={newBorrower.name} onChange={e => setNB('name', e.target.value)} placeholder="e.g. Rajan Kumar" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Shop / Business Name</label>
+                    <input className="form-input" value={newBorrower.shop_name} onChange={e => setNB('shop_name', e.target.value)} placeholder="e.g. Rajan Stores" />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Primary Phone *</label>
+                    <input className="form-input" value={newBorrower.phone} onChange={e => setNB('phone', e.target.value)} placeholder="10-digit mobile" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Alternate Phone</label>
+                    <input className="form-input" value={newBorrower.alternate_phone} onChange={e => setNB('alternate_phone', e.target.value)} placeholder="Alt number" />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={13} /> Zone *</label>
+                    <select className="form-input" value={newBorrower.zone} onChange={e => setNB('zone', e.target.value)}>
+                      <option value="">Select zone…</option>
+                      {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Aadhaar Number</label>
+                    <input className="form-input" value={newBorrower.aadhaar_number} onChange={e => setNB('aadhaar_number', e.target.value)} placeholder="XXXX XXXX XXXX" maxLength={14} />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Address</label>
+                  <input className="form-input" value={newBorrower.address} onChange={e => setNB('address', e.target.value)} placeholder="Full address" />
+                </div>
+
+                <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: 1, margin: '16px 0 10px' }}>Guarantor</div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Guarantor Name</label>
+                    <input className="form-input" value={newBorrower.guarantor} onChange={e => setNB('guarantor', e.target.value)} placeholder="Guarantor name" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Guarantor Phone</label>
+                    <input className="form-input" value={newBorrower.guarantor_phone} onChange={e => setNB('guarantor_phone', e.target.value)} placeholder="Guarantor phone" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button className="btn btn-primary w-full" style={{ marginTop: 20 }} disabled={!borrowerReady} onClick={() => setStep(1)}>
               Next: Loan Details <ChevronRight size={16} />
             </button>
           </div>
@@ -178,7 +292,6 @@ export default function NewLoan() {
               <CreditCard size={18} style={{ color: 'var(--brand-light)' }} /> Loan Scheme & Details
             </div>
 
-            {/* Scheme Selection */}
             <div style={{ marginBottom: 20 }}>
               <label className="form-label">Loan Type</label>
               <div className="scheme-grid">
@@ -216,7 +329,6 @@ export default function NewLoan() {
               </div>
             </div>
 
-            {/* Charges Section */}
             <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 16, marginBottom: 16, border: '1px solid var(--border)' }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Charges & Fees (₹)</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -235,7 +347,6 @@ export default function NewLoan() {
               </div>
             </div>
 
-            {/* Auto Calculation */}
             {calc && (
               <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 20, marginBottom: 20, border: '1px solid var(--brand-soft)' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-light)', marginBottom: 14 }}>📊 Auto-Calculated Summary</div>
@@ -276,7 +387,8 @@ export default function NewLoan() {
             <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 16, marginBottom: 20, border: '1px solid var(--border-2)' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
-                  { label: 'Borrower', value: borrower?.name },
+                  { label: 'Borrower', value: borrowerName },
+                  { label: 'Zone', value: borrowerZone || '—' },
                   { label: 'Scheme', value: schemeObj?.name },
                   { label: 'Principal', value: `₹${Number(principal).toLocaleString()}` },
                   { label: 'Monthly Interest', value: `₹${Number(monthlyInterest).toLocaleString() || 0}` },
@@ -290,7 +402,12 @@ export default function NewLoan() {
                 ))}
               </div>
 
-              {/* Charges breakdown */}
+              {isNew && (
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 12, fontSize: 12, color: 'var(--text-2)' }}>
+                  🆕 New borrower will be created in <strong style={{ color: 'var(--brand-light)' }}>{newBorrower.zone}</strong> zone with KYC <strong>pending</strong>. Verify them from the Borrowers page.
+                </div>
+              )}
+
               {totalCharges > 0 && (
                 <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 12 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8 }}>CHARGES BREAKDOWN</div>
@@ -308,7 +425,6 @@ export default function NewLoan() {
               )}
             </div>
 
-            {/* Amortization Schedule (first 12) */}
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Repayment Schedule (first {amortization.length} installments)</div>
               <div style={{ maxHeight: 200, overflowY: 'auto', borderRadius: 12, border: '1px solid var(--border)' }}>
