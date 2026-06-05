@@ -164,7 +164,7 @@ export default function Login() {
       {/* Demo Banner */}
       <div style={{ background: 'var(--amber-soft)', border: '1px solid rgba(245,158,11,.3)', borderRadius: 12, padding: '10px 20px', marginBottom: 24, fontSize: 13, color: 'var(--amber)', fontWeight: 600, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         🚀 <strong>Demo Mode:</strong>
-        {[{role:'admin',name:'Arjun Nair'},{role:'collector',name:'Collector 1'},{role:'member',name:'Demo Borrower'}].map(d => (
+        {[{role:'admin',name:'Arjun Nair'},{role:'collector',name:'Collector 1'},{role:'member',name:'Rajan Kumar'}].map(d => (
           <button key={d.role} onClick={() => login(d.role, d.name)} style={{ background: 'var(--amber)', color: '#000', border: 'none', borderRadius: 8, padding: '4px 12px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>
             Login as {d.role.charAt(0).toUpperCase()+d.role.slice(1)}
           </button>

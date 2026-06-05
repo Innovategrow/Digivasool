@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
 import { Plus, X, TrendingDown, TrendingUp } from 'lucide-react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis } from 'recharts';
 
 const CATEGORIES = ['Staff Salary', 'Fuel', 'Office Rent', 'Printing', 'Miscellaneous'];
 const CAT_COLORS = { 'Staff Salary': '#6366f1', 'Fuel': '#f59e0b', 'Office Rent': '#10b981', 'Printing': '#ec4899', 'Miscellaneous': '#06b6d4' };
@@ -76,22 +75,7 @@ export default function Expenses() {
   const [showCapital, setShowCapital] = useState(false);
   const [activeTab, setActiveTab] = useState('expenses');
 
-  const { totalExpenses, totalCapital, netProfit, totalCollected } = derived;
-
-  // Pie data by category
-  const catData = CATEGORIES.map(cat => ({
-    name: cat,
-    value: state.expenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0)
-  })).filter(c => c.value > 0);
-
-  // Monthly bar data
-  const monthlyData = Array.from({ length: 3 }, (_, i) => {
-    const d = new Date(); d.setMonth(d.getMonth() - i);
-    const month = d.toLocaleString('default', { month: 'short' });
-    const monthStr = d.toISOString().slice(0, 7);
-    const exp = state.expenses.filter(e => e.date.startsWith(monthStr)).reduce((s, e) => s + e.amount, 0);
-    return { month, expenses: exp };
-  }).reverse();
+  const { totalExpenses, totalCapital, totalCollected } = derived;
 
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
@@ -112,7 +96,6 @@ export default function Expenses() {
           { label: 'Total Invested',  value: totalCapital,   color: 'var(--brand-light)', bg: 'var(--brand-soft)', icon: '💼' },
           { label: 'Total Collected', value: totalCollected, color: 'var(--green)',        bg: 'var(--green-soft)', icon: '📥' },
           { label: 'Total Expenses',  value: totalExpenses,  color: 'var(--red)',          bg: 'var(--red-soft)',   icon: '📤' },
-          { label: 'Net Profit',      value: Math.max(0, netProfit), color: netProfit >= 0 ? 'var(--green)' : 'var(--red)', bg: netProfit >= 0 ? 'var(--green-soft)' : 'var(--red-soft)', icon: '📊' },
         ].map(s => (
           <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.color}33`, borderRadius: 16, padding: 18 }}>
             <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
@@ -120,42 +103,6 @@ export default function Expenses() {
             <div style={{ fontSize: 22, fontWeight: 900, color: s.color, fontFamily: 'var(--mono)' }}>₹{s.value.toLocaleString()}</div>
           </div>
         ))}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-        {/* Pie Chart */}
-        <div className="chart-card">
-          <div className="chart-title">Expense Breakdown</div>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie data={catData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3}>
-                {catData.map((entry, i) => <Cell key={i} fill={CAT_COLORS[entry.name] || '#6366f1'} />)}
-              </Pie>
-              <Tooltip formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border-2)', borderRadius: 10 }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {catData.map(d => (
-              <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: CAT_COLORS[d.name] }} />
-                <span style={{ color: 'var(--text-2)' }}>{d.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Monthly Bar */}
-        <div className="chart-card">
-          <div className="chart-title">Monthly Expenses</div>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={monthlyData}>
-              <XAxis dataKey="month" tick={{ fill: 'var(--text-2)', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: 'var(--text-2)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
-              <Tooltip formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border-2)', borderRadius: 10 }} />
-              <Bar dataKey="expenses" fill="#ef4444" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
       </div>
 
       {/* Tabs: Expenses / Capital */}

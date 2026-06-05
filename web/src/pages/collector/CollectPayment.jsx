@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
+import { apiFetch } from '../../utils/api';
 import { Search, Banknote, Wallet, ArrowLeft, CheckCircle2, MessageCircle, ExternalLink, User, MapPin, Filter } from 'lucide-react';
 
 const SORT_OPTIONS = [
@@ -24,7 +24,7 @@ export default function CollectPayment() {
   const [successData, setSuccessData] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/loans/`)
+    apiFetch('/api/loans/')
       .then(r => r.json())
       .then(data => setLoans(data.filter(l => l.status === 'active' && l.pending_amount > 0)))
       .catch(console.error);
@@ -51,9 +51,8 @@ export default function CollectPayment() {
     if (!amount || !selectedLoan) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/loans/${selectedLoan.id}/payments`, {
+      const res = await apiFetch(`/api/loans/${selectedLoan.id}/payments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: parseFloat(amount),
           payment_method: paymentMethod,

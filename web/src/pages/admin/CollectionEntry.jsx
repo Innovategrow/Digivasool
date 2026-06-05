@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Wallet, Banknote, Search, Filter, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../../config';
+import { apiFetch } from '../../utils/api';
 
 const SORT_OPTIONS = [
   { value: 'balance',  label: 'Highest Balance' },
@@ -22,7 +22,7 @@ export default function CollectionEntry() {
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/loans/`)
+    apiFetch('/api/loans/')
       .then(res => res.json())
       .then(data => setLoans(data))
       .catch(err => console.error(err));
@@ -48,9 +48,8 @@ export default function CollectionEntry() {
   const handleSave = () => {
     if (!amount || !selectedLoan) return;
     setLoading(true);
-    fetch(`${API_BASE_URL}/api/loans/${selectedLoan.id}/payments`, {
+    apiFetch(`/api/loans/${selectedLoan.id}/payments`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount: parseFloat(amount), payment_method: paymentMethod }),
     })
       .then(res => res.json())

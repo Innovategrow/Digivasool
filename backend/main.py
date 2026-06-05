@@ -229,8 +229,10 @@ async def borrower_verify_otp(body: BorrowerOTPVerify):
 
 
 @app.post("/api/loans/upload-proof")
-async def upload_proof(loan_id: str, file: UploadFile = File(...)):
+async def upload_proof(loan_id: str, file: UploadFile = File(...), x_user_role: str = Header(default="admin")):
     """Upload a proof document for a loan/user."""
+    if x_user_role.lower() not in {"admin", "member"}:
+        raise HTTPException(status_code=403, detail="Access denied for this role")
     os.makedirs(f"uploads/{loan_id}", exist_ok=True)
     file_path = f"uploads/{loan_id}/{file.filename}"
     with open(file_path, "wb") as buffer:
@@ -251,6 +253,18 @@ def require_admin(user=Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+
+def require_role(*allowed_roles: str):
+    """Allow only specified roles (admin/collector/member)."""
+    allowed = {r.lower() for r in allowed_roles}
+
+    def _dep(user=Depends(get_current_user)):
+        if user["role"] not in allowed:
+            raise HTTPException(status_code=403, detail="Access denied for this role")
+        return user
+
+    return _dep
 
 
 # ==============================
@@ -390,7 +404,7 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
 
 
 @app.post("/api/loans/merge")
-async def merge_loans(body: LoanMergeRequest):
+async def merge_loans(body: LoanMergeRequest, user=Depends(require_admin)):
     db = get_firestore_client()
 
     primary_ref = db.collection("loans").document(body.primary_loan_id)
@@ -437,7 +451,7 @@ async def merge_loans(body: LoanMergeRequest):
 
 
 @app.get("/api/loans/", response_model=List[LoanRecord])
-async def get_loans():
+async def get_loans(user=Depends(require_role("admin", "collector"))):
     db = get_firestore_client()
     docs = db.collection("loans").get()
     loans = []
@@ -470,7 +484,7 @@ async def get_loans():
 
 
 @app.post("/api/loans/{loan_id}/payments", response_model=PaymentResponse)
-async def record_payment(loan_id: str, payment: LoanPaymentCreate):
+async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(require_role("admin", "collector"))):
     db = get_firestore_client()
 
     loan_ref = db.collection("loans").document(loan_id)
@@ -563,13 +577,13 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate):
 
 
 @app.get("/api/loans/{loan_id}/payments", response_model=List[LoanPaymentRecord])
-async def get_loan_payment_history(loan_id: str):
+async def get_loan_payment_history(loan_id: str, user=Depends(require_role("admin", "collector", "member"))):
     """Return full payment history for a loan."""
     return [LoanPaymentRecord(**p) for p in get_loan_payments_db(loan_id)]
 
 
 @app.get("/api/loans/by-customer", response_model=List[LoanRecord])
-async def get_loans_by_customer(name: str):
+async def get_loans_by_customer(name: str, user=Depends(require_role("admin", "member"))):
     """Member-facing: returns loans matching the given customer name."""
     db = get_firestore_client()
     docs = db.collection("loans").where("customer_name", "==", name.strip()).get()
@@ -608,7 +622,7 @@ async def get_loan_stats(loan_id: str):
 
 
 @app.get("/api/collector/payments")
-async def get_collector_history(collector_name: str):
+async def get_collector_history(collector_name: str, user=Depends(require_role("admin", "collector"))):
     """Return all payments logged by a specific collector."""
     rows = get_collector_payments_db(collector_name)
     return [LoanPaymentWithBorrower(**r) for r in rows]

@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { ArrowLeft, BookOpen, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../../config';
+import { apiFetch } from '../../utils/api';
 
 export default function Transactions() {
   const navigate = useNavigate();
   const [loans, setLoans] = useState([]);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/loans/`)
+    apiFetch('/api/loans/')
       .then(res => res.json())
       .then(data => setLoans(data))
       .catch(err => console.error(err));

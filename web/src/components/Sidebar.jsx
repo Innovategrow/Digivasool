@@ -2,33 +2,40 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
 import {
-  LayoutDashboard, Users, PlusCircle, BookOpen,
+  LayoutDashboard, Users, BookOpen,
   BarChart3, Receipt, UserCog, Settings, LogOut,
-  ChevronLeft, Bell, TrendingUp
+  ChevronLeft, TrendingUp, CreditCard
 } from 'lucide-react';
 
-const NAV = [
+const ADMIN_NAV = [
   { section: 'Main' },
-  { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/borrowers',icon: Users,           label: 'Borrowers' },
-  { to: '/new-loan', icon: PlusCircle,      label: 'New Loan',  highlight: true },
-  { to: '/ledger',   icon: BookOpen,        label: 'Ledger' },
+  { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/borrowers', icon: Users,           label: 'Members', highlight: true },
+  { to: '/collection',icon: CreditCard,      label: 'Collection' },
+  { to: '/ledger',    icon: BookOpen,        label: 'Ledger' },
   { section: 'Finance' },
-  { to: '/expenses', icon: Receipt,         label: 'Expenses' },
-  { to: '/reports',  icon: BarChart3,       label: 'Reports' },
+  { to: '/expenses',  icon: Receipt,         label: 'Expenses' },
+  { to: '/reports',   icon: BarChart3,       label: 'Reports' },
   { section: 'System' },
-  { to: '/staff',    icon: UserCog,         label: 'Staff' },
-  { to: '/settings', icon: Settings,        label: 'Settings' },
+  { to: '/staff',     icon: UserCog,         label: 'Staff' },
+  { to: '/settings',  icon: Settings,        label: 'Settings' },
 ];
 
-export default function Sidebar({ collapsed, onToggle }) {
+const COLLECTOR_NAV = [
+  { section: 'Collector' },
+  { to: '/collector',          icon: CreditCard,      label: 'Collect Payment' },
+  { to: '/collector/borrowers',icon: Users,           label: 'Borrowers' },
+  { to: '/collector/history',  icon: BookOpen,        label: 'History' },
+];
+
+export default function Sidebar({ collapsed, onToggle, collectorMode = false }) {
   const { user, logout } = useAuth();
   const { derived } = useAppData();
   const navigate = useNavigate();
+  const NAV = collectorMode ? COLLECTOR_NAV : ADMIN_NAV;
 
   return (
     <div className={`sidebar${collapsed ? ' collapsed' : ''}`}>
-      {/* Logo */}
       <div className="sb-logo">
         <div className="sb-logo-icon">💰</div>
         {!collapsed && (
@@ -44,7 +51,6 @@ export default function Sidebar({ collapsed, onToggle }) {
         )}
       </div>
 
-      {/* Nav */}
       <nav className="sb-nav">
         {NAV.map((item, i) => {
           if (item.section) {
@@ -56,7 +62,7 @@ export default function Sidebar({ collapsed, onToggle }) {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === '/'}
+              end={item.to === '/' || item.to === '/collector'}
               className={({ isActive }) => `sb-item${isActive ? ' active' : ''}`}
               title={collapsed ? item.label : ''}
             >
@@ -76,7 +82,6 @@ export default function Sidebar({ collapsed, onToggle }) {
         })}
       </nav>
 
-      {/* User Footer */}
       <div className="sb-footer">
         {!collapsed ? (
           <div className="sb-user">

@@ -5,6 +5,8 @@ import {
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, SortAsc, GitMerge
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
+import { apiFetch } from '../../utils/api';
+import { useAuth } from '../../context/AuthContext';
 
 const FREQ_OPTIONS = [
   { value: 'daily',   label: '📅 Daily',   desc: 'Collected every day' },
@@ -141,28 +143,32 @@ function MergeModal({ loans, onClose, onMerge }) {
 }
 
 // ── Main Component ──────────────────────────────────────────────────────────
-export default function Members() {
+export default function Members({ readOnly = false }) {
+  const { user } = useAuth();
+  const canCreate = !readOnly && user?.role === 'admin';
+  const canMerge = !readOnly && user?.role === 'admin';
   const [loans, setLoans] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
   const [showOtpSection, setShowOtpSection] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
   const fileRef = useRef();
 
   const handleMerge = async (id1, id2) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/loans/merge`, {
+      const res = await apiFetch('/api/loans/merge', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ primary_loan_id: id1, secondary_loan_id: id2 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Merge failed');
-      const refreshRes = await fetch(`${API_BASE_URL}/api/loans/`);
+      const refreshRes = await apiFetch('/api/loans/');
       const refreshData = await refreshRes.json();
       setLoans(refreshData);
       alert('✅ Borrowers merged successfully!');
@@ -183,20 +189,27 @@ export default function Members() {
   });
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/loans/`)
+    apiFetch('/api/loans/')
       .then(res => res.json()).then(setLoans).catch(console.error);
   }, []);
 
   const set = (k, v) => setFormData(f => ({ ...f, [k]: v }));
   const field = (key) => ({ value: formData[key], onChange: e => set(key, e.target.value) });
 
-  const totalFees = [formData.monthly_interest_amount, formData.field_visit_charge, formData.document_fee, formData.processing_fee]
-    .reduce((s, v) => s + (parseFloat(v) || 0), 0);
-  const totalDue = (parseFloat(formData.amount) || 0) + totalFees;
+  const principal = parseFloat(formData.amount) || 0;
+  const monthlyInterest = parseFloat(formData.monthly_interest_amount) || 0;
+  const fieldVisit = parseFloat(formData.field_visit_charge) || 0;
+  const docFee = parseFloat(formData.document_fee) || 0;
+  const procFee = parseFloat(formData.processing_fee) || 0;
+  const totalDeductions = fieldVisit + docFee + procFee;
+  const totalFees = monthlyInterest + totalDeductions;
+  const totalDue = principal + totalFees;
+  const cashDisbursed = Math.max(0, principal - totalDeductions);
 
   const handlePhotoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    setPhotoFile(file);
     const reader = new FileReader();
     reader.onload = ev => setPhotoPreview(ev.target.result);
     reader.readAsDataURL(file);
@@ -206,6 +219,7 @@ export default function Members() {
     setShowModal(false);
     setPhoneVerified(false);
     setPhotoPreview(null);
+    setPhotoFile(null);
     setShowOtpSection(false);
     setFormData({
       name: '', email: '', phone: '', alternate_phone: '', address: '',
@@ -221,6 +235,10 @@ export default function Members() {
     e.preventDefault();
     if (!formData.name || !formData.phone || !formData.amount || !formData.closeDate) {
       alert('Name, Phone, Amount and Due Date are required.'); return;
+    }
+    if (!phoneVerified) {
+      alert('Please verify borrower phone with OTP before creating the loan.');
+      return;
     }
     setLoading(true);
     const payload = {
@@ -246,11 +264,24 @@ export default function Members() {
       repayment_amount: parseFloat(formData.repaymentAmount) || 0,
     };
     try {
-      const res = await fetch(`${API_BASE_URL}/api/loans/`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch('/api/loans/', {
+        method: 'POST',
         body: JSON.stringify(payload),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to create');
+      if (photoFile) {
+        const fd = new FormData();
+        fd.append('file', photoFile);
+        const upRes = await fetch(`${API_BASE_URL}/api/loans/upload-proof?loan_id=${data.id}`, {
+          method: 'POST', body: fd,
+          headers: { 'X-User-Role': user?.role || 'admin' },
+        });
+        if (upRes.ok) {
+          const upData = await upRes.json();
+          data.photo_url = upData.file_path;
+        }
+      }
       setLoans([data, ...loans]);
       resetModal();
     } catch (err) { alert('Error creating loan: ' + err.message); }
@@ -268,17 +299,24 @@ export default function Members() {
   const freqColor = { daily: 'var(--green)', weekly: 'var(--brand)', monthly: 'var(--amber)', custom: 'var(--text-2)' };
 
   return (
-    <div className="screen-container pt-4">
+    <div className="screen-container pt-4 animate-fadeUp">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Borrowers</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowMerge(true)}>
-            <GitMerge size={18} /> Merge
-          </button>
-          <button className="save-btn" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px' }} onClick={() => setShowModal(true)}>
-            <UserPlus size={18} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Add Borrower
-          </button>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Borrowers & Loans</h2>
+          <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>Combined borrower profile with loan details</p>
         </div>
+        {canCreate && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            {canMerge && (
+              <button className="btn btn-secondary card-hover" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowMerge(true)}>
+                <GitMerge size={18} /> Merge
+              </button>
+            )}
+            <button className="save-btn card-hover" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px' }} onClick={() => setShowModal(true)}>
+              <UserPlus size={18} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Add Borrower
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Sort Bar */}
@@ -293,11 +331,15 @@ export default function Members() {
         ))}
       </div>
 
-      {sortedLoans.map(loan => {
+      {sortedLoans.map((loan, idx) => {
         const progress = loan.due_amount > 0 ? Math.min((loan.collected_amount / loan.due_amount) * 100, 100) : 0;
         const freq = loan.repayment_frequency || 'monthly';
+        const expanded = expandedId === loan.id;
+        const totalDeductions = (loan.field_visit_charge || 0) + (loan.document_fee || 0) + (loan.processing_fee || 0);
+        const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
         return (
-          <div key={loan.id} className="card" style={{ padding: '16px', display: 'flex', gap: '16px', marginBottom: '12px' }}>
+          <div key={loan.id} className="card card-hover borrower-card" style={{ padding: '16px', display: 'flex', gap: '16px', marginBottom: '12px', animation: `fadeUp .4s ${idx * 0.05}s ease both`, cursor: 'pointer' }}
+            onClick={() => setExpandedId(expanded ? null : loan.id)}>
             {loan.photo_url
               ? <img src={loan.photo_url} alt="" style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }} />
               : <div className="party-avatar">{loan.customer_name.charAt(0).toUpperCase()}</div>}
@@ -330,6 +372,25 @@ export default function Members() {
                 <span className="text-green">Paid: ₹{loan.collected_amount.toLocaleString()}</span>
                 <span className="text-warning">Due: ₹{loan.pending_amount.toLocaleString()}</span>
               </div>
+              {expanded && (
+                <div className="animate-slideUp" style={{ marginTop: 12, padding: 12, background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
+                    {loan.alternate_phone && <div><span style={{ color: 'var(--text-2)' }}>Alt Phone:</span> {loan.alternate_phone}</div>}
+                    {loan.aadhaar_number && <div><span style={{ color: 'var(--text-2)' }}>Aadhaar:</span> {loan.aadhaar_number}</div>}
+                    {loan.guarantor_name && <div><span style={{ color: 'var(--text-2)' }}>Guarantor:</span> {loan.guarantor_name}</div>}
+                    {loan.guarantor_phone && <div><span style={{ color: 'var(--text-2)' }}>Guarantor Ph:</span> {loan.guarantor_phone}</div>}
+                    {loan.guarantor_address && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-2)' }}>Guarantor Addr:</span> {loan.guarantor_address}</div>}
+                    <div><span style={{ color: 'var(--text-2)' }}>Loan:</span> ₹{(loan.loan_amount || 0).toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Monthly Interest:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Field Visit:</span> ₹{(loan.field_visit_charge || 0).toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Doc Fee:</span> ₹{(loan.document_fee || 0).toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Processing:</span> ₹{(loan.processing_fee || 0).toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Total Deductions:</span> ₹{totalDeductions.toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Cash Disbursed:</span> ₹{cashDisbursed.toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Total Due:</span> ₹{(loan.due_amount || 0).toLocaleString()}</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
@@ -488,19 +549,31 @@ export default function Members() {
                   <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 6 }}>BREAKDOWN</div>
                     {[
-                      { label: 'Principal', value: parseFloat(formData.amount) || 0 },
-                      { label: 'Monthly Interest', value: parseFloat(formData.monthly_interest_amount) || 0 },
-                      { label: 'Field Visit', value: parseFloat(formData.field_visit_charge) || 0 },
-                      { label: 'Document Fee', value: parseFloat(formData.document_fee) || 0 },
-                      { label: 'Processing Fee', value: parseFloat(formData.processing_fee) || 0 },
+                      { label: 'Principal (Loan Amount)', value: principal },
+                      { label: 'Monthly Interest (₹)', value: monthlyInterest },
+                      { label: 'Field Visit Charge', value: fieldVisit },
+                      { label: 'Document Fee', value: docFee },
+                      { label: 'Processing Fee', value: procFee },
                     ].filter(r => r.value > 0).map(r => (
                       <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
                         <span style={{ color: 'var(--text-2)' }}>{r.label}</span>
                         <span>₹{r.value.toLocaleString()}</span>
                       </div>
                     ))}
+                    {totalDeductions > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, color: 'var(--red)' }}>
+                        <span>Total Deductions (from principal)</span>
+                        <span>− ₹{totalDeductions.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {principal > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, color: 'var(--green)' }}>
+                        <span>Cash Disbursed to Borrower</span>
+                        <span>₹{cashDisbursed.toLocaleString()}</span>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 14, paddingTop: 6, borderTop: '1px solid var(--border)', marginTop: 4, color: 'var(--amber)' }}>
-                      <span>Total Due</span>
+                      <span>Total Due (Repayable)</span>
                       <span>₹{totalDue.toLocaleString()}</span>
                     </div>
                   </div>

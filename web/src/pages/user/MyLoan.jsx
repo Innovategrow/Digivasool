@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { API_BASE_URL } from '../../config';
+import { apiFetch } from '../../utils/api';
 import { LogOut, MessageCircle, CheckCircle2, Clock, AlertTriangle, RefreshCw, Banknote, Smartphone, Calendar } from 'lucide-react';
 
 export default function MyLoan() {
@@ -11,7 +11,7 @@ export default function MyLoan() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/loans/by-customer?name=${encodeURIComponent(user.name)}`)
+    apiFetch(`/api/loans/by-customer?name=${encodeURIComponent(user.name)}`)
       .then(res => {
         if (!res.ok) throw new Error('Not found');
         return res.json();
@@ -22,7 +22,7 @@ export default function MyLoan() {
         const paymentMap = {};
         await Promise.all(data.map(async loan => {
           try {
-            const r = await fetch(`${API_BASE_URL}/api/loans/${loan.id}/payments`);
+            const r = await apiFetch(`/api/loans/${loan.id}/payments`);
             paymentMap[loan.id] = r.ok ? await r.json() : [];
           } catch { paymentMap[loan.id] = []; }
         }));
@@ -115,7 +115,7 @@ export default function MyLoan() {
                   <div style={{ width: `${progress}%`, height: '100%', background: isSettled ? 'var(--positive)' : 'linear-gradient(to right, var(--brand), var(--positive))', transition: 'width 0.6s ease', borderRadius: '5px' }} />
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Total: ₹{loan.due_amount.toLocaleString()} (Loan ₹{loan.loan_amount.toLocaleString()} + Interest ₹{loan.interest_document.toLocaleString()})
+                  Total: ₹{loan.due_amount.toLocaleString()} (Loan ₹{loan.loan_amount.toLocaleString()} + Interest ₹{(loan.monthly_interest_amount || 0).toLocaleString()})
                 </div>
               </div>
 

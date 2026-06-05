@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
-import { Download, FileText, BarChart2 } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Area } from 'recharts';
+import { Download, FileText } from 'lucide-react';
 
 const REPORT_TYPES = [
-  { id: 'pl',          label: 'Profit & Loss',       icon: '💰', desc: 'Revenue, expenses and net profit' },
+  { id: 'pl',          label: 'Profit & Loss',       icon: '💰', desc: 'Revenue and expenses' },
   { id: 'collection',  label: 'Collection Summary',  icon: '📥', desc: 'Day-wise collection performance' },
   { id: 'portfolio',   label: 'Loan Portfolio',      icon: '📋', desc: 'Active loans by type and status' },
   { id: 'overdue',     label: 'Overdue Report',      icon: '🔴', desc: 'All overdue accounts and aging' },
@@ -18,7 +17,7 @@ export default function Reports() {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
   const handleExport = (type) => showToast(`✅ ${type} export ready! (Demo mode)`);
 
-  const { totalCollected, totalExpenses, netProfit, totalOutstanding, totalCapital } = derived;
+  const { totalCollected, totalExpenses, totalOutstanding, totalCapital } = derived;
 
   const loanByStatus = [
     { name: 'Active',    count: state.loans.filter(l => l.status === 'active').length,   amount: state.loans.filter(l => l.status === 'active').reduce((s, l) => s + l.principal, 0) },
@@ -62,7 +61,7 @@ export default function Reports() {
             {[
               { label: 'Gross Revenue',   value: totalCollected,     color: 'var(--green)',        note: 'Total interest + principal collected' },
               { label: 'Total Expenses',  value: totalExpenses,      color: 'var(--red)',           note: 'Salaries, fuel, office, misc' },
-              { label: 'Net Profit',      value: Math.max(0, netProfit), color: 'var(--brand-light)', note: 'Revenue minus all expenses' },
+              { label: 'Outstanding',     value: totalOutstanding,   color: 'var(--cyan)',         note: 'Pending amount to recover' },
             ].map(s => (
               <div key={s.label} className="card" style={{ borderColor: `${s.color}33` }}>
                 <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.label}</div>
@@ -71,51 +70,12 @@ export default function Reports() {
               </div>
             ))}
           </div>
-
-          <div className="chart-card">
-            <div className="chart-title"><BarChart2 size={16} style={{ color: 'var(--brand-light)' }} />P&L Overview (INR)</div>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={[
-                { name: 'Capital In',       value: totalCapital,    fill: '#6366f1' },
-                { name: 'Total Disbursed',  value: derived.totalDisbursed, fill: '#f59e0b' },
-                { name: 'Collected',        value: totalCollected,  fill: '#10b981' },
-                { name: 'Outstanding',      value: totalOutstanding, fill: '#06b6d4' },
-                { name: 'Expenses',         value: totalExpenses,   fill: '#ef4444' },
-                { name: 'Net Profit',       value: Math.max(0, netProfit), fill: '#ec4899' },
-              ]}>
-                <XAxis dataKey="name" tick={{ fill: 'var(--text-2)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: 'var(--text-2)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
-                <Tooltip formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border-2)', borderRadius: 10 }} />
-                <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#6366f1">
-                  {[...Array(6)].map((_, i) => null)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
         </div>
       )}
 
       {/* Collection Summary */}
       {reportType === 'collection' && (
         <div>
-          <div className="chart-card" style={{ marginBottom: 16 }}>
-            <div className="chart-title">14-Day Collection vs Target</div>
-            <ResponsiveContainer width="100%" height={250}>
-              <ComposedChart data={collectionData}>
-                <defs>
-                  <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="day" tick={{ fill: 'var(--text-2)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: 'var(--text-2)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
-                <Tooltip formatter={v => `₹${v.toLocaleString()}`} contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border-2)', borderRadius: 10 }} />
-                <Area type="monotone" dataKey="amount" stroke="#6366f1" strokeWidth={2} fill="url(#areaGrad)" />
-                <Line type="monotone" dataKey="target" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
           <div className="table-wrap">
             <table>
               <thead><tr><th>Date</th><th>Day</th><th>Collected</th><th>Target</th><th>Achievement</th></tr></thead>

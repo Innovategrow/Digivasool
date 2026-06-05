@@ -206,9 +206,8 @@ export function AppDataProvider({ children }) {
     const todayInstallments = state.installments.filter(i => i.dueDate === d(0));
     const todayCollected = todayInstallments.filter(i => i.status === 'paid').reduce((s, i) => s + i.paidAmount, 0);
     const overdueCount = state.installments.filter(i => i.status === 'overdue').length;
-    const netProfit = totalCollected - totalExpenses;
     const unreadNotifications = state.notifications.filter(n => !n.read).length;
-    return { activeLoans, totalOutstanding, totalCapital, totalExpenses, totalDisbursed, totalCollected, todayCollected, overdueCount, netProfit, unreadNotifications };
+    return { activeLoans, totalOutstanding, totalCapital, totalExpenses, totalDisbursed, totalCollected, todayCollected, overdueCount, unreadNotifications };
   }, [state]);
 
   return (

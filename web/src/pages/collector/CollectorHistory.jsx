@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
+import { apiFetch } from '../../utils/api';
 import { ClipboardList, Banknote, Smartphone, Calendar, User } from 'lucide-react';
 
 export default function CollectorHistory() {
@@ -9,7 +9,7 @@ export default function CollectorHistory() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/collector/payments?collector_name=${encodeURIComponent(user.name)}`)
+    apiFetch(`/api/collector/payments?collector_name=${encodeURIComponent(user.name)}`)
       .then(r => r.json())
       .then(data => setPayments(Array.isArray(data) ? data : []))
       .catch(console.error)

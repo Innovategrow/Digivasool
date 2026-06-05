@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { User, Mail, ShieldCheck, LogOut, Clock, Smartphone, MapPin, Building, FileText, Upload, CheckCircle2 } from 'lucide-react';
+import { apiFetch } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
 
 export default function Profile() {
@@ -13,7 +14,7 @@ export default function Profile() {
   useEffect(() => {
     // Fetch member data if it's a member
     if (user.role === 'member') {
-      fetch(`${API_BASE_URL}/api/loans/by-customer?name=${encodeURIComponent(user.name)}`)
+      apiFetch(`/api/loans/by-customer?name=${encodeURIComponent(user.name)}`)
         .then(res => res.json())
         .then(data => {
           if (data && data.length > 0) setProfileData(data[0]);
@@ -44,9 +45,12 @@ export default function Profile() {
     formData.append('file', file);
     
     try {
+      const saved = localStorage.getItem('dk_user');
+      const role = (() => { try { return JSON.parse(saved)?.role; } catch { return null; } })() || 'admin';
       const res = await fetch(`${API_BASE_URL}/api/loans/upload-proof?loan_id=${profileData.id}`, {
         method: 'POST',
         body: formData,
+        headers: { 'X-User-Role': role },
       });
       if (res.ok) alert('Proof document uploaded successfully!');
     } catch (err) {
