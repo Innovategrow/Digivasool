@@ -27,7 +27,16 @@
   --radius: 16px;
   --font: 'Inter', -apple-system, sans-serif;
   --mono: 'JetBrains Mono', monospace;
+  /* Aliases used by member/borrower-facing screens */
+  --background: #07070a;
+  --surface-raised: #1a1a22;
+  --text-muted: #a0a0b0;
+  --positive: #10b981;
+  --positive-soft: rgba(16,185,129,0.12);
+  --warning: #f59e0b;
 }
+
+.summary-card{background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(236,72,153,0.06));border:1px solid var(--border-2);}
 
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
@@ -224,3 +233,60 @@ select.form-input option{background:var(--surface-2);}
 .animate-fadeUp-2{animation:fadeUp .4s .2s ease both;}
 .animate-fadeUp-3{animation:fadeUp .4s .3s ease both;}
 .animate-slideUp{animation:slideUp .3s ease both;}
+
+/* ── Enhanced motion & interactions ── */
+@keyframes popIn{0%{opacity:0;transform:scale(.92)}60%{opacity:1;transform:scale(1.02)}100%{opacity:1;transform:scale(1)}}
+@keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes ringDash{from{stroke-dashoffset:var(--ring-circ)}}
+@keyframes countFlash{0%{color:var(--green)}100%{color:inherit}}
+@keyframes skeleton-shine{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.animate-popIn{animation:popIn .45s cubic-bezier(.34,1.56,.64,1) both;}
+
+/* Hover-lift used across cards, stat cards, list rows */
+.card-hover{transition:transform .25s cubic-bezier(.4,0,.2,1),box-shadow .25s ease,border-color .25s ease;}
+.card-hover:hover{transform:translateY(-4px);box-shadow:0 14px 34px rgba(0,0,0,.35);border-color:var(--border-2);}
+
+/* Borrower / member list cards */
+.borrower-card{transition:transform .2s cubic-bezier(.4,0,.2,1),box-shadow .2s ease,border-color .2s ease;}
+.borrower-card:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(0,0,0,.3);border-color:var(--brand);}
+.borrower-card:active{transform:scale(.99);}
+
+/* Stat cards get a soft glow sweep on hover */
+.stat-card.card-hover{position:relative;overflow:hidden;}
+.stat-card.card-hover::after{content:'';position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(120deg,transparent,rgba(255,255,255,.07),transparent);transform:skewX(-20deg);transition:left .6s ease;}
+.stat-card.card-hover:hover::after{left:130%;}
+
+/* Button press feedback */
+.btn:active,.save-btn:active{transform:scale(.97);}
+.save-btn{transition:transform .15s ease,box-shadow .2s ease,opacity .2s ease;}
+
+/* Animated progress fill shimmer */
+.progress-fill{position:relative;}
+.progress-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);background-size:200% 100%;animation:skeleton-shine 1.8s linear infinite;}
+
+/* Recovery / health ring */
+.metric-ring{transform:rotate(-90deg);}
+.metric-ring circle{transition:stroke-dashoffset 1s cubic-bezier(.4,0,.2,1);}
+
+/* Sidebar nav hover slide */
+.sb-item{transition:background .2s ease,color .2s ease,padding-left .2s ease;}
+.sb-item:hover{padding-left:16px;}
+
+/* Skeleton loader */
+.skeleton{background:linear-gradient(90deg,var(--surface-2) 25%,var(--surface-3) 37%,var(--surface-2) 63%);background-size:200% 100%;animation:skeleton-shine 1.4s ease infinite;border-radius:8px;}
+
+/* Stagger helper: children fade-up in sequence */
+.stagger > *{opacity:0;animation:fadeUp .45s ease forwards;}
+.stagger > *:nth-child(1){animation-delay:.04s}
+.stagger > *:nth-child(2){animation-delay:.10s}
+.stagger > *:nth-child(3){animation-delay:.16s}
+.stagger > *:nth-child(4){animation-delay:.22s}
+.stagger > *:nth-child(5){animation-delay:.28s}
+.stagger > *:nth-child(6){animation-delay:.34s}
+.stagger > *:nth-child(7){animation-delay:.40s}
+.stagger > *:nth-child(8){animation-delay:.46s}
+
+/* Respect user motion preferences */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;}
+}

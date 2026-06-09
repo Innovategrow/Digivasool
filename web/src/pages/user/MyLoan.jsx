@@ -1,14 +1,114 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../utils/api';
-import { LogOut, MessageCircle, CheckCircle2, Clock, AlertTriangle, RefreshCw, Banknote, Smartphone, Calendar } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
+import {
+  LogOut, MessageCircle, CheckCircle2, Clock, AlertTriangle, RefreshCw,
+  Banknote, Smartphone, Calendar, User, Phone, MapPin, Store, Shield,
+  IndianRupee, X, Bell, Copy, Check,
+} from 'lucide-react';
+
+// Business payment details — update these for the live account
+const BUSINESS_UPI = 'vasoolpro@okhdfcbank';
+const BUSINESS_NAME = 'VasoolPro Finance';
+const BUSINESS_PHONE = '919876500000'; // WhatsApp number (with country code, no +)
+
+function maskAadhaar(a) {
+  if (!a) return null;
+  const digits = String(a).replace(/\D/g, '');
+  if (digits.length < 4) return null;
+  return `XXXX XXXX ${digits.slice(-4)}`;
+}
+
+function photoSrc(url) {
+  if (!url) return null;
+  if (url.startsWith('http') || url.startsWith('data:')) return url;
+  return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+// ── Payment dialog: UPI deep-link + notify collector ──
+function PaymentModal({ loan, onClose }) {
+  const installAmt = loan.repayment_amount || 0;
+  const pending = loan.pending_amount || 0;
+  const presets = [
+    installAmt > 0 && { label: 'One Installment', value: installAmt },
+    { label: 'Full Pending', value: pending },
+  ].filter(Boolean);
+  const [amount, setAmount] = useState(presets[0]?.value || pending);
+  const [copied, setCopied] = useState(false);
+
+  const upiUrl = `upi://pay?pa=${encodeURIComponent(BUSINESS_UPI)}&pn=${encodeURIComponent(BUSINESS_NAME)}&am=${amount}&cu=INR&tn=${encodeURIComponent('Loan ' + loan.id)}`;
+  const waMsg = encodeURIComponent(`Hi, I am ${loan.customer_name} (Loan ${loan.id}). I would like to pay ₹${Number(amount).toLocaleString()} towards my loan. Please guide me.`);
+  const waUrl = `https://wa.me/${BUSINESS_PHONE}?text=${waMsg}`;
+
+  const copyUpi = () => {
+    navigator.clipboard?.writeText(BUSINESS_UPI).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal animate-slideUp" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">Make a Payment</div>
+          <button className="modal-close" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12 }}>Choose how much to pay</div>
+        <div className="stagger" style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          {presets.map(p => (
+            <button key={p.label} onClick={() => setAmount(p.value)}
+              className="card-hover"
+              style={{
+                flex: 1, minWidth: 130, padding: '12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                border: `2px solid ${amount === p.value ? 'var(--brand)' : 'var(--border)'}`,
+                background: amount === p.value ? 'var(--brand-soft)' : 'var(--surface-2)', color: 'var(--text)',
+              }}>
+              <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 4 }}>{p.label}</div>
+              <div style={{ fontWeight: 800, fontSize: 16, fontFamily: 'var(--mono)' }}>₹{Number(p.value).toLocaleString()}</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Custom amount (₹)</label>
+          <input className="form-input" type="number" min="1" max={pending} value={amount}
+            onChange={e => setAmount(Math.max(0, Number(e.target.value)))} />
+        </div>
+
+        <a href={upiUrl} className="btn btn-primary w-full" style={{ justifyContent: 'center', marginBottom: 10 }}>
+          <Smartphone size={16} /> Pay ₹{Number(amount).toLocaleString()} via UPI
+        </a>
+
+        <div onClick={copyUpi} className="card-hover" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 14px', borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', cursor: 'pointer', marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--text-2)' }}>UPI ID</div>
+            <div style={{ fontWeight: 700, fontSize: 14, fontFamily: 'var(--mono)' }}>{BUSINESS_UPI}</div>
+          </div>
+          {copied ? <Check size={16} style={{ color: 'var(--green)' }} /> : <Copy size={16} style={{ color: 'var(--text-2)' }} />}
+        </div>
+
+        <a href={waUrl} target="_blank" rel="noreferrer" className="btn btn-secondary w-full" style={{ justifyContent: 'center' }}>
+          <MessageCircle size={16} style={{ color: '#25D366' }} /> Notify I'll Pay Cash
+        </a>
+
+        <p style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center', marginTop: 12 }}>
+          UPI opens your payment app on mobile. Cash payments are collected by your agent.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function MyLoan() {
   const { user, logout } = useAuth();
   const [loans, setLoans] = useState([]);
-  const [payments, setPayments] = useState({}); // keyed by loan_id
+  const [payments, setPayments] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [payFor, setPayFor] = useState(null); // loan to pay
 
   useEffect(() => {
     apiFetch(`/api/loans/by-customer?name=${encodeURIComponent(user.name)}`)
@@ -18,7 +118,6 @@ export default function MyLoan() {
       })
       .then(async data => {
         setLoans(data);
-        // Load payment history for each loan
         const paymentMap = {};
         await Promise.all(data.map(async loan => {
           try {
@@ -46,14 +145,23 @@ export default function MyLoan() {
     </div>
   );
 
+  const profile = loans[0]; // borrower info is shared across their loans
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)', paddingBottom: '40px' }}>
       {/* Header */}
       <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(236,72,153,0.08))', borderBottom: '1px solid var(--border)', padding: '24px 20px' }}>
         <div style={{ maxWidth: '500px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '4px' }}>Welcome back,</p>
-            <h1 style={{ fontSize: '22px', fontWeight: 800 }}>{user.name}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--brand)', flexShrink: 0 }}>
+              {photoSrc(profile.photo_url)
+                ? <img src={photoSrc(profile.photo_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <span style={{ fontWeight: 900, fontSize: 20, color: 'var(--brand-light)' }}>{user.name?.charAt(0)?.toUpperCase()}</span>}
+            </div>
+            <div>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '2px' }}>Welcome back,</p>
+              <h1 style={{ fontSize: '20px', fontWeight: 800 }}>{user.name}</h1>
+            </div>
           </div>
           <button onClick={logout} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: '12px', padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}>
             <LogOut size={16} /> Sign Out
@@ -61,7 +169,38 @@ export default function MyLoan() {
         </div>
       </div>
 
-      <div style={{ maxWidth: '500px', margin: '0 auto', padding: '24px 20px' }}>
+      <div className="stagger" style={{ maxWidth: '500px', margin: '0 auto', padding: '24px 20px' }}>
+        {/* ── Borrower Information ── */}
+        <div className="card card-hover" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <User size={16} style={{ color: 'var(--brand)' }} />
+            <h3 style={{ fontSize: 15, fontWeight: 700 }}>My Information</h3>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {[
+              { icon: <Phone size={13} />, label: 'Phone', value: profile.customer_phone },
+              { icon: <Phone size={13} />, label: 'Alternate', value: profile.alternate_phone },
+              { icon: <Store size={13} />, label: 'Shop', value: profile.shop_name },
+              { icon: <MapPin size={13} />, label: 'Area', value: profile.zone },
+              { icon: <MapPin size={13} />, label: 'Address', value: profile.customer_address, full: true },
+              { icon: <Shield size={13} />, label: 'Aadhaar', value: maskAadhaar(profile.aadhaar_number) },
+            ].filter(f => f.value).map(f => (
+              <div key={f.label} style={{ background: 'var(--background)', padding: '10px 12px', borderRadius: 12, gridColumn: f.full ? '1 / -1' : 'auto' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>{f.icon}{f.label}</div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{f.value}</div>
+              </div>
+            ))}
+          </div>
+          {(profile.guarantor_name || profile.guarantor_phone) && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Guarantor</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{profile.guarantor_name}</div>
+              {profile.guarantor_phone && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{profile.guarantor_phone}</div>}
+              {profile.guarantor_address && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{profile.guarantor_address}</div>}
+            </div>
+          )}
+        </div>
+
         {loans.map(loan => {
           const progress = Math.min((loan.collected_amount / loan.due_amount) * 100, 100);
           const isSettled = loan.status === 'closed' || loan.pending_amount <= 0;
@@ -69,7 +208,6 @@ export default function MyLoan() {
           const freq = loan.repayment_frequency || 'monthly';
           const installAmt = loan.repayment_amount || 0;
 
-          // Compute next due date based on frequency
           const getNextDue = () => {
             if (!loan.start_date) return null;
             const now = new Date();
@@ -79,18 +217,45 @@ export default function MyLoan() {
             if (!gap) return null;
             let next = new Date(start);
             while (next <= now) next.setDate(next.getDate() + gap);
-            return next.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+            return next;
           };
-          const nextDue = getNextDue();
+          const nextDueDate = getNextDue();
+          const nextDue = nextDueDate?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
-          const upcoming = (loan.reminder_schedule || [])
-            .filter(r => r.status === 'scheduled')
-            .sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for))[0];
+          // ── Alert computation ──
+          const closing = loan.closing_date ? new Date(loan.closing_date) : null;
+          const now = new Date();
+          const daysToClose = closing ? Math.ceil((closing - now) / 86400000) : null;
+          const daysToNext = nextDueDate ? Math.ceil((nextDueDate - now) / 86400000) : null;
+          let alert = null;
+          if (isSettled) {
+            alert = { type: 'success', icon: <CheckCircle2 size={18} />, msg: 'Your loan is fully paid. Thank you!' };
+          } else if (closing && daysToClose < 0) {
+            alert = { type: 'danger', icon: <AlertTriangle size={18} />, msg: `Overdue by ${Math.abs(daysToClose)} day(s). Please pay ₹${loan.pending_amount.toLocaleString()} now.` };
+          } else if (daysToNext !== null && daysToNext <= 3) {
+            alert = { type: 'warn', icon: <Bell size={18} />, msg: `Payment of ₹${installAmt > 0 ? installAmt.toLocaleString() : loan.pending_amount.toLocaleString()} due ${daysToNext <= 0 ? 'today' : `in ${daysToNext} day(s)`}.` };
+          } else if (nextDue) {
+            alert = { type: 'info', icon: <Calendar size={18} />, msg: `Next payment due on ${nextDue}.` };
+          }
+          const alertColors = {
+            success: { bg: 'var(--positive-soft)', bd: 'rgba(16,185,129,0.35)', fg: 'var(--positive)' },
+            danger: { bg: 'var(--red-soft)', bd: 'rgba(239,68,68,0.35)', fg: 'var(--red)' },
+            warn: { bg: 'var(--amber-soft)', bd: 'rgba(245,158,11,0.35)', fg: 'var(--amber)' },
+            info: { bg: 'var(--brand-soft)', bd: 'rgba(99,102,241,0.35)', fg: 'var(--brand-light)' },
+          };
 
           return (
             <div key={loan.id}>
+              {/* Alert banner */}
+              {alert && (
+                <div className="animate-fadeUp" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 14, marginBottom: 16, background: alertColors[alert.type].bg, border: `1px solid ${alertColors[alert.type].bd}`, color: alertColors[alert.type].fg }}>
+                  <span style={{ flexShrink: 0 }}>{alert.icon}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{alert.msg}</span>
+                </div>
+              )}
+
               {/* Outstanding Balance Banner */}
-              <div className="card summary-card" style={{ textAlign: 'center', padding: '28px 20px', marginBottom: '16px' }}>
+              <div className="card summary-card card-hover" style={{ textAlign: 'center', padding: '28px 20px', marginBottom: '16px' }}>
                 <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                   {isSettled ? '🎉 Your loan is fully paid!' : 'Your outstanding balance'}
                 </div>
@@ -98,14 +263,19 @@ export default function MyLoan() {
                   ₹{loan.pending_amount.toLocaleString()}
                 </div>
                 {!isSettled && (
-                  <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px' }}>
-                    Due by <strong>{loan.closing_date}</strong>
-                  </div>
+                  <>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px' }}>
+                      Due by <strong>{loan.closing_date}</strong>
+                    </div>
+                    <button onClick={() => setPayFor(loan)} className="btn btn-primary" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }}>
+                      <IndianRupee size={16} /> Pay Now
+                    </button>
+                  </>
                 )}
               </div>
 
               {/* Progress */}
-              <div className="card" style={{ marginBottom: '16px' }}>
+              <div className="card card-hover" style={{ marginBottom: '16px' }}>
                 <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '16px' }}>Payment Progress</h3>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>
                   <span>Paid: <strong style={{ color: 'var(--positive)' }}>₹{loan.collected_amount.toLocaleString()}</strong></span>
@@ -120,7 +290,7 @@ export default function MyLoan() {
               </div>
 
               {/* Repayment Schedule */}
-              <div className="card" style={{ marginBottom: '16px' }}>
+              <div className="card card-hover" style={{ marginBottom: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                   <RefreshCw size={16} style={{ color: 'var(--brand)' }} />
                   <h3 style={{ fontSize: '15px', fontWeight: 700 }}>Repayment Schedule</h3>
@@ -150,7 +320,7 @@ export default function MyLoan() {
 
               {/* Payment History */}
               {loanPayments.length > 0 && (
-                <div className="card" style={{ marginBottom: '16px' }}>
+                <div className="card card-hover" style={{ marginBottom: '16px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '16px' }}>Payment History</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {loanPayments.slice(0, 10).map((p, i) => {
@@ -184,7 +354,7 @@ export default function MyLoan() {
 
               {/* WhatsApp Reminders */}
               {loan.reminder_schedule && loan.reminder_schedule.length > 0 && (
-                <div className="card" style={{ marginBottom: '20px' }}>
+                <div className="card card-hover" style={{ marginBottom: '20px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                     <MessageCircle size={18} style={{ color: '#25D366' }} />
                     <h3 style={{ fontSize: '15px', fontWeight: 700 }}>WhatsApp Reminders</h3>
@@ -214,6 +384,8 @@ export default function MyLoan() {
           );
         })}
       </div>
+
+      {payFor && <PaymentModal loan={payFor} onClose={() => setPayFor(null)} />}
     </div>
   );
 }

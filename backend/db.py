@@ -267,7 +267,8 @@ def seed_db():
             "customer_name": "Rajan Kumar",
             "customer_email": "rajan@gmail.com",
             "customer_phone": "9876543210",
-            "customer_address": "12 Gandhi Nagar, Chennai",
+            "customer_address": "12 3rd Street, Gandhipuram, Coimbatore",
+            "zone": "Gandhipuram",
             "alternate_phone": "9876543211",
             "shop_name": "Rajan Stores",
             "aadhaar_number": "123456789012",
@@ -288,6 +289,8 @@ def seed_db():
             "total_days_not_paid": 0,
             "repayment_frequency": "daily",
             "repayment_amount": 500.0,
+            "start_date": "2026-05-01",
+            "closing_date": "2026-08-15",
             "created_at": "2026-05-01T10:00:00"
         },
         {
@@ -296,7 +299,8 @@ def seed_db():
             "customer_name": "Meena Devi",
             "customer_email": "meena@gmail.com",
             "customer_phone": "8765432109",
-            "customer_address": "45 Anna Street, Coimbatore",
+            "customer_address": "45 Cross Cut Rd, Gandhipuram, Coimbatore",
+            "zone": "Gandhipuram",
             "alternate_phone": "",
             "shop_name": "",
             "aadhaar_number": "987654321098",

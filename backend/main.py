@@ -465,6 +465,7 @@ async def get_loans(user=Depends(require_role("admin", "collector"))):
         # New fields defaults for old records
         l.setdefault("alternate_phone", "")
         l.setdefault("shop_name", "")
+        l.setdefault("zone", "")
         l.setdefault("aadhaar_number", "")
         l.setdefault("photo_url", "")
         l.setdefault("guarantor_name", "")
@@ -604,6 +605,46 @@ async def get_loans_by_customer(name: str, user=Depends(require_role("admin", "m
         loans.append(l)
 
     return [LoanRecord(**l) for l in loans]
+
+
+@app.get("/api/loans/stats")
+async def get_loans_overview(user=Depends(require_role("admin", "collector"))):
+    """Portfolio-wide aggregate stats for the dashboard."""
+    db = get_firestore_client()
+    docs = db.collection("loans").get()
+
+    active_loans = 0
+    total_outstanding = 0.0
+    total_collected = 0.0
+    total_disbursed = 0.0
+    total_due = 0.0
+    closed_loans = 0
+
+    for doc in docs:
+        l = doc.to_dict()
+        status = l.get("status", "active")
+        collected = l.get("collected_amount", 0) or 0
+        pending = l.get("pending_amount", 0) or 0
+        total_collected += collected
+        total_disbursed += l.get("loan_amount", 0) or 0
+        total_due += l.get("due_amount", 0) or 0
+        if status == "active":
+            active_loans += 1
+            total_outstanding += pending
+        elif status == "closed":
+            closed_loans += 1
+
+    recovery_rate = round((total_collected / total_due) * 100, 1) if total_due > 0 else 0.0
+
+    return {
+        "active_loans": active_loans,
+        "closed_loans": closed_loans,
+        "total_outstanding": round(total_outstanding, 2),
+        "total_collected": round(total_collected, 2),
+        "total_disbursed": round(total_disbursed, 2),
+        "total_due": round(total_due, 2),
+        "recovery_rate": recovery_rate,
+    }
 
 
 @app.get("/api/loans/{loan_id}/stats", response_model=LoanStatsResponse)

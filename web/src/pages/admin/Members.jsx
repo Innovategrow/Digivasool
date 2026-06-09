@@ -19,7 +19,7 @@ const FREQ_OPTIONS = [
 const SORT_OPTIONS = [
   { value: 'name',     label: 'Name A-Z' },
   { value: 'balance',  label: 'Highest Balance' },
-  { value: 'location', label: 'By Location' },
+  { value: 'location', label: '📍 By Coimbatore Area' },
   { value: 'newest',   label: 'Newest First' },
 ];
 
@@ -224,7 +224,7 @@ export default function Members({ readOnly = false }) {
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.phone || !formData.zone || !formData.amount || !formData.closeDate) {
-      alert('Name, Phone, Zone, Amount and Due Date are required.'); return;
+      alert('Name, Phone, Coimbatore area, Amount and Due Date are required.'); return;
     }
     if (!phoneVerified) {
       alert('Please verify borrower phone with OTP before creating the loan.');
@@ -272,7 +272,7 @@ export default function Members({ readOnly = false }) {
   const sortedLoans = [...visibleLoans].sort((a, b) => {
     if (sortBy === 'name') return a.customer_name.localeCompare(b.customer_name);
     if (sortBy === 'balance') return b.pending_amount - a.pending_amount;
-    if (sortBy === 'location') return (a.customer_address || '').localeCompare(b.customer_address || '');
+    if (sortBy === 'location') return (a.zone || a.customer_address || '').localeCompare(b.zone || b.customer_address || '');
     if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
     return 0;
   });
@@ -300,15 +300,15 @@ export default function Members({ readOnly = false }) {
         )}
       </div>
 
-      {/* Zone Filter */}
+      {/* Coimbatore area filter */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4, alignItems: 'center' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><MapPin size={13} /> Zone:</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><MapPin size={13} /> Coimbatore:</span>
         {['all', ...ZONES].map(z => (
           <button key={z} type="button" onClick={() => setZoneFilter(z)}
             style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
               background: zoneFilter === z ? 'var(--brand)' : 'var(--surface)',
               color: zoneFilter === z ? 'white' : 'var(--text-2)' }}>
-            {z === 'all' ? 'All Zones' : z}
+            {z === 'all' ? 'All Areas' : z}
           </button>
         ))}
       </div>
@@ -352,7 +352,7 @@ export default function Members({ readOnly = false }) {
                 </div>
               </div>
               {loan.customer_phone && <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>📱 {loan.customer_phone}{loan.alternate_phone ? ` · Alt: ${loan.alternate_phone}` : ''}</div>}
-              {loan.zone && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2 }}>🗺️ {loan.zone} zone</div>}
+              {loan.zone && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2 }}>📍 {loan.zone}, Coimbatore</div>}
               {loan.customer_address && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2 }}>📍 {loan.customer_address.split(',')[0]}</div>}
               {loan.repayment_amount > 0 && (
                 <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>
@@ -394,7 +394,7 @@ export default function Members({ readOnly = false }) {
       {sortedLoans.length === 0 && (
         <div style={{ textAlign: 'center', color: 'var(--text-2)', marginTop: '60px' }}>
           <ShieldCheck size={48} style={{ opacity: 0.15, marginBottom: '16px' }} />
-          <p>No borrowers{zoneFilter !== 'all' ? ` in ${zoneFilter} zone` : ''} yet. Click "Add Borrower + Loan" to begin.</p>
+          <p>No borrowers{zoneFilter !== 'all' ? ` in ${zoneFilter}, Coimbatore` : ''} yet. Click "Add Borrower + Loan" to begin.</p>
         </div>
       )}
 
@@ -440,10 +440,10 @@ export default function Members({ readOnly = false }) {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Zone *</label>
+                <label className="form-label">Area in Coimbatore *</label>
                 <IconInput icon={<MapPin size={16} />}>
                   <select className="form-input" {...field('zone')}>
-                    <option value="">Select zone…</option>
+                    <option value="">Select area…</option>
                     {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
                   </select>
                 </IconInput>

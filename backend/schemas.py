@@ -159,6 +159,8 @@ class LoanRecord(BaseModel):
     total_days_paid: int
     total_days_not_paid: int
     created_at: str
+    start_date: Optional[str] = None
+    closing_date: Optional[str] = None
     repayment_frequency: Optional[str] = "monthly"
     repayment_amount: Optional[float] = 0.0
     reminder_schedule: Optional[List[ReminderScheduleEntry]] = []

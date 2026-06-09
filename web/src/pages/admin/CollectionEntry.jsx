@@ -6,7 +6,7 @@ import { apiFetch } from '../../utils/api';
 const SORT_OPTIONS = [
   { value: 'balance',  label: 'Highest Balance' },
   { value: 'name',     label: 'Name A-Z' },
-  { value: 'location', label: '📍 By Location' },
+  { value: 'location', label: '📍 By Coimbatore Area' },
   { value: 'newest',   label: 'Newest First' },
 ];
 
@@ -39,7 +39,7 @@ export default function CollectionEntry() {
     return [...filtered].sort((a, b) => {
       if (sortBy === 'balance') return b.pending_amount - a.pending_amount;
       if (sortBy === 'name') return a.customer_name.localeCompare(b.customer_name);
-      if (sortBy === 'location') return (a.customer_address || '').localeCompare(b.customer_address || '');
+      if (sortBy === 'location') return (a.zone || a.customer_address || '').localeCompare(b.zone || b.customer_address || '');
       if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
       return 0;
     });
