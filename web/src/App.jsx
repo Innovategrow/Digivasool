@@ -1,9 +1,22 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, NavLink } from 'react-router-dom';
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppDataProvider, useAppData } from './context/AppDataContext';
 import Sidebar from './components/Sidebar';
-import { Bell, Menu, Settings } from 'lucide-react';
+import { Bell, Menu, Settings, LayoutDashboard, Users, CreditCard, BookOpen } from 'lucide-react';
+
+const ADMIN_MOBILE_TABS = [
+  { to: '/',           icon: LayoutDashboard, label: 'Home' },
+  { to: '/borrowers',  icon: Users,           label: 'Members' },
+  { to: '/collection', icon: CreditCard,      label: 'Collect' },
+  { to: '/ledger',     icon: BookOpen,        label: 'Ledger' },
+];
+
+const COLLECTOR_MOBILE_TABS = [
+  { to: '/collector',           icon: CreditCard, label: 'Collect' },
+  { to: '/collector/borrowers', icon: Users,      label: 'Borrowers' },
+  { to: '/collector/history',   icon: BookOpen,   label: 'History' },
+];
 
 import Dashboard from './pages/admin/Dashboard';
 import Ledger from './pages/admin/Ledger';
@@ -56,17 +69,14 @@ function DesktopShell({ collectorMode = false }) {
 
       <div className="main-content">
         <div className="main-header animate-slideDown">
-          <button className="mobile-menu-btn" onClick={() => setMobileNavOpen(o => !o)} style={{ border: '1px solid var(--border)', cursor: 'pointer' }}>
-            <Menu size={20} />
-          </button>
           {collapsed && (
             <button onClick={() => setCollapsed(false)} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer' }}>
               <Menu size={20} />
             </button>
           )}
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 800 }}>{pageTitle}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div className="header-date" style={{ fontSize: 11, color: 'var(--text-2)' }}>{new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
           </div>
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -94,7 +104,7 @@ function DesktopShell({ collectorMode = false }) {
                 )}
               </div>
             )}
-            <div style={{ background: 'var(--green-soft)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 10, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>
+            <div className="header-today-badge" style={{ background: 'var(--green-soft)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 10, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: 'var(--green)', whiteSpace: 'nowrap' }}>
               ₹{derived.todayCollected.toLocaleString()} Today
             </div>
           </div>
@@ -125,6 +135,20 @@ function DesktopShell({ collectorMode = false }) {
             )}
           </Routes>
         </div>
+
+        <nav className="bottom-nav mobile-only">
+          {(collectorMode ? COLLECTOR_MOBILE_TABS : ADMIN_MOBILE_TABS).map(t => (
+            <NavLink key={t.to} to={t.to} end={t.to === '/' || t.to === '/collector'}
+              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+              <t.icon size={20} />
+              <span>{t.label}</span>
+            </NavLink>
+          ))}
+          <button className="nav-item" onClick={() => setMobileNavOpen(true)}>
+            <Menu size={20} />
+            <span>More</span>
+          </button>
+        </nav>
       </div>
     </div>
   );
