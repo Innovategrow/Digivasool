@@ -510,8 +510,8 @@ export default function Members({ readOnly = false }) {
 
       {/* ── Add Borrower + Loan Modal ──────────────────────────────────────── */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
-          <div className="card" style={{ width: '100%', maxWidth: '540px', margin: '16px 0', animation: 'slideUp 0.3s ease' }}>
+        <div className="borrower-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto' }}>
+          <div className="card borrower-modal-card" style={{ animation: 'slideUp 0.3s ease' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div>
                 <h3 style={{ fontSize: '18px', fontWeight: 800 }}>New Borrower + Loan</h3>
