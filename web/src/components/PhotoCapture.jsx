@@ -3,7 +3,7 @@ import { Camera, Upload, X, RefreshCw, Check } from 'lucide-react';
 
 // Reusable photo input that supports both file upload and live camera capture.
 // `value` is a base64 data URL (or null). `onChange(dataUrl)` is called on change.
-export default function PhotoCapture({ value, onChange, size = 96, label = 'Add photo' }) {
+export default function PhotoCapture({ value, onChange, size = 72, label = 'Add photo' }) {
   const fileRef = useRef(null);
   const [camOpen, setCamOpen] = useState(false);
 
@@ -16,36 +16,38 @@ export default function PhotoCapture({ value, onChange, size = 96, label = 'Add 
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
       <div
         onClick={() => (value ? null : fileRef.current?.click())}
         style={{
-          width: size, height: size, borderRadius: 20, background: 'var(--surface-2)',
+          width: size, height: size, borderRadius: 18, background: 'var(--surface-2)',
           border: '2px dashed var(--border)', display: 'flex', alignItems: 'center',
           justifyContent: 'center', overflow: 'hidden', cursor: value ? 'default' : 'pointer',
-          position: 'relative',
+          position: 'relative', flexShrink: 0,
         }}
       >
         {value
           ? <img src={value} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <Camera size={Math.round(size / 3)} style={{ color: 'var(--text-2)' }} />}
+          : <Camera size={Math.round(size / 2.6)} style={{ color: 'var(--text-2)' }} />}
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()}>
-          <Upload size={14} /> Upload
-        </button>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCamOpen(true)}>
-          <Camera size={14} /> Camera
-        </button>
-        {value && (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onChange(null)}
-            style={{ color: 'var(--red)' }}>
-            <X size={14} /> Remove
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: value ? 0 : 6 }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()}>
+            <Upload size={14} /> Upload
           </button>
-        )}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCamOpen(true)}>
+            <Camera size={14} /> Camera
+          </button>
+          {value && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => onChange(null)}
+              style={{ color: 'var(--red)' }}>
+              <X size={14} /> Remove
+            </button>
+          )}
+        </div>
+        {!value && <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{label}</div>}
       </div>
-      {!value && <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{label}</div>}
 
       <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFile} />
 

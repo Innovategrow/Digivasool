@@ -313,7 +313,7 @@ select.form-input option{background:var(--surface-2);}
 
 /* ── Mobile shell (collector/member) ── */
 .app-container{display:flex;min-height:100vh;flex-direction:column;}
-.bottom-nav{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:400px;height:64px;background:var(--surface);border:1px solid var(--border-2);border-radius:32px;display:flex;justify-content:space-around;align-items:center;z-index:1000;box-shadow:0 20px 40px rgba(15,23,42,.14);backdrop-filter:blur(10px);}
+.bottom-nav{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:400px;height:64px;background:var(--surface);border:1px solid var(--border-2);border-radius:32px;display:none;justify-content:space-around;align-items:center;z-index:1000;box-shadow:0 20px 40px rgba(15,23,42,.14);backdrop-filter:blur(10px);}
 .nav-item{display:flex;flex-direction:column;align-items:center;color:var(--text-2);font-size:10px;font-weight:600;gap:4px;transition:all .3s;padding:8px 12px;border-radius:16px;background:none;border:none;font-family:inherit;cursor:pointer;}
 .nav-item:hover{color:var(--text);}
 .nav-item.active{color:var(--brand);background:var(--brand-soft);}
