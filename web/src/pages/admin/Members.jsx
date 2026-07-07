@@ -307,6 +307,7 @@ export default function Members({ readOnly = false }) {
 
   return (
     <div className="screen-container pt-4 animate-fadeUp">
+      <div className="desktop-only">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Borrowers & Loans</h2>
@@ -423,6 +424,89 @@ export default function Members({ readOnly = false }) {
           <p>No borrowers{zoneFilter !== 'all' ? ` in ${zoneFilter}, Coimbatore` : ''} yet. Click "Add Borrower + Loan" to begin.</p>
         </div>
       )}
+      </div>
+
+      {/* ── Mobile app-style borrower list (phone screens only) ── */}
+      <div className="mobile-only mobile-list-view">
+        <div className="mh-header">
+          <div>
+            <div className="mh-greeting" style={{ fontSize: 20 }}>Borrowers</div>
+            <div className="mh-sub">{sortedLoans.length} member{sortedLoans.length !== 1 ? 's' : ''} · {zoneFilter === 'all' ? 'All Coimbatore areas' : zoneFilter}</div>
+          </div>
+          {canMerge && (
+            <button className="mh-filter-btn" onClick={() => setShowMerge(true)} title="Merge borrowers">
+              <GitMerge size={18} />
+            </button>
+          )}
+        </div>
+
+        <div className="mh-pills">
+          {['all', ...ZONES].map(z => (
+            <button key={z} className={`mh-pill${zoneFilter === z ? ' active' : ''}`} onClick={() => setZoneFilter(z)}>
+              {z === 'all' ? 'All Areas' : z}
+            </button>
+          ))}
+        </div>
+
+        <div className="mh-pills">
+          {SORT_OPTIONS.map(opt => (
+            <button key={opt.value} className={`mh-pill${sortBy === opt.value ? ' active' : ''}`} onClick={() => setSortBy(opt.value)}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {sortedLoans.length === 0 ? (
+          <div className="mh-empty">No borrowers{zoneFilter !== 'all' ? ` in ${zoneFilter}` : ''} yet. Tap + to add one.</div>
+        ) : (
+          <div className="mm-card-list">
+            {sortedLoans.map(loan => {
+              const progress = loan.due_amount > 0 ? Math.min((loan.collected_amount / loan.due_amount) * 100, 100) : 0;
+              const settled = loan.pending_amount <= 0;
+              const expanded = expandedId === loan.id;
+              const totalDeductions = (loan.field_visit_charge || 0) + (loan.document_fee || 0) + (loan.processing_fee || 0);
+              const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
+              return (
+                <div key={loan.id} className="mm-card" onClick={() => setExpandedId(expanded ? null : loan.id)}>
+                  <div className="mm-card-row">
+                    <div className="mm-photo">
+                      {loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="mm-info">
+                      <div className="mm-name">{loan.customer_name}</div>
+                      {loan.shop_name && <div className="mm-shop"><Store size={11} /> {loan.shop_name}</div>}
+                      <div className="mm-badges">
+                        {loan.zone && <span className="badge badge-indigo"><MapPin size={9} /> {loan.zone}</span>}
+                        <span className={`badge ${settled ? 'badge-green' : 'badge-amber'}`}>{Math.round(progress)}% paid</span>
+                      </div>
+                    </div>
+                    <div className="mm-right">
+                      <div className={`mm-amount${settled ? ' settled' : ''}`}>{settled ? 'Settled' : `₹${loan.pending_amount.toLocaleString()}`}</div>
+                      <div className="mm-amount-label">{settled ? '' : 'Due'}</div>
+                    </div>
+                  </div>
+                  {expanded && (
+                    <div className="mm-detail" onClick={e => e.stopPropagation()}>
+                      {loan.customer_phone && <div><span className="mm-detail-label">Phone:</span> {loan.customer_phone}</div>}
+                      <div><span className="mm-detail-label">Loan:</span> ₹{(loan.loan_amount || 0).toLocaleString()}</div>
+                      <div><span className="mm-detail-label">Interest:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
+                      <div><span className="mm-detail-label">Cash Disbursed:</span> ₹{cashDisbursed.toLocaleString()}</div>
+                      <div><span className="mm-detail-label">Collected:</span> ₹{(loan.collected_amount || 0).toLocaleString()}</div>
+                      <div><span className="mm-detail-label">Total Due:</span> ₹{(loan.due_amount || 0).toLocaleString()}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {canCreate && (
+          <button className="fab" style={{ bottom: 96 }} onClick={() => setShowModal(true)} title="Add Borrower + Loan">
+            <UserPlus size={22} />
+          </button>
+        )}
+      </div>
 
       {/* ── Add Borrower + Loan Modal ──────────────────────────────────────── */}
       {showModal && (

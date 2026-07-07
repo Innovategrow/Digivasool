@@ -1,5 +1,6 @@
 import { useAppData } from '../../context/AppDataContext';
-import { TrendingUp, AlertTriangle, Wallet, Target, ArrowRight, CheckCircle2, Clock, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { TrendingUp, AlertTriangle, Wallet, Target, ArrowRight, CheckCircle2, Clock, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3, Search, SlidersHorizontal } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
@@ -46,9 +47,11 @@ function RecoveryRing({ percent }) {
 
 export default function Dashboard() {
   const { derived, state } = useAppData();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { todayCollected, overdueCount } = derived;
   const [apiStats, setApiStats] = useState(null);
+  const [mobileFilter, setMobileFilter] = useState('due');
 
   useEffect(() => {
     apiFetch('/api/loans/stats')
@@ -75,6 +78,99 @@ export default function Dashboard() {
 
   return (
     <div className="animate-fadeUp">
+      {/* ── Mobile app-style home (phone screens only) ── */}
+      <div className="mobile-home">
+        <div className="mh-header">
+          <div>
+            <div className="mh-greeting">Hello, {user?.name?.split(' ')[0] || 'there'}</div>
+            <div className="mh-sub">Welcome back to VasoolPro</div>
+          </div>
+          <div className="mh-avatar">{user?.name?.charAt(0)?.toUpperCase() || 'A'}</div>
+        </div>
+
+        <div className="mh-search-row">
+          <div className="mh-search" onClick={() => navigate('/borrowers')}>
+            <Search size={16} /><span>Search borrowers...</span>
+          </div>
+          <button className="mh-filter-btn" onClick={() => navigate('/collection')}>
+            <SlidersHorizontal size={18} />
+          </button>
+        </div>
+
+        <div className="mh-hero">
+          <div className="mh-hero-label">Collected Today</div>
+          <div className="mh-hero-amount">₹<AnimatedNumber value={todayCollected} /></div>
+          <div className="mh-hero-progress-track">
+            <div className="mh-hero-progress-fill" style={{ width: `${Math.min(todayProgress, 100)}%` }} />
+          </div>
+          <div className="mh-hero-foot">
+            <span>{todayProgress}% of ₹{expectedToday.toLocaleString()} expected</span>
+            <span>{recoveryRate}% recovered overall</span>
+          </div>
+        </div>
+
+        <div className="mh-quick-row">
+          <button className="mh-quick-btn" onClick={() => navigate('/borrowers')}><UserPlus size={18} />New Loan</button>
+          <button className="mh-quick-btn" onClick={() => navigate('/collection')}><Banknote size={18} />Collect</button>
+          <button className="mh-quick-btn" onClick={() => navigate('/reports')}><BarChart3 size={18} />Reports</button>
+        </div>
+
+        <div className="mh-pills">
+          <button className={`mh-pill${mobileFilter === 'due' ? ' active' : ''}`} onClick={() => setMobileFilter('due')}>Due Today ({dueToday.length})</button>
+          <button className={`mh-pill${mobileFilter === 'overdue' ? ' active' : ''}`} onClick={() => setMobileFilter('overdue')}>Overdue ({overdueItems.length})</button>
+        </div>
+
+        {mobileFilter === 'due' ? (
+          <>
+            <div className="mh-row-header">
+              <span className="mh-section-title">Due Today</span>
+              <button className="mh-see-all" onClick={() => navigate('/collection')}>See all <ArrowRight size={12} /></button>
+            </div>
+            {dueToday.length === 0 ? (
+              <div className="mh-empty">All today's dues collected!</div>
+            ) : (
+              <div className="mh-list">
+                {dueToday.slice(0, 6).map(i => (
+                  <div key={i.id} className="mh-list-item" onClick={() => navigate('/collection')}>
+                    <div className="mh-item-avatar">{i.borrowerName.charAt(0).toUpperCase()}</div>
+                    <div className="mh-item-info">
+                      <div className="mh-item-name">{i.borrowerName}</div>
+                      <div className="mh-item-meta">{i.phone}</div>
+                    </div>
+                    <div className="mh-item-amount" style={{ color: 'var(--amber)' }}>₹{i.amount.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="mh-row-header">
+              <span className="mh-section-title">Overdue Alerts</span>
+              <button className="mh-see-all" onClick={() => navigate('/ledger')}>See all <ArrowRight size={12} /></button>
+            </div>
+            {overdueItems.length === 0 ? (
+              <div className="mh-empty">No overdue accounts!</div>
+            ) : (
+              <div className="mh-list">
+                {overdueItems.slice(0, 6).map(i => (
+                  <div key={i.id} className="mh-list-item" onClick={() => navigate('/ledger')}>
+                    <div className="mh-item-avatar">{i.borrowerName.charAt(0).toUpperCase()}</div>
+                    <div className="mh-item-info">
+                      <div className="mh-item-name">{i.borrowerName}</div>
+                      <div className="mh-item-meta">Due: {i.dueDate}</div>
+                    </div>
+                    <div className="mh-item-amount" style={{ color: 'var(--red)' }}>₹{i.amount.toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Desktop dashboard (tablet/desktop screens) ── */}
+      <div className="desktop-only">
       {/* Stat cards */}
       <div className="stat-grid">
         {[
@@ -214,6 +310,7 @@ export default function Dashboard() {
             );
           })}
         </div>
+      </div>
       </div>
     </div>
   );

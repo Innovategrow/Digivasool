@@ -220,6 +220,73 @@ select.form-input option{background:var(--surface-2);}
 .fab{position:fixed;bottom:32px;right:32px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--brand),var(--violet));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 25px var(--brand-glow);transition:all .2s;z-index:200;color:#fff;}
 .fab:hover{transform:scale(1.1) translateY(-2px);box-shadow:0 12px 35px var(--brand-glow);}
 
+/* ── Generic party/borrower avatar (initials circle) ── */
+.party-avatar{width:48px;height:48px;border-radius:12px;background:var(--brand-soft);color:var(--brand-light);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex-shrink:0;}
+
+/* ── Mobile "app" home & list views (phone-only, hidden on desktop) ── */
+.mobile-home,.mobile-list-view{display:none;}
+@media (max-width: 860px){
+  .desktop-only{display:none!important;}
+  .mobile-home,.mobile-list-view{display:block;}
+}
+
+.mh-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}
+.mh-greeting{font-size:22px;font-weight:800;}
+.mh-sub{font-size:13px;color:var(--text-2);margin-top:2px;}
+.mh-avatar{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,var(--brand),var(--violet));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px;flex-shrink:0;}
+
+.mh-search-row{display:flex;gap:10px;margin-bottom:20px;}
+.mh-search{flex:1;display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px 16px;color:var(--text-2);cursor:pointer;font-size:14px;}
+.mh-filter-btn{width:48px;height:48px;border-radius:16px;background:var(--text);color:var(--surface);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:none;cursor:pointer;}
+
+.mh-section-title{font-size:15px;font-weight:800;margin-bottom:12px;}
+.mh-pills{display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;}
+.mh-pill{padding:9px 18px;border-radius:20px;font-size:13px;font-weight:700;background:var(--surface-2);color:var(--text-2);white-space:nowrap;border:none;cursor:pointer;flex-shrink:0;}
+.mh-pill.active{background:var(--text);color:var(--surface);}
+
+.mh-hero{border-radius:24px;padding:22px;background:linear-gradient(135deg,var(--brand),var(--violet));color:#fff;margin-bottom:20px;position:relative;overflow:hidden;}
+.mh-hero-label{font-size:12px;opacity:.85;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+.mh-hero-amount{font-size:32px;font-weight:900;font-family:var(--mono);margin:8px 0 14px;}
+.mh-hero-progress-track{height:6px;background:rgba(255,255,255,.25);border-radius:3px;overflow:hidden;margin-bottom:8px;}
+.mh-hero-progress-fill{height:100%;background:#fff;border-radius:3px;transition:width .6s ease;}
+.mh-hero-foot{font-size:12px;opacity:.9;display:flex;justify-content:space-between;}
+
+.mh-quick-row{display:flex;gap:10px;margin-bottom:24px;}
+.mh-quick-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px 8px;font-size:11px;font-weight:700;color:var(--text-2);cursor:pointer;}
+.mh-quick-btn svg{color:var(--brand);}
+
+.mh-row-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.mh-row-header .mh-section-title{margin-bottom:0;}
+.mh-see-all{font-size:12px;font-weight:700;color:var(--brand);display:flex;align-items:center;gap:2px;cursor:pointer;background:none;border:none;}
+
+.mh-list{margin-bottom:24px;}
+.mh-list-item{display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:16px;margin-bottom:10px;cursor:pointer;}
+.mh-item-avatar{width:40px;height:40px;border-radius:12px;background:var(--surface-3);color:var(--text-2);display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0;overflow:hidden;}
+.mh-item-avatar img{width:100%;height:100%;object-fit:cover;}
+.mh-item-info{flex:1;min-width:0;}
+.mh-item-name{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mh-item-meta{font-size:12px;color:var(--text-2);margin-top:1px;}
+.mh-item-amount{font-weight:800;font-size:14px;font-family:var(--mono);flex-shrink:0;}
+.mh-empty{padding:18px;text-align:center;color:var(--text-2);font-size:13px;background:var(--surface-2);border-radius:16px;}
+
+/* ── Mobile borrower cards (Members list) ── */
+.mm-card-list{display:flex;flex-direction:column;gap:12px;padding-bottom:24px;}
+.mm-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:14px;cursor:pointer;transition:border-color .2s ease;}
+.mm-card:active{border-color:var(--brand);}
+.mm-card-row{display:flex;align-items:center;gap:14px;}
+.mm-detail{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;}
+.mm-detail-label{color:var(--text-2);}
+.mm-photo{width:60px;height:60px;border-radius:16px;overflow:hidden;flex-shrink:0;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;color:var(--brand-light);font-weight:800;font-size:20px;}
+.mm-photo img{width:100%;height:100%;object-fit:cover;}
+.mm-info{flex:1;min-width:0;}
+.mm-name{font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mm-shop{font-size:12px;color:var(--text-2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px;}
+.mm-badges{display:flex;gap:6px;margin-top:6px;}
+.mm-right{text-align:right;flex-shrink:0;}
+.mm-amount{font-weight:800;font-size:14px;font-family:var(--mono);color:var(--amber);}
+.mm-amount.settled{color:var(--green);}
+.mm-amount-label{font-size:10px;color:var(--text-3);text-transform:uppercase;margin-top:2px;}
+
 /* ── Health Score Ring ── */
 .health-ring{width:60px;height:60px;position:relative;}
 .health-ring svg{transform:rotate(-90deg);}
