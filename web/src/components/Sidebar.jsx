@@ -10,7 +10,7 @@ import {
 const ADMIN_NAV = [
   { section: 'Main' },
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/borrowers', icon: Users,           label: 'Members', highlight: true },
+  { to: '/borrowers', icon: Users,           label: 'Borrowers', highlight: true },
   { to: '/collection',icon: CreditCard,      label: 'Collection' },
   { to: '/ledger',    icon: BookOpen,        label: 'Ledger' },
   { section: 'Finance' },

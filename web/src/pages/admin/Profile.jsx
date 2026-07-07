@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { User, Mail, ShieldCheck, LogOut, Clock, Smartphone, MapPin, Building, FileText, Upload, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
 
 export default function Profile() {
@@ -12,24 +11,14 @@ export default function Profile() {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    // Fetch member data if it's a member
-    if (user.role === 'member') {
-      apiFetch(`/api/loans/by-customer?name=${encodeURIComponent(user.name)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.length > 0) setProfileData(data[0]);
-        })
-        .finally(() => setLoading(false));
-    } else {
-      // Mock admin data
-      setProfileData({
-        customer_name: user.name,
-        customer_email: 'admin@digitalkhata.com',
-        customer_phone: '+91 99999 88888',
-        customer_address: '123 Finance Tower, Bangalore, KA',
-      });
-      setLoading(false);
-    }
+    // Mock admin data
+    setProfileData({
+      customer_name: user.name,
+      customer_email: 'admin@digitalkhata.com',
+      customer_phone: '+91 99999 88888',
+      customer_address: '123 Finance Tower, Bangalore, KA',
+    });
+    setLoading(false);
 
     setAuditLogs([
       { id: 1, action: 'LOGIN', detail: `Logged in from LAN device`, time: new Date().toISOString() },

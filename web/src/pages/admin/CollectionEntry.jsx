@@ -70,7 +70,7 @@ export default function CollectionEntry() {
           <button onClick={() => navigate(-1)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '8px', color: 'var(--text)', cursor: 'pointer', display: 'flex' }}>
             <ArrowLeft size={20} />
           </button>
-          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Select Member</h2>
+          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Select Borrower</h2>
         </div>
 
         {loans.length === 0 ? (

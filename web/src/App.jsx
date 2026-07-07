@@ -7,7 +7,7 @@ import { Bell, Menu, Settings, LayoutDashboard, Users, CreditCard, BookOpen } fr
 
 const ADMIN_MOBILE_TABS = [
   { to: '/',           icon: LayoutDashboard, label: 'Home' },
-  { to: '/borrowers',  icon: Users,           label: 'Members' },
+  { to: '/borrowers',  icon: Users,           label: 'Borrowers' },
   { to: '/collection', icon: CreditCard,      label: 'Collect' },
   { to: '/ledger',     icon: BookOpen,        label: 'Ledger' },
 ];
@@ -29,7 +29,6 @@ import Profile from './pages/admin/Profile';
 import Transactions from './pages/admin/Transactions';
 
 import Login from './pages/Login';
-import MyLoan from './pages/user/MyLoan';
 import CollectPayment from './pages/collector/CollectPayment';
 import CollectorHistory from './pages/collector/CollectorHistory';
 
@@ -38,7 +37,6 @@ function ProtectedRoute({ children, roles }) {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (roles && !roles.includes(user.role)) {
-    if (user.role === 'member') return <Navigate to="/my-loan" replace />;
     if (user.role === 'collector') return <Navigate to="/collector" replace />;
     return <Navigate to="/" replace />;
   }
@@ -53,7 +51,7 @@ function DesktopShell({ collectorMode = false }) {
   const location = useLocation();
 
   const pageTitle = {
-    '/': 'Dashboard', '/borrowers': 'Members', '/new-loan': 'Members',
+    '/': 'Dashboard', '/borrowers': 'Borrowers', '/new-loan': 'Borrowers',
     '/ledger': 'Ledger', '/expenses': 'Expenses', '/reports': 'Reports',
     '/staff': 'Staff Management', '/settings': 'Settings',
     '/collection': 'Collection Entry', '/profile': 'Profile',
@@ -160,9 +158,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={
-        user ? <Navigate to={user.role === 'member' ? '/my-loan' : user.role === 'collector' ? '/collector' : '/'} replace /> : <Login />
+        user ? <Navigate to={user.role === 'collector' ? '/collector' : '/'} replace /> : <Login />
       } />
-      <Route path="/my-loan" element={<ProtectedRoute roles={['member']}><MyLoan /></ProtectedRoute>} />
       <Route path="/collector/*" element={
         <ProtectedRoute roles={['collector']}>
           <DesktopShell collectorMode />

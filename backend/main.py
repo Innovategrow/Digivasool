@@ -106,20 +106,6 @@ async def request_otp(body: OTPRequest):
             if body.collector_name.lower() not in collector_names:
                 raise HTTPException(status_code=404, detail="Collector not found")
 
-    elif body.role == "member":
-        db = get_firestore_client()
-        # Search by email or phone in Firestore loans
-        found = False
-        email_docs = db.collection("loans").where("customer_email", "==", contact).limit(1).get()
-        if email_docs:
-            found = True
-        else:
-            phone_docs = db.collection("loans").where("customer_phone", "==", contact).limit(1).get()
-            if phone_docs:
-                found = True
-        if not found:
-            raise HTTPException(status_code=404, detail="No account found with this email/phone")
-
     otp = otp_store.generate_and_store(contact)
     return {"message": "OTP generated", "dev_otp": otp, "dev_mode": True}
 
@@ -135,77 +121,19 @@ async def verify_otp(body: OTPVerify):
         _write_audit(body.admin_name or "admin", "LOGIN", f"Admin logged in via {contact}")
         return {"role": "admin", "name": body.admin_name}
 
-    if body.role == "collector":
-        matched = None
-        for col in COLLECTOR_USERS:
-            if body.collector_name and col["name"].lower() == body.collector_name.lower():
-                matched = col
-                break
-            if col["phone"].replace(" ", "").lstrip("+") in contact.replace(" ", "").lstrip("+") or \
-               contact in col["phone"].lower():
-                matched = col
-                break
-        if not matched:
-            raise HTTPException(status_code=404, detail="Collector not found")
-        _write_audit(matched["name"], "LOGIN", f"Collector logged in via {contact}")
-        return {"role": "collector", "name": matched["name"], "phone": matched["phone"]}
-
-    # Member login
-    db = get_firestore_client()
-    member_name = None
-    email_docs = db.collection("loans").where("customer_email", "==", contact).limit(1).get()
-    if email_docs:
-        member_name = email_docs[0].to_dict().get("customer_name")
-    else:
-        phone_docs = db.collection("loans").where("customer_phone", "==", contact).limit(1).get()
-        if phone_docs:
-            member_name = phone_docs[0].to_dict().get("customer_name")
-    if not member_name:
-        raise HTTPException(status_code=404, detail="Account not found")
-    _write_audit(member_name, "LOGIN", f"Member logged in via {contact}")
-    return {"role": "member", "name": member_name}
-
-
-from schemas import MemberSignup
-
-@app.post("/api/auth/signup")
-async def signup(body: MemberSignup):
-    """Register a new member."""
-    db = get_firestore_client()
-    loan_id = str(uuid4())
-    created_at = datetime.utcnow().isoformat()
-
-    # Check if user already exists
-    email_docs = db.collection("loans").where("customer_email", "==", body.email.lower()).limit(1).get()
-    phone_docs = db.collection("loans").where("customer_phone", "==", body.phone).limit(1).get()
-    if email_docs or phone_docs:
-        raise HTTPException(status_code=400, detail="User with this email or phone already exists")
-
-    record = {
-        "id": loan_id,
-        "customer_id": f"CUST-{uuid4().hex[:6].upper()}",
-        "customer_name": body.name,
-        "customer_email": body.email,
-        "customer_phone": body.phone,
-        "customer_address": body.address,
-        "loan_amount": 0.0,
-        "interest_document": 0.0,
-        "start_date": "",
-        "closing_date": "",
-        "due_amount": 0.0,
-        "collected_amount": 0.0,
-        "pending_amount": 0.0,
-        "status": "new",
-        "total_days_paid": 0,
-        "total_days_not_paid": 0,
-        "repayment_frequency": "monthly",
-        "repayment_amount": 0.0,
-        "created_at": created_at,
-    }
-
-    db.collection("loans").document(loan_id).set(record)
-    _write_audit(body.name, "SIGNUP", f"New user signed up: {body.email}")
-    return {"status": "success", "message": "Signup successful. You can now login.", "id": loan_id}
+    matched = None
+    for col in COLLECTOR_USERS:
+        if body.collector_name and col["name"].lower() == body.collector_name.lower():
+            matched = col
+            break
+        if col["phone"].replace(" ", "").lstrip("+") in contact.replace(" ", "").lstrip("+") or \
+           contact in col["phone"].lower():
+            matched = col
+            break
+    if not matched:
+        raise HTTPException(status_code=404, detail="Collector not found")
+    _write_audit(matched["name"], "LOGIN", f"Collector logged in via {contact}")
+    return {"role": "collector", "name": matched["name"], "phone": matched["phone"]}
 
 
 from fastapi import File, UploadFile
@@ -231,7 +159,7 @@ async def borrower_verify_otp(body: BorrowerOTPVerify):
 @app.post("/api/loans/upload-proof")
 async def upload_proof(loan_id: str, file: UploadFile = File(...), x_user_role: str = Header(default="admin")):
     """Upload a proof document for a loan/user."""
-    if x_user_role.lower() not in {"admin", "member"}:
+    if x_user_role.lower() not in {"admin", "collector"}:
         raise HTTPException(status_code=403, detail="Access denied for this role")
     os.makedirs(f"uploads/{loan_id}", exist_ok=True)
     file_path = f"uploads/{loan_id}/{file.filename}"
@@ -256,7 +184,7 @@ def require_admin(user=Depends(get_current_user)):
 
 
 def require_role(*allowed_roles: str):
-    """Allow only specified roles (admin/collector/member)."""
+    """Allow only specified roles (admin/collector)."""
     allowed = {r.lower() for r in allowed_roles}
 
     def _dep(user=Depends(get_current_user)):
@@ -574,14 +502,14 @@ async def record_payment(loan_id: str, payment: LoanPaymentCreate, user=Depends(
 
 
 @app.get("/api/loans/{loan_id}/payments", response_model=List[LoanPaymentRecord])
-async def get_loan_payment_history(loan_id: str, user=Depends(require_role("admin", "collector", "member"))):
+async def get_loan_payment_history(loan_id: str, user=Depends(require_role("admin", "collector"))):
     """Return full payment history for a loan."""
     return [LoanPaymentRecord(**p) for p in get_loan_payments_db(loan_id)]
 
 
 @app.get("/api/loans/by-customer", response_model=List[LoanRecord])
-async def get_loans_by_customer(name: str, user=Depends(require_role("admin", "member"))):
-    """Member-facing: returns loans matching the given customer name."""
+async def get_loans_by_customer(name: str, user=Depends(require_role("admin"))):
+    """Returns loans matching the given customer name."""
     db = get_firestore_client()
     docs = db.collection("loans").where("customer_name", "==", name.strip()).get()
 

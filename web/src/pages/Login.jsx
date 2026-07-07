@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, User, Mail, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench } from 'lucide-react';
+import { ShieldCheck, Mail, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
@@ -32,25 +32,6 @@ export default function Login() {
     setStep('choose'); setRole(''); setAdminName(''); setCollectorName('');
     setContact(''); setOtp(['', '', '', '', '', '']);
     setDevOtp(''); setError('');
-  };
-
-  const [signupData, setSignupData] = useState({ name: '', email: '', phone: '', address: '' });
-
-  const handleSignup = async (e) => {
-    e.preventDefault();
-    setLoading(true); setError('');
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(signupData),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Signup failed');
-      login('member', signupData.name);
-    } catch (err) {
-      setError(err.message);
-    } finally { setLoading(false); }
   };
 
   const handleRequestOtp = async (e) => {
@@ -145,15 +126,6 @@ export default function Login() {
       border: '#f59e0b',
       soft: 'rgba(245,158,11,0.12)',
     },
-    {
-      id: 'member',
-      label: "I'm a Borrower",
-      desc: 'Check my loan & payment history',
-      icon: <User size={22} color="white" />,
-      bg: 'var(--green)',
-      border: 'var(--border)',
-      soft: 'var(--green-soft)',
-    },
   ];
 
   return (
@@ -165,9 +137,9 @@ export default function Login() {
       <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '6px 14px', marginBottom: 24, fontSize: 12, color: 'var(--text-2)', fontWeight: 500, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Zap size={13} style={{ color: 'var(--amber)', flexShrink: 0 }} />
         <span style={{ fontWeight: 700 }}>Quick demo login:</span>
-        {[{role:'admin',name:'Arjun Nair'},{role:'collector',name:'Collector 1'},{role:'member',name:'Rajan Kumar'}].map(d => (
+        {[{role:'admin',name:'Arjun Nair',label:'Admin'},{role:'collector',name:'Collector 1',label:'Collector'}].map(d => (
           <button key={d.role} onClick={() => login(d.role, d.name)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '3px 10px', fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
-            {d.role.charAt(0).toUpperCase()+d.role.slice(1)}
+            {d.label}
           </button>
         ))}
       </div>
@@ -190,23 +162,21 @@ export default function Login() {
       </div>
 
       {/* Step Indicator */}
-      {step !== 'signup' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
-          {['choose', 'form', 'otp'].map((s, i) => (
-            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{
-                width: '28px', height: '28px', borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '12px', fontWeight: 800,
-                background: step === s ? 'var(--brand)' : (['choose', 'form', 'otp'].indexOf(step) > i ? 'var(--green)' : 'var(--surface-3)'),
-                color: step === s || ['choose', 'form', 'otp'].indexOf(step) > i ? 'white' : 'var(--text-2)',
-                transition: 'all 0.3s',
-              }}>{i + 1}</div>
-              {i < 2 && <div style={{ width: '24px', height: '2px', background: ['choose', 'form', 'otp'].indexOf(step) > i ? 'var(--green)' : 'var(--border)', borderRadius: '2px', transition: 'all 0.3s' }} />}
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
+        {['choose', 'form', 'otp'].map((s, i) => (
+          <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '28px', height: '28px', borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '12px', fontWeight: 800,
+              background: step === s ? 'var(--brand)' : (['choose', 'form', 'otp'].indexOf(step) > i ? 'var(--green)' : 'var(--surface-3)'),
+              color: step === s || ['choose', 'form', 'otp'].indexOf(step) > i ? 'white' : 'var(--text-2)',
+              transition: 'all 0.3s',
+            }}>{i + 1}</div>
+            {i < 2 && <div style={{ width: '24px', height: '2px', background: ['choose', 'form', 'otp'].indexOf(step) > i ? 'var(--green)' : 'var(--border)', borderRadius: '2px', transition: 'all 0.3s' }} />}
+          </div>
+        ))}
+      </div>
 
       <div className="card" style={{ width: '100%', maxWidth: '420px', padding: '32px' }}>
 
@@ -239,14 +209,6 @@ export default function Login() {
                 </div>
               </button>
             ))}
-
-            <div style={{ marginTop: '24px', textAlign: 'center', borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
-              <p style={{ color: 'var(--text-2)', fontSize: '14px', marginBottom: '12px' }}>New borrower?</p>
-              <button onClick={() => { setStep('signup'); setError(''); }}
-                style={{ background: 'none', border: '1px solid var(--brand)', color: 'var(--brand)', padding: '10px 24px', borderRadius: '12px', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}>
-                Create Borrower Account
-              </button>
-            </div>
           </>
         )}
 
@@ -259,8 +221,8 @@ export default function Login() {
             </button>
 
             <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {role === 'admin' ? <Lock size={18} /> : role === 'collector' ? <HardHat size={18} /> : <User size={18} />}
-              {role === 'admin' ? 'Admin Login' : role === 'collector' ? 'Collector Login' : 'Borrower Login'}
+              {role === 'admin' ? <Lock size={18} /> : <HardHat size={18} />}
+              {role === 'admin' ? 'Admin Login' : 'Collector Login'}
             </h2>
             <p style={{ color: 'var(--text-2)', fontSize: '14px', marginBottom: '24px' }}>
               We'll send an OTP to verify your identity.
@@ -379,39 +341,6 @@ export default function Login() {
           </div>
         )}
 
-        {/* ── STEP 4: Signup Form ── */}
-        {step === 'signup' && (
-          <form onSubmit={handleSignup}>
-            <button type="button" onClick={reset}
-              style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', fontSize: '13px', marginBottom: '20px', padding: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <ArrowLeft size={16} /> Back
-            </button>
-
-            <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px' }}>Borrower Registration</h2>
-            <p style={{ color: 'var(--text-2)', fontSize: '14px', marginBottom: '24px' }}>Enter your details to request access.</p>
-
-            {(['name', 'email', 'phone', 'address']).map(field => (
-              <div className="form-group" key={field}>
-                <label className="form-label">{field.charAt(0).toUpperCase() + field.slice(1)}</label>
-                {field === 'address'
-                  ? <textarea required className="form-input" rows={2} style={{ resize: 'none' }}
-                      placeholder="Full address..." value={signupData[field]}
-                      onChange={e => setSignupData({ ...signupData, [field]: e.target.value })} />
-                  : <input required type={field === 'email' ? 'email' : field === 'phone' ? 'tel' : 'text'}
-                      className="form-input"
-                      placeholder={field === 'email' ? 'email@gmail.com' : field === 'phone' ? '+91 98765 43210' : 'Your name'}
-                      value={signupData[field]}
-                      onChange={e => setSignupData({ ...signupData, [field]: e.target.value })} />
-                }
-              </div>
-            ))}
-
-            {error && <div style={{ color: 'var(--red)', background: 'var(--red-soft)', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
-            <button type="submit" className="save-btn" disabled={loading}>
-              {loading ? 'Creating Account...' : 'Sign Up Now'}
-            </button>
-          </form>
-        )}
       </div>
 
       <p style={{ color: 'var(--text-2)', fontSize: '12px', marginTop: '24px', textAlign: 'center' }}>

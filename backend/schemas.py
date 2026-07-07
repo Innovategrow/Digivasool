@@ -168,26 +168,17 @@ class LoanRecord(BaseModel):
 
 class OTPRequest(BaseModel):
     contact: str  # email or phone
-    role: Literal["admin", "member", "collector"]
+    role: Literal["admin", "collector"]
     admin_name: Optional[str] = None   # required for admin
-    member_name: Optional[str] = None  # used to look up member
     collector_name: Optional[str] = None  # required for collector
 
 
 class OTPVerify(BaseModel):
     contact: str
     otp: str
-    role: Literal["admin", "member", "collector"]
+    role: Literal["admin", "collector"]
     admin_name: Optional[str] = None
-    member_name: Optional[str] = None
     collector_name: Optional[str] = None
-
-
-class MemberSignup(BaseModel):
-    name: str
-    email: str
-    phone: str
-    address: str
 
 
 class WhatsAppLinks(BaseModel):
