@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../utils/api';
-import { Search, Banknote, Wallet, ArrowLeft, CheckCircle2, MessageCircle, ExternalLink, User, MapPin, Filter } from 'lucide-react';
+import { Search, Banknote, Wallet, ArrowLeft, CheckCircle2, MessageCircle, ExternalLink, User, MapPin, Filter, Phone } from 'lucide-react';
 
 const SORT_OPTIONS = [
-  { value: 'balance',  label: 'Highest Balance' },
-  { value: 'name',     label: 'Name A-Z' },
-  { value: 'location', label: '📍 By Coimbatore Area' },
-  { value: 'newest',   label: 'Newest First' },
+  { value: 'balance',  icon: null,   label: 'Highest Balance' },
+  { value: 'name',     icon: null,   label: 'Name A-Z' },
+  { value: 'location', icon: MapPin, label: 'By Coimbatore Area' },
+  { value: 'newest',   icon: null,   label: 'Newest First' },
 ];
 
 export default function CollectPayment() {
@@ -66,7 +66,7 @@ export default function CollectPayment() {
       setSuccessData(data);
       setLoans(prev => prev.map(l => l.id === data.data.id ? data.data : l).filter(l => l.pending_amount > 0));
     } catch (err) {
-      alert('❌ Error: ' + err.message);
+      alert('Error: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -93,7 +93,7 @@ export default function CollectPayment() {
             ₹{Math.max(loan.pending_amount, 0).toLocaleString()}
           </div>
           {loan.pending_amount <= 0 && (
-            <div style={{ marginTop: '8px', color: 'var(--positive)', fontWeight: 700, fontSize: '14px' }}>🎉 Loan Fully Paid!</div>
+            <div style={{ marginTop: '8px', color: 'var(--positive)', fontWeight: 700, fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><CheckCircle2 size={14} /> Loan Fully Paid!</div>
           )}
         </div>
 
@@ -150,8 +150,8 @@ export default function CollectPayment() {
               <button key={opt.value} onClick={() => setSortBy(opt.value)}
                 style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                   background: sortBy === opt.value ? 'var(--text)' : 'var(--surface)',
-                  color: sortBy === opt.value ? 'var(--bg)' : 'var(--text-2)' }}>
-                {opt.label}
+                  color: sortBy === opt.value ? 'var(--bg)' : 'var(--text-2)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {opt.icon && <opt.icon size={13} />}{opt.label}
               </button>
             ))}
           </div>
@@ -176,8 +176,8 @@ export default function CollectPayment() {
                 <div className="party-avatar">{loan.customer_name.charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: '16px' }}>{loan.customer_name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    📱 {loan.customer_phone || 'No phone'} · Due: {loan.closing_date}
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Phone size={11} /> {loan.customer_phone || 'No phone'} · Due: {loan.closing_date}
                   </div>
                   {loan.customer_address && (
                     <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -216,11 +216,11 @@ export default function CollectPayment() {
           <div className="party-avatar">{selectedLoan.customer_name.charAt(0).toUpperCase()}</div>
           <div>
             <h3 style={{ fontSize: '18px', fontWeight: 800 }}>{selectedLoan.customer_name}</h3>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {selectedLoan.customer_phone && `📱 ${selectedLoan.customer_phone}`}
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {selectedLoan.customer_phone && <><Phone size={11} /> {selectedLoan.customer_phone}</>}
             </div>
             {selectedLoan.customer_address && (
-              <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2 }}>📍 {selectedLoan.customer_address.split(',')[0]}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {selectedLoan.customer_address.split(',')[0]}</div>
             )}
           </div>
         </div>
@@ -283,8 +283,8 @@ export default function CollectPayment() {
           </button>
         </div>
 
-        <button className="save-btn" onClick={handleSave} disabled={loading || !amount}>
-          {loading ? 'Saving...' : `✅ Record ₹${amount || '0'} Payment`}
+        <button className="save-btn" onClick={handleSave} disabled={loading || !amount} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <CheckCircle2 size={16} /> {loading ? 'Saving...' : `Record ₹${amount || '0'} Payment`}
         </button>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useAppData, ZONES } from '../../context/AppDataContext';
-import { Search, Plus, X, Phone, MapPin, CreditCard, CheckCircle, Clock, XCircle, PhoneCall, Key, Shield, GitMerge, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react';
+import { Search, Plus, X, Phone, MapPin, CreditCard, CheckCircle, Clock, XCircle, PhoneCall, Key, Shield, GitMerge, ChevronDown, ChevronUp, ShieldCheck, Wrench, Check, Store, Map, Star } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
 import PhotoCapture from '../../components/PhotoCapture';
 
@@ -78,7 +78,8 @@ function OtpVerifier({ phone, onVerified }) {
 
   if (verified) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(16,185,129,.1)', borderRadius: 10, border: '1px solid rgba(16,185,129,.3)' }}>
-      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>Phone verified ✓</span>
+      <Check size={16} style={{ color: 'var(--green)' }} />
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>Phone verified</span>
     </div>
   );
 
@@ -86,12 +87,12 @@ function OtpVerifier({ phone, onVerified }) {
     <div style={{ padding: '12px', background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border)', marginTop: 8 }}>
       {!sent ? (
         <button type="button" onClick={sendOtp} disabled={!phone || loading}
-          style={{ width: '100%', padding: '10px', background: 'var(--brand-soft)', border: '1px solid var(--brand)', color: 'var(--brand-light)', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-          {loading ? 'Sending…' : '📱 Send OTP to verify phone'}
+          style={{ width: '100%', padding: '10px', background: 'var(--brand-soft)', border: '1px solid var(--brand)', color: 'var(--brand-light)', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <Phone size={14} /> {loading ? 'Sending…' : 'Send OTP to verify phone'}
         </button>
       ) : (
         <div>
-          {devOtp && <div style={{ fontSize: 12, color: 'var(--amber)', marginBottom: 8, fontWeight: 600 }}>🛠 Dev OTP: <strong style={{ letterSpacing: 3 }}>{devOtp}</strong></div>}
+          {devOtp && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Wrench size={12} /> Test OTP: <strong style={{ letterSpacing: 3 }}>{devOtp}</strong></div>}
           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
             {otp.map((d, i) => (
               <input key={i} ref={el => refs.current[i] = el} type="tel" maxLength={1} value={d}
@@ -101,8 +102,8 @@ function OtpVerifier({ phone, onVerified }) {
           </div>
           {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>{error}</div>}
           <button type="button" onClick={verifyOtp} disabled={otp.join('').length < 6 || loading}
-            style={{ width: '100%', padding: '10px', background: 'var(--green)', border: 'none', color: 'white', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-            {loading ? 'Verifying…' : '✅ Verify OTP'}
+            style={{ width: '100%', padding: '10px', background: 'var(--green)', border: 'none', color: 'white', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <Check size={14} /> {loading ? 'Verifying…' : 'Verify OTP'}
           </button>
         </div>
       )}
@@ -169,7 +170,7 @@ function AddBorrowerModal({ onClose, onAdd }) {
         <div style={{ marginBottom: 12 }}>
           <button type="button" onClick={() => setShowOtpSection(!showOtpSection)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--brand-light)', fontSize: 13, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
-            <Shield size={14} /> {phoneVerified ? '✅ Phone Verified' : 'Verify Phone with OTP'}
+            {phoneVerified ? <Check size={14} style={{ color: 'var(--green)' }} /> : <Shield size={14} />} {phoneVerified ? 'Phone Verified' : 'Verify Phone with OTP'}
             {showOtpSection ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
           {showOtpSection && !phoneVerified && (
@@ -217,8 +218,8 @@ function AddBorrowerModal({ onClose, onAdd }) {
           <label className="form-label">Credit Rating (1-5)</label>
           <div style={{ display: 'flex', gap: 8 }}>
             {[1,2,3,4,5].map(n => (
-              <button key={n} onClick={() => set('rating', n)} style={{ background: n <= form.rating ? 'var(--amber-soft)' : 'var(--surface-2)', border: `1px solid ${n <= form.rating ? 'var(--amber)' : 'var(--border)'}`, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: n <= form.rating ? 'var(--amber)' : 'var(--text-2)', fontWeight: 700 }}>
-                {n}★
+              <button key={n} onClick={() => set('rating', n)} style={{ background: n <= form.rating ? 'var(--amber-soft)' : 'var(--surface-2)', border: `1px solid ${n <= form.rating ? 'var(--amber)' : 'var(--border)'}`, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: n <= form.rating ? 'var(--amber)' : 'var(--text-2)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                {n} <Star size={12} fill={n <= form.rating ? 'var(--amber)' : 'none'} />
               </button>
             ))}
           </div>
@@ -241,7 +242,7 @@ function BorrowerDrawer({ borrower, loans, onClose, onVerify }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex' }}>
-      <div style={{ flex: 1, background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} onClick={onClose} />
+      <div style={{ flex: 1, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(4px)' }} onClick={onClose} />
       <div style={{ width: 440, background: 'var(--surface)', borderLeft: '1px solid var(--border-2)', overflowY: 'auto', animation: 'slideInRight .3s ease', padding: 28 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 18, fontWeight: 800 }}>Borrower Profile</div>
@@ -258,7 +259,7 @@ function BorrowerDrawer({ borrower, loans, onClose, onVerify }) {
           }
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 18, fontWeight: 800 }}>{borrower.name}</div>
-            {borrower.shop_name && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>🏪 {borrower.shop_name}</div>}
+            {borrower.shop_name && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><Store size={11} /> {borrower.shop_name}</div>}
             <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               <span className={`badge ${KYC_CONFIG[borrower.kyc]?.cls}`}>{KYC_CONFIG[borrower.kyc]?.icon} {KYC_CONFIG[borrower.kyc]?.label}</span>
               {borrower.zone && <span className="badge badge-indigo"><MapPin size={10} /> {borrower.zone}</span>}
@@ -304,8 +305,8 @@ function BorrowerDrawer({ borrower, loans, onClose, onVerify }) {
           <div style={{ background: 'var(--surface-2)', borderRadius: 12, padding: 14, marginBottom: 16, border: '1px solid var(--border)' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 10 }}>GUARANTOR</div>
             {borrower.guarantor && <div style={{ fontWeight: 700, marginBottom: 4 }}>{borrower.guarantor}</div>}
-            {borrower.guarantor_phone && <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 2 }}>📱 {borrower.guarantor_phone}</div>}
-            {borrower.guarantor_address && <div style={{ fontSize: 13, color: 'var(--text-2)' }}>📍 {borrower.guarantor_address}</div>}
+            {borrower.guarantor_phone && <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={12} /> {borrower.guarantor_phone}</div>}
+            {borrower.guarantor_address && <div style={{ fontSize: 13, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={12} /> {borrower.guarantor_address}</div>}
           </div>
         )}
 
@@ -462,10 +463,10 @@ export default function Borrowers() {
 
       {/* Sort */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {[{ v: 'name', l: 'A-Z' }, { v: 'location', l: '📍 Location' }, { v: 'zone', l: '🗺️ Zone' }, { v: 'rating', l: '⭐ Rating' }].map(s => (
+        {[{ v: 'name', icon: null, l: 'A-Z' }, { v: 'location', icon: MapPin, l: 'Location' }, { v: 'zone', icon: Map, l: 'Zone' }, { v: 'rating', icon: Star, l: 'Rating' }].map(s => (
           <button key={s.v} onClick={() => setSortBy(s.v)} className="btn btn-secondary btn-sm"
             style={{ background: sortBy === s.v ? 'var(--amber-soft)' : undefined, color: sortBy === s.v ? 'var(--amber)' : undefined, borderColor: sortBy === s.v ? 'var(--amber)' : undefined }}>
-            {s.l}
+            {s.icon && <s.icon size={13} />} {s.l}
           </button>
         ))}
       </div>
@@ -490,7 +491,7 @@ export default function Borrowers() {
                 }
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{b.name}</div>
-                  {b.shop_name && <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 4 }}>🏪 {b.shop_name}</div>}
+                  {b.shop_name && <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}><Store size={10} /> {b.shop_name}</div>}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <span className={`badge ${kyc?.cls}`}>{kyc?.icon} {kyc?.label}</span>
                     {b.zone && <span className="badge badge-indigo"><MapPin size={10} /> {b.zone}</span>}
@@ -506,7 +507,7 @@ export default function Borrowers() {
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ display: 'flex', gap: '2px' }}>
-                  {[1,2,3,4,5].map(n => <span key={n} style={{ color: n <= b.rating ? 'var(--amber)' : 'var(--surface-3)', fontSize: 14 }}>★</span>)}
+                  {[1,2,3,4,5].map(n => <Star key={n} size={14} fill={n <= b.rating ? 'var(--amber)' : 'none'} style={{ color: n <= b.rating ? 'var(--amber)' : 'var(--surface-3)' }} />)}
                 </div>
                 {b.kyc !== 'verified' && (
                   <button className="btn btn-success btn-sm" onClick={e => { e.stopPropagation(); handleVerify(b.id); }}>

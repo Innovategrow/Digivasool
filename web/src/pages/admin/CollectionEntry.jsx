@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
 
 const SORT_OPTIONS = [
-  { value: 'balance',  label: 'Highest Balance' },
-  { value: 'name',     label: 'Name A-Z' },
-  { value: 'location', label: '📍 By Coimbatore Area' },
-  { value: 'newest',   label: 'Newest First' },
+  { value: 'balance',  icon: null,   label: 'Highest Balance' },
+  { value: 'name',     icon: null,   label: 'Name A-Z' },
+  { value: 'location', icon: MapPin, label: 'By Coimbatore Area' },
+  { value: 'newest',   icon: null,   label: 'Newest First' },
 ];
 
 export default function CollectionEntry() {
@@ -58,7 +58,7 @@ export default function CollectionEntry() {
         setSelectedLoan(updated);
         setAmount('');
         setLoans(loans.map(l => l.id === updated.id ? updated : l));
-        alert(`✅ Successfully recorded ₹${amount} payment!`);
+        alert(`Successfully recorded ₹${amount} payment!`);
       })
       .finally(() => setLoading(false));
   };
@@ -95,8 +95,8 @@ export default function CollectionEntry() {
                   <button key={opt.value} onClick={() => setSortBy(opt.value)}
                     style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                       background: sortBy === opt.value ? 'var(--text)' : 'var(--surface)',
-                      color: sortBy === opt.value ? 'var(--bg)' : 'var(--text-2)' }}>
-                    {opt.label}
+                      color: sortBy === opt.value ? 'var(--bg)' : 'var(--text-2)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {opt.icon && <opt.icon size={13} />}{opt.label}
                   </button>
                 ))}
               </div>
@@ -152,7 +152,7 @@ export default function CollectionEntry() {
                 Status: <span className="text-green" style={{ textTransform: 'uppercase' }}>{selectedLoan.status}</span>
               </div>
               {selectedLoan.customer_address && (
-                <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2 }}>📍 {selectedLoan.customer_address.split(',')[0]}</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={10} /> {selectedLoan.customer_address.split(',')[0]}</div>
               )}
             </div>
           </div>

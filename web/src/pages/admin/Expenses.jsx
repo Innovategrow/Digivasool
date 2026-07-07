@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
-import { Plus, X, TrendingDown, TrendingUp } from 'lucide-react';
+import { Plus, X, TrendingDown, TrendingUp, Briefcase, Inbox, Send } from 'lucide-react';
 
 const CATEGORIES = ['Staff Salary', 'Fuel', 'Office Rent', 'Printing', 'Miscellaneous'];
 const CAT_COLORS = { 'Staff Salary': '#6366f1', 'Fuel': '#f59e0b', 'Office Rent': '#10b981', 'Printing': '#ec4899', 'Miscellaneous': '#06b6d4' };
@@ -93,12 +93,12 @@ export default function Expenses() {
       {/* P&L Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         {[
-          { label: 'Total Invested',  value: totalCapital,   color: 'var(--brand-light)', bg: 'var(--brand-soft)', icon: '💼' },
-          { label: 'Total Collected', value: totalCollected, color: 'var(--green)',        bg: 'var(--green-soft)', icon: '📥' },
-          { label: 'Total Expenses',  value: totalExpenses,  color: 'var(--red)',          bg: 'var(--red-soft)',   icon: '📤' },
+          { label: 'Total Invested',  value: totalCapital,   color: 'var(--brand-light)', bg: 'var(--brand-soft)', icon: Briefcase },
+          { label: 'Total Collected', value: totalCollected, color: 'var(--green)',        bg: 'var(--green-soft)', icon: Inbox },
+          { label: 'Total Expenses',  value: totalExpenses,  color: 'var(--red)',          bg: 'var(--red-soft)',   icon: Send },
         ].map(s => (
           <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.color}33`, borderRadius: 16, padding: 18 }}>
-            <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
+            <div style={{ marginBottom: 8, color: s.color }}><s.icon size={22} /></div>
             <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700, marginBottom: 4 }}>{s.label}</div>
             <div style={{ fontSize: 22, fontWeight: 900, color: s.color, fontFamily: 'var(--mono)' }}>₹{s.value.toLocaleString()}</div>
           </div>
@@ -107,10 +107,10 @@ export default function Expenses() {
 
       {/* Tabs: Expenses / Capital */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {[['expenses', '📤 Expenses'], ['capital', '💼 Capital Investments']].map(([id, label]) => (
-          <button key={id} onClick={() => setActiveTab(id)} className="btn btn-secondary btn-sm"
-            style={{ background: activeTab === id ? 'var(--brand-soft)' : undefined, color: activeTab === id ? 'var(--brand-light)' : undefined, borderColor: activeTab === id ? 'var(--brand)' : undefined }}>
-            {label}
+        {[{ id: 'expenses', icon: Send, label: 'Expenses' }, { id: 'capital', icon: Briefcase, label: 'Capital Investments' }].map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} className="btn btn-secondary btn-sm"
+            style={{ background: activeTab === t.id ? 'var(--brand-soft)' : undefined, color: activeTab === t.id ? 'var(--brand-light)' : undefined, borderColor: activeTab === t.id ? 'var(--brand)' : undefined }}>
+            <t.icon size={13} /> {t.label}
           </button>
         ))}
       </div>

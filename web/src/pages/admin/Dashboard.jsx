@@ -1,5 +1,5 @@
 import { useAppData } from '../../context/AppDataContext';
-import { TrendingUp, AlertTriangle, Wallet, Target, ArrowRight, CheckCircle2, Clock, Activity } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Wallet, Target, ArrowRight, CheckCircle2, Clock, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
@@ -78,10 +78,10 @@ export default function Dashboard() {
       {/* Stat cards */}
       <div className="stat-grid">
         {[
-          { label: "Today's Collection", value: todayCollected, prefix: '₹', color: 'green', icon: '💰' },
-          { label: 'Active Borrowers', value: activeCount, color: 'indigo', icon: '📋' },
-          { label: 'Total Outstanding', value: outstanding, prefix: '₹', color: 'amber', icon: '⏳' },
-          { label: 'Total Collected', value: totalCollected, prefix: '₹', color: 'cyan', icon: '📥' },
+          { label: "Today's Collection", value: todayCollected, prefix: '₹', color: 'green', icon: IndianRupee },
+          { label: 'Active Borrowers', value: activeCount, color: 'indigo', icon: ClipboardList },
+          { label: 'Total Outstanding', value: outstanding, prefix: '₹', color: 'amber', icon: Hourglass },
+          { label: 'Total Collected', value: totalCollected, prefix: '₹', color: 'cyan', icon: Inbox },
         ].map((s, i) => (
           <div key={s.label} className={`stat-card ${s.color} card-hover`} style={{ animationDelay: `${i * 0.08}s`, animation: 'popIn .45s ease both' }}>
             <div className="stat-card-label">{s.label}</div>
@@ -93,7 +93,7 @@ export default function Dashboard() {
                 <AlertTriangle size={12} /> {overdueCount} overdue
               </div>
             )}
-            <div className="stat-card-icon">{s.icon}</div>
+            <div className="stat-card-icon"><s.icon size={36} /></div>
           </div>
         ))}
       </div>
@@ -136,13 +136,13 @@ export default function Dashboard() {
           <div className="chart-title"><Target size={16} style={{ color: 'var(--brand-light)' }} />Quick Actions</div>
           <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <button className="btn btn-primary w-full" onClick={() => navigate('/borrowers')}>
-              ➕ New Borrower + Loan
+              <UserPlus size={16} /> New Borrower + Loan
             </button>
             <button className="btn btn-secondary w-full" onClick={() => navigate('/collection')}>
-              💵 Record Collection
+              <Banknote size={16} /> Record Collection
             </button>
             <button className="btn btn-secondary w-full" onClick={() => navigate('/reports')}>
-              📊 View Reports
+              <BarChart3 size={16} /> View Reports
             </button>
           </div>
         </div>
@@ -181,7 +181,7 @@ export default function Dashboard() {
         <div className="chart-card card-hover animate-fadeUp-2">
           <div className="chart-title"><AlertTriangle size={16} style={{ color: 'var(--red)' }} />Overdue Alerts</div>
           {overdueItems.length === 0 ? (
-            <div style={{ color: 'var(--text-2)', fontSize: 13 }}>No overdue accounts ✅</div>
+            <div style={{ color: 'var(--text-2)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} style={{ color: 'var(--green)' }} /> No overdue accounts</div>
           ) : (
             <div className="stagger">
               {overdueItems.slice(0, 5).map(i => (

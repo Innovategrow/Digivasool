@@ -1,10 +1,10 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
 import {
   LayoutDashboard, Users, BookOpen,
   BarChart3, Receipt, UserCog, Settings, LogOut,
-  ChevronLeft, TrendingUp, CreditCard
+  ChevronLeft, TrendingUp, CreditCard, Wallet
 } from 'lucide-react';
 
 const ADMIN_NAV = [
@@ -28,16 +28,15 @@ const COLLECTOR_NAV = [
   { to: '/collector/history',  icon: BookOpen,        label: 'History' },
 ];
 
-export default function Sidebar({ collapsed, onToggle, collectorMode = false }) {
+export default function Sidebar({ collapsed, onToggle, collectorMode = false, mobileOpen = false, onNavigate }) {
   const { user, logout } = useAuth();
   const { derived } = useAppData();
-  const navigate = useNavigate();
   const NAV = collectorMode ? COLLECTOR_NAV : ADMIN_NAV;
 
   return (
-    <div className={`sidebar${collapsed ? ' collapsed' : ''}`}>
+    <div className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' mobile-open' : ''}`}>
       <div className="sb-logo">
-        <div className="sb-logo-icon">💰</div>
+        <div className="sb-logo-icon"><Wallet size={18} color="#fff" /></div>
         {!collapsed && (
           <div style={{ overflow: 'hidden' }}>
             <div className="sb-logo-text">VasoolPro</div>
@@ -65,6 +64,7 @@ export default function Sidebar({ collapsed, onToggle, collectorMode = false }) 
               end={item.to === '/' || item.to === '/collector'}
               className={({ isActive }) => `sb-item${isActive ? ' active' : ''}`}
               title={collapsed ? item.label : ''}
+              onClick={onNavigate}
             >
               {({ isActive }) => (
                 <>

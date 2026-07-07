@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, User, Mail, Phone, ChevronRight, ArrowLeft, Lock, HardHat } from 'lucide-react';
+import { ShieldCheck, User, Mail, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
@@ -162,11 +162,12 @@ export default function Login() {
       flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px',
     }}>
       {/* Demo Banner */}
-      <div style={{ background: 'var(--amber-soft)', border: '1px solid rgba(245,158,11,.3)', borderRadius: 12, padding: '10px 20px', marginBottom: 24, fontSize: 13, color: 'var(--amber)', fontWeight: 600, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        🚀 <strong>Demo Mode:</strong>
+      <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '6px 14px', marginBottom: 24, fontSize: 12, color: 'var(--text-2)', fontWeight: 500, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Zap size={13} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+        <span style={{ fontWeight: 700 }}>Quick demo login:</span>
         {[{role:'admin',name:'Arjun Nair'},{role:'collector',name:'Collector 1'},{role:'member',name:'Rajan Kumar'}].map(d => (
-          <button key={d.role} onClick={() => login(d.role, d.name)} style={{ background: 'var(--amber)', color: '#000', border: 'none', borderRadius: 8, padding: '4px 12px', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>
-            Login as {d.role.charAt(0).toUpperCase()+d.role.slice(1)}
+          <button key={d.role} onClick={() => login(d.role, d.name)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '3px 10px', fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
+            {d.role.charAt(0).toUpperCase()+d.role.slice(1)}
           </button>
         ))}
       </div>
@@ -174,15 +175,15 @@ export default function Login() {
       <div style={{ textAlign: 'center', marginBottom: '36px' }}>
         <div style={{
           width: '72px', height: '72px', borderRadius: '24px',
-          background: 'linear-gradient(135deg, var(--brand) 0%, #4f46e5 100%)',
+          background: 'linear-gradient(135deg, var(--brand) 0%, var(--violet) 100%)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto 16px', boxShadow: '0 8px 32px rgba(99,102,241,0.45)',
+          margin: '0 auto 16px', boxShadow: '0 8px 32px var(--brand-glow)',
         }}>
           <ShieldCheck size={36} color="white" />
         </div>
         <h1 style={{
           fontSize: '28px', fontWeight: 900, letterSpacing: '-0.5px',
-          background: 'linear-gradient(to right, #fff 40%, #a1a1aa)',
+          background: 'linear-gradient(to right, var(--text) 40%, var(--brand))',
           WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
         }}>DigitKhata Pro</h1>
         <p style={{ color: 'var(--text-2)', marginTop: '6px', fontSize: '14px' }}>Secure money lending tracker</p>
@@ -257,8 +258,9 @@ export default function Login() {
               <ArrowLeft size={16} /> Back
             </button>
 
-            <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px' }}>
-              {role === 'admin' ? '🔐 Admin Login' : role === 'collector' ? '🦺 Collector Login' : '👤 Borrower Login'}
+            <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {role === 'admin' ? <Lock size={18} /> : role === 'collector' ? <HardHat size={18} /> : <User size={18} />}
+              {role === 'admin' ? 'Admin Login' : role === 'collector' ? 'Collector Login' : 'Borrower Login'}
             </h2>
             <p style={{ color: 'var(--text-2)', fontSize: '14px', marginBottom: '24px' }}>
               We'll send an OTP to verify your identity.
@@ -341,9 +343,9 @@ export default function Login() {
             </p>
 
             {devOtp && (
-              <div style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '12px', padding: '10px 14px', marginBottom: '20px', fontSize: '13px', color: 'var(--amber)' }}>
-                <strong>🛠 Dev Mode:</strong> Your OTP is <strong style={{ fontSize: '18px', letterSpacing: '4px' }}>{devOtp}</strong>
-                <br /><span style={{ fontSize: '11px', opacity: 0.7 }}>(In production this would be sent to your email/phone)</span>
+              <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '8px 14px', marginBottom: '20px', fontSize: '12px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Wrench size={13} style={{ flexShrink: 0 }} />
+                <span>Test OTP: <strong style={{ fontSize: '14px', letterSpacing: '3px', color: 'var(--text)' }}>{devOtp}</strong></span>
               </div>
             )}
 
@@ -416,7 +418,7 @@ export default function Login() {
         DigitKhata Pro · Private & Secure · LAN Only
       </p>
 
-      <style>{`select option { background: #18181b; color: #f4f4f5; }`}</style>
+      <style>{`select option { background: #ffffff; color: #111827; }`}</style>
     </div>
   );
 }

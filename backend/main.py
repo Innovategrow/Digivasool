@@ -345,14 +345,9 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
     create_time = datetime.utcnow()
     created_at = create_time.isoformat()
 
-    # Compute total due from flat fee breakdown
-    total_fees = (
-        loan.monthly_interest_amount +
-        loan.field_visit_charge +
-        loan.document_fee +
-        loan.processing_fee
-    )
-    due_amount = loan.loan_amount + total_fees
+    # Field visit/document/processing charges are a breakdown of the interest itself
+    # (not additional charges on top), so total due is principal + interest only.
+    due_amount = loan.loan_amount + loan.monthly_interest_amount
 
     record = {
         "id": loan_id,

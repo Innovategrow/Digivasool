@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, BookOpen, Clock } from 'lucide-react';
+import { ArrowLeft, BookOpen, Clock, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
 
@@ -28,8 +28,8 @@ export default function Transactions() {
           <div key={loan.id} className="party-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
               <span style={{ fontWeight: 800, fontSize: '16px' }}>{loan.customer_name}</span>
-              <span className={loan.pending_amount > 0 ? "text-warning" : "text-green"} style={{ fontWeight: 800 }}>
-                {loan.pending_amount > 0 ? `Due: ₹${loan.pending_amount}` : 'Settled ✅'}
+              <span className={loan.pending_amount > 0 ? "text-warning" : "text-green"} style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4 }}>
+                {loan.pending_amount > 0 ? `Due: ₹${loan.pending_amount}` : <><CheckCircle2 size={14} /> Settled</>}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-2)' }}>

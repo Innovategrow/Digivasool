@@ -150,7 +150,7 @@ export default function MyLoan() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--background)', paddingBottom: '40px' }}>
       {/* Header */}
-      <div style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(236,72,153,0.08))', borderBottom: '1px solid var(--border)', padding: '24px 20px' }}>
+      <div style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.10), rgba(139,92,246,0.06))', borderBottom: '1px solid var(--border)', padding: '24px 20px' }}>
         <div style={{ maxWidth: '500px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--brand)', flexShrink: 0 }}>
@@ -238,10 +238,10 @@ export default function MyLoan() {
             alert = { type: 'info', icon: <Calendar size={18} />, msg: `Next payment due on ${nextDue}.` };
           }
           const alertColors = {
-            success: { bg: 'var(--positive-soft)', bd: 'rgba(16,185,129,0.35)', fg: 'var(--positive)' },
-            danger: { bg: 'var(--red-soft)', bd: 'rgba(239,68,68,0.35)', fg: 'var(--red)' },
-            warn: { bg: 'var(--amber-soft)', bd: 'rgba(245,158,11,0.35)', fg: 'var(--amber)' },
-            info: { bg: 'var(--brand-soft)', bd: 'rgba(99,102,241,0.35)', fg: 'var(--brand-light)' },
+            success: { bg: 'var(--positive-soft)', bd: 'rgba(5,150,105,0.35)', fg: 'var(--positive)' },
+            danger: { bg: 'var(--red-soft)', bd: 'rgba(220,38,38,0.35)', fg: 'var(--red)' },
+            warn: { bg: 'var(--amber-soft)', bd: 'rgba(217,119,6,0.35)', fg: 'var(--amber)' },
+            info: { bg: 'var(--brand-soft)', bd: 'rgba(79,70,229,0.35)', fg: 'var(--brand-light)' },
           };
 
           return (
@@ -256,8 +256,8 @@ export default function MyLoan() {
 
               {/* Outstanding Balance Banner */}
               <div className="card summary-card card-hover" style={{ textAlign: 'center', padding: '28px 20px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  {isSettled ? '🎉 Your loan is fully paid!' : 'Your outstanding balance'}
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  {isSettled ? <><CheckCircle2 size={14} /> Your loan is fully paid!</> : 'Your outstanding balance'}
                 </div>
                 <div style={{ fontSize: '44px', fontWeight: 900, color: isSettled ? 'var(--positive)' : 'var(--warning)', lineHeight: 1.1 }}>
                   ₹{loan.pending_amount.toLocaleString()}
@@ -368,7 +368,7 @@ export default function MyLoan() {
                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '12px', background: isSent ? 'var(--positive-soft)' : isPast ? 'var(--surface-raised)' : 'var(--background)', border: `1px solid ${isSent ? 'rgba(16,185,129,0.3)' : 'var(--border)'}` }}>
                           {isSent ? <CheckCircle2 size={18} style={{ color: 'var(--positive)', flexShrink: 0 }} /> : <Clock size={18} style={{ color: isPast ? 'var(--text-muted)' : 'var(--brand)', flexShrink: 0 }} />}
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '14px', fontWeight: 600 }}>{isSent ? 'Reminder sent ✅' : `Reminder on Day ${rm.day_offset}`}</div>
+                            <div style={{ fontSize: '14px', fontWeight: 600 }}>{isSent ? 'Reminder sent' : `Reminder on Day ${rm.day_offset}`}</div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{date.toLocaleDateString('en-IN', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</div>
                           </div>
                           <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: isSent ? 'var(--positive)' : 'var(--surface)', color: isSent ? 'white' : 'var(--text-muted)', textTransform: 'uppercase' }}>

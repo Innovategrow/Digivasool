@@ -2,25 +2,27 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   UserPlus, IndianRupee, ShieldCheck, Mail, Phone, MapPin,
   RefreshCw, CheckCircle, Building2,
-  Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge
+  Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
+  Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { ZONES } from '../../context/AppDataContext';
 import PhotoCapture from '../../components/PhotoCapture';
 
 const FREQ_OPTIONS = [
-  { value: 'daily',   label: '📅 Daily',   desc: 'Collected every day' },
-  { value: 'weekly',  label: '📆 Weekly',  desc: 'Once a week' },
-  { value: 'monthly', label: '🗓️ Monthly', desc: 'Once a month' },
-  { value: 'custom',  label: '⚙️ Custom',  desc: 'Set your own amount' },
+  { value: 'daily',   icon: Calendar,      label: 'Daily',   desc: 'Collected every day' },
+  { value: 'weekly',  icon: CalendarDays,  label: 'Weekly',  desc: 'Once a week' },
+  { value: 'monthly', icon: CalendarRange, label: 'Monthly', desc: 'Once a month' },
+  { value: 'custom',  icon: Settings2,     label: 'Custom',  desc: 'Set your own amount' },
 ];
 
 const SORT_OPTIONS = [
-  { value: 'name',     label: 'Name A-Z' },
-  { value: 'balance',  label: 'Highest Balance' },
-  { value: 'location', label: '📍 By Coimbatore Area' },
-  { value: 'newest',   label: 'Newest First' },
+  { value: 'name',     icon: null,    label: 'Name A-Z' },
+  { value: 'balance',  icon: null,    label: 'Highest Balance' },
+  { value: 'location', icon: MapPin,  label: 'By Coimbatore Area' },
+  { value: 'newest',   icon: null,    label: 'Newest First' },
 ];
 
 // ── OTP Verifier sub-component ─────────────────────────────────────────────
@@ -76,7 +78,7 @@ function OtpVerifier({ phone, onVerified }) {
   if (verified) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(16,185,129,.1)', borderRadius: 10, border: '1px solid rgba(16,185,129,.3)' }}>
       <CheckCircle size={16} style={{ color: 'var(--green)' }} />
-      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>Phone verified ✓</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>Phone verified</span>
     </div>
   );
 
@@ -84,12 +86,12 @@ function OtpVerifier({ phone, onVerified }) {
     <div style={{ padding: '12px', background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)', marginTop: 8 }}>
       {!sent ? (
         <button type="button" onClick={sendOtp} disabled={!phone || loading}
-          style={{ width: '100%', padding: '10px', background: 'var(--brand-soft)', border: '1px solid var(--brand)', color: 'var(--brand-light)', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-          {loading ? 'Sending…' : '📱 Send OTP to verify phone'}
+          style={{ width: '100%', padding: '10px', background: 'var(--brand-soft)', border: '1px solid var(--brand)', color: 'var(--brand-light)', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <Phone size={14} /> {loading ? 'Sending…' : 'Send OTP to verify phone'}
         </button>
       ) : (
         <div>
-          {devOtp && <div style={{ fontSize: 12, color: 'var(--amber)', marginBottom: 8, fontWeight: 600 }}>🛠 Dev OTP: <strong style={{ letterSpacing: 3 }}>{devOtp}</strong></div>}
+          {devOtp && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Wrench size={12} /> Test OTP: <strong style={{ letterSpacing: 3 }}>{devOtp}</strong></div>}
           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
             {otp.map((d, i) => (
               <input key={i} ref={el => refs.current[i] = el} type="tel" maxLength={1} value={d}
@@ -99,8 +101,8 @@ function OtpVerifier({ phone, onVerified }) {
           </div>
           {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>{error}</div>}
           <button type="button" onClick={verifyOtp} disabled={otp.join('').length < 6 || loading}
-            style={{ width: '100%', padding: '10px', background: 'var(--green)', border: 'none', color: 'white', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
-            {loading ? 'Verifying…' : '✅ Verify OTP'}
+            style={{ width: '100%', padding: '10px', background: 'var(--green)', border: 'none', color: 'white', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <Check size={14} /> {loading ? 'Verifying…' : 'Verify OTP'}
           </button>
         </div>
       )}
@@ -114,11 +116,11 @@ function MergeModal({ loans, onClose, onMerge }) {
   const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : s.length < 2 ? [...s, id] : s);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
       <div className="card" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: '440px', padding: 24, animation: 'slideUp 0.3s ease' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Merge Borrowers</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '24px', cursor: 'pointer' }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', display: 'flex' }}><X size={22} /></button>
         </div>
         <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 16 }}>Select exactly 2 borrowers to merge. Their loan records will be combined under the first selected.</p>
         <div style={{ display: 'grid', gap: 8, maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
@@ -130,7 +132,7 @@ function MergeModal({ loans, onClose, onMerge }) {
                 <div style={{ fontWeight: 700 }}>{b.customer_name}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{b.customer_phone || 'No phone'} · Outstanding: ₹{b.pending_amount.toLocaleString()}</div>
               </div>
-              {selected.includes(b.id) && <span style={{ color: 'var(--green)', fontWeight: 800 }}>✓</span>}
+              {selected.includes(b.id) && <Check size={18} style={{ color: 'var(--green)' }} />}
             </div>
           ))}
         </div>
@@ -171,9 +173,9 @@ export default function Members({ readOnly = false }) {
       const refreshRes = await apiFetch('/api/loans/');
       const refreshData = await refreshRes.json();
       setLoans(refreshData);
-      alert('✅ Borrowers merged successfully!');
+      alert('Borrowers merged successfully!');
     } catch (err) {
-      alert('❌ Error merging borrowers: ' + err.message);
+      alert('Error merging borrowers: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -183,7 +185,7 @@ export default function Members({ readOnly = false }) {
     name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '',
     shop_name: '', aadhaar_number: '',
     guarantor_name: '', guarantor_phone: '', guarantor_address: '',
-    amount: '', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
+    amount: '', interest_rate: '10', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
     startDate: new Date().toISOString().split('T')[0],
     closeDate: '', repaymentFreq: 'monthly', repaymentAmount: '',
   });
@@ -196,14 +198,38 @@ export default function Members({ readOnly = false }) {
   const set = (k, v) => setFormData(f => ({ ...f, [k]: v }));
   const field = (key) => ({ value: formData[key], onChange: e => set(key, e.target.value) });
 
+  // Split an interest amount into charges: Field Verification 40%, Document Fee 30%, Processing Fee 30%
+  const splitCharges = (interestAmt) => {
+    if (!(interestAmt > 0)) return { field_visit_charge: '', document_fee: '', processing_fee: '' };
+    const fieldVisitCalc = Math.round(interestAmt * 40) / 100;
+    const remaining = Math.round((interestAmt - fieldVisitCalc) * 100) / 100;
+    const docFeeCalc = Math.round(remaining * 50) / 100;
+    const procFeeCalc = Math.round((remaining - docFeeCalc) * 100) / 100;
+    return { field_visit_charge: String(fieldVisitCalc), document_fee: String(docFeeCalc), processing_fee: String(procFeeCalc) };
+  };
+
+  // Recompute Monthly Interest (Loan Amount x Interest Rate %) and cascade into charges
+  const recalcFromAmountOrRate = (amountStr, rateStr) => {
+    const p = parseFloat(amountStr) || 0;
+    const rate = parseFloat(rateStr) || 0;
+    const interestAmt = p > 0 ? Math.round(p * rate) / 100 : 0;
+    const monthly_interest_amount = interestAmt > 0 ? String(interestAmt) : '';
+    return { monthly_interest_amount, ...splitCharges(interestAmt) };
+  };
+
+  const handleAmountChange = (v) => setFormData(f => ({ ...f, amount: v, ...recalcFromAmountOrRate(v, f.interest_rate) }));
+  const handleRateChange = (v) => setFormData(f => ({ ...f, interest_rate: v, ...recalcFromAmountOrRate(f.amount, v) }));
+  const handleInterestChange = (v) => setFormData(f => ({ ...f, monthly_interest_amount: v, ...splitCharges(parseFloat(v) || 0) }));
+
   const principal = parseFloat(formData.amount) || 0;
   const monthlyInterest = parseFloat(formData.monthly_interest_amount) || 0;
   const fieldVisit = parseFloat(formData.field_visit_charge) || 0;
   const docFee = parseFloat(formData.document_fee) || 0;
   const procFee = parseFloat(formData.processing_fee) || 0;
+  // Field Verification / Document / Processing are a breakdown of the interest itself (40/30/30 split),
+  // not additional charges — so Total Due is just Principal + Interest, not interest counted twice.
   const totalDeductions = fieldVisit + docFee + procFee;
-  const totalFees = monthlyInterest + totalDeductions;
-  const totalDue = principal + totalFees;
+  const totalDue = principal + monthlyInterest;
   const cashDisbursed = Math.max(0, principal - totalDeductions);
 
   const resetModal = () => {
@@ -319,8 +345,8 @@ export default function Members({ readOnly = false }) {
           <button key={opt.value} type="button" onClick={() => setSortBy(opt.value)}
             style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
               background: sortBy === opt.value ? 'var(--brand)' : 'var(--surface)',
-              color: sortBy === opt.value ? 'white' : 'var(--text-2)' }}>
-            {opt.label}
+              color: sortBy === opt.value ? 'white' : 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {opt.icon && <opt.icon size={13} />}{opt.label}
           </button>
         ))}
       </div>
@@ -341,7 +367,7 @@ export default function Members({ readOnly = false }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: 700 }}>{loan.customer_name}</h3>
-                  {loan.shop_name && <div style={{ fontSize: 11, color: 'var(--text-2)' }}>🏪 {loan.shop_name}</div>}
+                  {loan.shop_name && <div style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}><Store size={11} /> {loan.shop_name}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', padding: '2px 7px', borderRadius: '6px',
@@ -351,9 +377,9 @@ export default function Members({ readOnly = false }) {
                     style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>{loan.status}</span>
                 </div>
               </div>
-              {loan.customer_phone && <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>📱 {loan.customer_phone}{loan.alternate_phone ? ` · Alt: ${loan.alternate_phone}` : ''}</div>}
-              {loan.zone && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2 }}>📍 {loan.zone}, Coimbatore</div>}
-              {loan.customer_address && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2 }}>📍 {loan.customer_address.split(',')[0]}</div>}
+              {loan.customer_phone && <div style={{ fontSize: '12px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={11} /> {loan.customer_phone}{loan.alternate_phone ? ` · Alt: ${loan.alternate_phone}` : ''}</div>}
+              {loan.zone && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {loan.zone}, Coimbatore</div>}
+              {loan.customer_address && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {loan.customer_address.split(',')[0]}</div>}
               {loan.repayment_amount > 0 && (
                 <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>
                   <RefreshCw size={11} style={{ marginRight: '3px', verticalAlign: 'middle' }} />
@@ -400,14 +426,14 @@ export default function Members({ readOnly = false }) {
 
       {/* ── Add Borrower + Loan Modal ──────────────────────────────────────── */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
-          <div className="card" style={{ width: '100%', maxWidth: '540px', marginBottom: '16px', animation: 'slideUp 0.3s ease', maxHeight: '94vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '540px', margin: '16px 0', animation: 'slideUp 0.3s ease' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div>
                 <h3 style={{ fontSize: '18px', fontWeight: 800 }}>New Borrower + Loan</h3>
                 <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>* = required</p>
               </div>
-              <button onClick={resetModal} style={{ background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '24px', cursor: 'pointer' }}>×</button>
+              <button onClick={resetModal} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', display: 'flex' }}><X size={22} /></button>
             </div>
 
             <form onSubmit={handleCreate}>
@@ -428,7 +454,7 @@ export default function Members({ readOnly = false }) {
                 <IconInput icon={<Building2 size={16} />}><input type="text" className="form-input" placeholder="e.g. Ramesh General Store" {...field('shop_name')} /></IconInput>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
                   <label className="form-label">Primary Mobile *</label>
                   <IconInput icon={<Phone size={16} />}><input required type="tel" className="form-input" placeholder="+91 9876543210" {...field('phone')} /></IconInput>
@@ -453,7 +479,7 @@ export default function Members({ readOnly = false }) {
               <div style={{ marginBottom: 12 }}>
                 <button type="button" onClick={() => setShowOtpSection(!showOtpSection)}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--brand-light)', fontSize: 13, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
-                  <Shield size={14} /> {phoneVerified ? '✅ Phone Verified' : 'Verify Phone with OTP'}
+                  {phoneVerified ? <Check size={14} style={{ color: 'var(--green)' }} /> : <Shield size={14} />} {phoneVerified ? 'Phone Verified' : 'Verify Phone with OTP'}
                   {showOtpSection ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </button>
                 {showOtpSection && !phoneVerified && (
@@ -461,7 +487,7 @@ export default function Members({ readOnly = false }) {
                 )}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
                   <label className="form-label">Email</label>
                   <IconInput icon={<Mail size={16} />}><input type="email" className="form-input" placeholder="email@gmail.com" {...field('email')} /></IconInput>
@@ -484,7 +510,7 @@ export default function Members({ readOnly = false }) {
               {/* ── Guarantor ── */}
               <SectionLabel>Guarantor Details</SectionLabel>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
                   <label className="form-label">Guarantor Name</label>
                   <IconInput icon={<User size={16} />}><input type="text" className="form-input" placeholder="Guarantor name" {...field('guarantor_name')} /></IconInput>
@@ -504,15 +530,22 @@ export default function Members({ readOnly = false }) {
               {/* ── Loan Details ── */}
               <SectionLabel>Loan Details</SectionLabel>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="form-group">
+              <div className="form-row-3" style={{ gap: '12px', marginBottom: 12 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label">Loan Amount (₹) *</label>
-                  <IconInput icon={<IndianRupee size={16} />}><input required min="1" step="0.01" type="number" className="form-input" placeholder="0.00" {...field('amount')} /></IconInput>
+                  <IconInput icon={<IndianRupee size={16} />}><input required min="1" step="0.01" type="number" className="form-input" placeholder="0.00" value={formData.amount} onChange={e => handleAmountChange(e.target.value)} /></IconInput>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Monthly Interest (₹)</label>
-                  <IconInput icon={<IndianRupee size={16} />}><input min="0" step="0.01" type="number" className="form-input" placeholder="e.g. 500" {...field('monthly_interest_amount')} /></IconInput>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Interest Rate (%)</label>
+                  <input min="0" step="0.01" type="number" className="form-input" placeholder="10" value={formData.interest_rate} onChange={e => handleRateChange(e.target.value)} />
                 </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Monthly Interest (₹) <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>auto</span></label>
+                  <IconInput icon={<IndianRupee size={16} />}><input min="0" step="0.01" type="number" className="form-input" placeholder="Auto-calculated" value={formData.monthly_interest_amount} onChange={e => handleInterestChange(e.target.value)} /></IconInput>
+                </div>
+              </div>
+
+              <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
                   <label className="form-label">Start Date *</label>
                   <input required type="date" className="form-input" {...field('startDate')} />
@@ -525,20 +558,23 @@ export default function Members({ readOnly = false }) {
 
               {/* ── Fee Breakdown ── */}
               <SectionLabel>Charges & Fees (₹)</SectionLabel>
+              <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: -8, marginBottom: 10 }}>
+                Auto-split from Monthly Interest — Field Verification 40%, Document Fee 30%, Processing Fee 30%. Adjust below if this loan needs different amounts.
+              </p>
 
               <div style={{ background: 'var(--bg)', borderRadius: 14, padding: 14, border: '1px solid var(--border)', marginBottom: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                <div className="form-row-3" style={{ gap: 10, marginBottom: 12 }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Field Visit Charge</label>
-                    <input min="0" step="0.01" type="number" className="form-input" placeholder="₹0" {...field('field_visit_charge')} />
+                    <label className="form-label">Field Verification <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>40%</span></label>
+                    <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('field_visit_charge')} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Document Fee</label>
-                    <input min="0" step="0.01" type="number" className="form-input" placeholder="₹0" {...field('document_fee')} />
+                    <label className="form-label">Document Fee <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>30%</span></label>
+                    <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('document_fee')} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Processing Fee</label>
-                    <input min="0" step="0.01" type="number" className="form-input" placeholder="₹0" {...field('processing_fee')} />
+                    <label className="form-label">Processing Fee <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>30%</span></label>
+                    <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('processing_fee')} />
                   </div>
                 </div>
 
@@ -546,21 +582,27 @@ export default function Members({ readOnly = false }) {
                 {totalDue > 0 && (
                   <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 6 }}>BREAKDOWN</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: 'var(--text-2)' }}>Principal (Loan Amount)</span>
+                      <span>₹{principal.toLocaleString()}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: 'var(--text-2)' }}>Monthly Interest (₹)</span>
+                      <span>₹{monthlyInterest.toLocaleString()}</span>
+                    </div>
                     {[
-                      { label: 'Principal (Loan Amount)', value: principal },
-                      { label: 'Monthly Interest (₹)', value: monthlyInterest },
-                      { label: 'Field Visit Charge', value: fieldVisit },
-                      { label: 'Document Fee', value: docFee },
-                      { label: 'Processing Fee', value: procFee },
+                      { label: 'Field Verification (40%)', value: fieldVisit },
+                      { label: 'Document Fee (30%)', value: docFee },
+                      { label: 'Processing Fee (30%)', value: procFee },
                     ].filter(r => r.value > 0).map(r => (
-                      <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                        <span style={{ color: 'var(--text-2)' }}>{r.label}</span>
+                      <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3, paddingLeft: 14, color: 'var(--text-3)' }}>
+                        <span>of which {r.label}</span>
                         <span>₹{r.value.toLocaleString()}</span>
                       </div>
                     ))}
                     {totalDeductions > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, color: 'var(--red)' }}>
-                        <span>Total Deductions (from principal)</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, marginTop: 4, color: 'var(--red)' }}>
+                        <span>Deducted upfront from principal</span>
                         <span>− ₹{totalDeductions.toLocaleString()}</span>
                       </div>
                     )}
@@ -581,14 +623,14 @@ export default function Members({ readOnly = false }) {
               {/* ── Repayment Frequency ── */}
               <SectionLabel>Repayment Schedule</SectionLabel>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+              <div className="form-row" style={{ gap: '8px', marginBottom: '16px' }}>
                 {FREQ_OPTIONS.map(opt => (
                   <button key={opt.value} type="button" onClick={() => set('repaymentFreq', opt.value)}
                     style={{ padding: '12px', borderRadius: '12px', textAlign: 'left', cursor: 'pointer',
                       border: `2px solid ${formData.repaymentFreq === opt.value ? 'var(--brand)' : 'var(--border)'}`,
                       background: formData.repaymentFreq === opt.value ? 'var(--brand-soft)' : 'var(--bg)',
                       color: 'var(--text)', transition: 'all 0.2s' }}>
-                    <div style={{ fontWeight: 700, fontSize: '13px' }}>{opt.label}</div>
+                    <div style={{ fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', gap: 6 }}><opt.icon size={14} />{opt.label}</div>
                     <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: '2px' }}>{opt.desc}</div>
                   </button>
                 ))}
@@ -623,8 +665,8 @@ export default function Members({ readOnly = false }) {
                 </div>
               )}
 
-              <button type="submit" className="save-btn" disabled={loading}>
-                {loading ? 'Creating...' : '✅ Confirm Loan Disbursal'}
+              <button type="submit" className="save-btn" disabled={loading} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Check size={16} /> {loading ? 'Creating...' : 'Confirm Loan Disbursal'}
               </button>
             </form>
           </div>

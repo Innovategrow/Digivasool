@@ -1,14 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useAppData, ZONES } from '../../context/AppDataContext';
-import { Check, ChevronRight, User, CreditCard, FileText, MapPin, UserPlus, Users } from 'lucide-react';
+import { Check, ChevronRight, User, CreditCard, FileText, MapPin, UserPlus, Users, Calendar, CalendarDays, Landmark, Building2, TrendingUp, CheckCircle2, BarChart3 } from 'lucide-react';
 import PhotoCapture from '../../components/PhotoCapture';
 
 const SCHEMES = [
-  { id: 'daily',         icon: '📅', name: 'Daily Collection',  desc: 'Fixed daily installments' },
-  { id: 'weekly',        icon: '📆', name: 'Weekly Collection', desc: 'Collected once a week' },
-  { id: 'monthly',       icon: '🏦', name: 'Monthly EMI',       desc: 'Reducing balance EMI' },
-  { id: 'enterprise',    icon: '🏢', name: 'Enterprise Loan',   desc: 'High-value business loan' },
-  { id: 'interest_only', icon: '💹', name: 'Interest Only',     desc: 'Monthly interest, principal at end' },
+  { id: 'daily',         icon: Calendar,     name: 'Daily Collection',  desc: 'Fixed daily installments' },
+  { id: 'weekly',        icon: CalendarDays, name: 'Weekly Collection', desc: 'Collected once a week' },
+  { id: 'monthly',       icon: Landmark,     name: 'Monthly EMI',       desc: 'Reducing balance EMI' },
+  { id: 'enterprise',    icon: Building2,    name: 'Enterprise Loan',   desc: 'High-value business loan' },
+  { id: 'interest_only', icon: TrendingUp,   name: 'Interest Only',     desc: 'Monthly interest, principal at end' },
 ];
 
 const EMPTY_BORROWER = {
@@ -146,7 +146,7 @@ export default function NewLoan() {
 
   if (done) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 16, animation: 'fadeUp .4s ease' }}>
-      <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--green-soft)', border: '2px solid var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40 }}>✅</div>
+      <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--green-soft)', border: '2px solid var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CheckCircle2 size={40} style={{ color: 'var(--green)' }} /></div>
       <div style={{ fontSize: 24, fontWeight: 800 }}>Loan Disbursed!</div>
       <div style={{ color: 'var(--text-2)', fontSize: 15 }}>₹{Number(principal).toLocaleString()} disbursed to {borrowerName}</div>
       {isNew && <div style={{ color: 'var(--text-2)', fontSize: 13 }}>New borrower added to {borrowerZone} zone (KYC pending — verify on the Borrowers page).</div>}
@@ -297,7 +297,7 @@ export default function NewLoan() {
               <div className="scheme-grid">
                 {SCHEMES.map(s => (
                   <div key={s.id} className={`scheme-card ${scheme === s.id ? 'selected' : ''}`} onClick={() => setScheme(s.id)}>
-                    <div className="scheme-icon">{s.icon}</div>
+                    <div className="scheme-icon"><s.icon size={24} /></div>
                     <div className="scheme-name">{s.name}</div>
                     <div className="scheme-desc">{s.desc}</div>
                   </div>
@@ -349,7 +349,7 @@ export default function NewLoan() {
 
             {calc && (
               <div style={{ background: 'var(--surface-2)', borderRadius: 14, padding: 20, marginBottom: 20, border: '1px solid var(--brand-soft)' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-light)', marginBottom: 14 }}>📊 Auto-Calculated Summary</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-light)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}><BarChart3 size={14} /> Auto-Calculated Summary</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
                   {[
                     { label: `Per ${durationLabel.slice(0,-1)}`, value: `₹${calc.installment.toLocaleString()}`, color: 'var(--brand-light)' },
@@ -448,8 +448,8 @@ export default function NewLoan() {
 
             <div style={{ display: 'flex', gap: 12 }}>
               <button className="btn btn-secondary" onClick={() => setStep(1)}>← Back</button>
-              <button className="btn btn-success" style={{ flex: 1, fontSize: 15, fontWeight: 800 }} onClick={handleDisburse}>
-                ✅ Confirm & Disburse ₹{Number(principal).toLocaleString()}
+              <button className="btn btn-success" style={{ flex: 1, fontSize: 15, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }} onClick={handleDisburse}>
+                <CheckCircle2 size={16} /> Confirm & Disburse ₹{Number(principal).toLocaleString()}
               </button>
             </div>
           </div>

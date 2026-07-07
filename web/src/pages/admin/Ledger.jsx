@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
-import { CheckCircle, Clock, AlertTriangle, DollarSign, X } from 'lucide-react';
+import { CheckCircle, Clock, AlertTriangle, DollarSign, X, Calendar, CalendarDays, Landmark, ClipboardList } from 'lucide-react';
 
 const TAB_CONFIG = [
-  { id: 'daily',   label: 'Daily',   icon: '📅' },
-  { id: 'weekly',  label: 'Weekly',  icon: '📆' },
-  { id: 'monthly', label: 'Monthly', icon: '🏦' },
-  { id: 'all',     label: 'All Due', icon: '📋' },
+  { id: 'daily',   label: 'Daily',   icon: Calendar },
+  { id: 'weekly',  label: 'Weekly',  icon: CalendarDays },
+  { id: 'monthly', label: 'Monthly', icon: Landmark },
+  { id: 'all',     label: 'All Due', icon: ClipboardList },
 ];
 
 function PayModal({ installment, onClose, onPay }) {
@@ -54,7 +54,7 @@ function PayModal({ installment, onClose, onPay }) {
         </div>
 
         <button className="btn btn-success w-full" style={{ fontSize: 15 }} onClick={() => { onPay(installment.id, Number(amount), Number(penalty)); onClose(); }}>
-          ✅ Confirm Payment
+          <CheckCircle size={16} /> Confirm Payment
         </button>
       </div>
     </div>
@@ -86,7 +86,7 @@ export default function Ledger() {
 
   function handlePay(installmentId, amount, penalty) {
     dispatch({ type: 'ADD_PAYMENT', payload: { installmentId, amount, penalty } });
-    showToast(`✅ Payment of ₹${(amount + penalty).toLocaleString()} recorded!`);
+    showToast(`Payment of ₹${(amount + penalty).toLocaleString()} recorded!`);
   }
 
   const statusConfig = {
@@ -142,7 +142,7 @@ export default function Ledger() {
         {TAB_CONFIG.map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} className="btn btn-secondary btn-sm"
             style={{ background: activeTab === t.id ? 'var(--brand-soft)' : undefined, color: activeTab === t.id ? 'var(--brand-light)' : undefined, borderColor: activeTab === t.id ? 'var(--brand)' : undefined }}>
-            {t.icon} {t.label}
+<t.icon size={13} /> {t.label}
           </button>
         ))}
       </div>

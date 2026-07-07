@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
-import { Download, FileText } from 'lucide-react';
+import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const REPORT_TYPES = [
-  { id: 'pl',          label: 'Profit & Loss',       icon: '💰', desc: 'Revenue and expenses' },
-  { id: 'collection',  label: 'Collection Summary',  icon: '📥', desc: 'Day-wise collection performance' },
-  { id: 'portfolio',   label: 'Loan Portfolio',      icon: '📋', desc: 'Active loans by type and status' },
-  { id: 'overdue',     label: 'Overdue Report',      icon: '🔴', desc: 'All overdue accounts and aging' },
+  { id: 'pl',          label: 'Profit & Loss',       icon: PieChart,      desc: 'Revenue and expenses' },
+  { id: 'collection',  label: 'Collection Summary',  icon: Inbox,         desc: 'Day-wise collection performance' },
+  { id: 'portfolio',   label: 'Loan Portfolio',      icon: ClipboardList, desc: 'Active loans by type and status' },
+  { id: 'overdue',     label: 'Overdue Report',      icon: AlertCircle,   desc: 'All overdue accounts and aging' },
 ];
 
 export default function Reports() {
@@ -15,7 +15,7 @@ export default function Reports() {
   const [toast, setToast] = useState('');
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
-  const handleExport = (type) => showToast(`✅ ${type} export ready! (Demo mode)`);
+  const handleExport = (type) => showToast(`${type} export ready!`);
 
   const { totalCollected, totalExpenses, totalOutstanding, totalCapital } = derived;
 
@@ -30,7 +30,7 @@ export default function Reports() {
 
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
-      {toast && <div className="toast" style={{ borderLeft: '3px solid var(--green)' }}>✅ {toast}</div>}
+      {toast && <div className="toast" style={{ borderLeft: '3px solid var(--green)' }}><CheckCircle2 size={16} style={{ color: 'var(--green)' }} /> {toast}</div>}
 
       <div className="page-header">
         <div>
@@ -47,7 +47,7 @@ export default function Reports() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
         {REPORT_TYPES.map(r => (
           <div key={r.id} onClick={() => setReportType(r.id)} style={{ borderRadius: 14, padding: 16, cursor: 'pointer', transition: 'all .2s', border: `2px solid ${reportType === r.id ? 'var(--brand)' : 'var(--border)'}`, background: reportType === r.id ? 'var(--brand-soft)' : 'var(--surface)' }}>
-            <div style={{ fontSize: 24, marginBottom: 8 }}>{r.icon}</div>
+            <div style={{ marginBottom: 8, color: reportType === r.id ? 'var(--brand-light)' : 'var(--text-2)' }}><r.icon size={22} /></div>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{r.label}</div>
             <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{r.desc}</div>
           </div>
@@ -134,7 +134,7 @@ export default function Reports() {
       {reportType === 'overdue' && (
         <div>
           {overdueItems.length === 0 ? (
-            <div className="empty-state"><div className="empty-icon">✅</div><div className="empty-title">No overdue accounts!</div></div>
+            <div className="empty-state"><div className="empty-icon"><CheckCircle2 size={40} style={{ color: 'var(--green)' }} /></div><div className="empty-title">No overdue accounts!</div></div>
           ) : (
             <div className="table-wrap">
               <table>

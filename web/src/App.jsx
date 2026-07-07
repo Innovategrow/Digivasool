@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppDataProvider, useAppData } from './context/AppDataContext';
 import Sidebar from './components/Sidebar';
-import { Bell, Menu } from 'lucide-react';
+import { Bell, Menu, Settings } from 'lucide-react';
 
 import Dashboard from './pages/admin/Dashboard';
 import Ledger from './pages/admin/Ledger';
@@ -34,6 +34,7 @@ function ProtectedRoute({ children, roles }) {
 
 function DesktopShell({ collectorMode = false }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const { derived, state, dispatch } = useAppData();
   const location = useLocation();
@@ -47,14 +48,17 @@ function DesktopShell({ collectorMode = false }) {
     '/collector/history': 'Collection History',
   }[location.pathname] || 'VasoolPro';
 
-  const basePath = collectorMode ? '/collector' : '';
-
   return (
     <div className="app-layout">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} collectorMode={collectorMode} />
+      <div className={`mobile-nav-backdrop${mobileNavOpen ? ' show' : ''}`} onClick={() => setMobileNavOpen(false)} />
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} collectorMode={collectorMode}
+        mobileOpen={mobileNavOpen} onNavigate={() => setMobileNavOpen(false)} />
 
       <div className="main-content">
         <div className="main-header animate-slideDown">
+          <button className="mobile-menu-btn" onClick={() => setMobileNavOpen(o => !o)} style={{ border: '1px solid var(--border)', cursor: 'pointer' }}>
+            <Menu size={20} />
+          </button>
           {collapsed && (
             <button onClick={() => setCollapsed(false)} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer' }}>
               <Menu size={20} />
@@ -78,7 +82,7 @@ function DesktopShell({ collectorMode = false }) {
                   </span>
                 )}
                 {notifOpen && (
-                  <div style={{ position: 'absolute', top: 44, right: 0, width: 320, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 16, padding: 16, zIndex: 300, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
+                  <div style={{ position: 'absolute', top: 44, right: 0, width: 320, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 16, padding: 16, zIndex: 300, boxShadow: '0 20px 60px rgba(15,23,42,.14)' }}>
                     <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Notifications</div>
                     {state.notifications.slice(0, 5).map(n => (
                       <div key={n.id} style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--surface-2)', marginBottom: 8, fontSize: 13 }}>
@@ -110,7 +114,7 @@ function DesktopShell({ collectorMode = false }) {
                 <Route path="/collection"  element={<CollectionEntry />} />
                 <Route path="/profile"     element={<Profile />} />
                 <Route path="/transactions" element={<Transactions />} />
-                <Route path="/settings"    element={<div className="empty-state"><div className="empty-icon">⚙️</div><div className="empty-title">Settings coming soon</div></div>} />
+                <Route path="/settings"    element={<div className="empty-state"><div className="empty-icon"><Settings size={32} /></div><div className="empty-title">Settings coming soon</div></div>} />
               </>
             ) : (
               <>

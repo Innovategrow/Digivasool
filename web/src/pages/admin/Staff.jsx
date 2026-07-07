@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
-import { Plus, X, Shield, UserCog, User } from 'lucide-react';
+import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList } from 'lucide-react';
 
 const ROLE_CONFIG = {
   admin:     { label: 'Admin',       cls: 'badge-indigo', icon: <Shield size={11} /> },
@@ -120,8 +120,8 @@ export default function Staff() {
               </div>
 
               <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-2)', display: 'flex', gap: 12 }}>
-                {s.phone && <span>📱 {s.phone}</span>}
-                {s.email && <span>✉️ {s.email}</span>}
+                {s.phone && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={12} /> {s.phone}</span>}
+                {s.email && <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Mail size={12} /> {s.email}</span>}
               </div>
             </div>
           );
@@ -130,7 +130,7 @@ export default function Staff() {
 
       {/* RBAC Permission Matrix */}
       <div className="card" style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>🔒 Role Permission Matrix</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} /> Role Permission Matrix</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -154,7 +154,7 @@ export default function Staff() {
                   <td style={{ padding: '10px 16px', fontWeight: 600, fontSize: 13 }}>{perm}</td>
                   {roles.map((allowed, i) => (
                     <td key={i} style={{ padding: '10px 16px', textAlign: 'center' }}>
-                      {allowed ? <span style={{ color: 'var(--green)', fontSize: 18 }}>✓</span> : <span style={{ color: 'var(--red)', fontSize: 18 }}>✗</span>}
+                      {allowed ? <Check size={16} style={{ color: 'var(--green)' }} /> : <X size={16} style={{ color: 'var(--red)' }} />}
                     </td>
                   ))}
                 </tr>
@@ -166,7 +166,7 @@ export default function Staff() {
 
       {/* Audit Log */}
       <div className="card">
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>📋 Recent Audit Log</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><ClipboardList size={16} /> Recent Audit Log</div>
         {AUDIT_LOG.map((log, i) => (
           <div key={i} style={{ display: 'flex', gap: 14, padding: '12px 0', borderBottom: i < AUDIT_LOG.length - 1 ? '1px solid var(--border)' : 'none' }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--brand-light)', flexShrink: 0, fontSize: 14 }}>
