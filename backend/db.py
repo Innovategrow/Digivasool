@@ -20,7 +20,7 @@ class MockDocument:
         elif self.collection_name == "loan_payments":
             return any(p["id"] == self.id for p in _loan_payments)
         elif self.collection_name == "reminders":
-            return any(r["id"] == self.id for r in _reminders)
+            return any(r.get("id") == self.id for r in _reminders)
         elif self.collection_name == "transactions":
             return any(t["id"] == self.id for t in _transactions)
         return False
@@ -39,7 +39,7 @@ class MockDocument:
                     return p
         elif self.collection_name == "reminders":
             for r in _reminders:
-                if r["id"] == self.id:
+                if r.get("id") == self.id:
                     return r
         elif self.collection_name == "transactions":
             for t in _transactions:
@@ -87,7 +87,7 @@ class MockDocument:
                     return
         elif self.collection_name == "reminders":
             for r in _reminders:
-                if r["id"] == self.id:
+                if r.get("id") == self.id:
                     r.update(data)
                     return
         elif self.collection_name == "transactions":
@@ -105,7 +105,7 @@ class MockDocument:
             _loan_payments = [p for p in _loan_payments if p["id"] != self.id]
         elif self.collection_name == "reminders":
             global _reminders
-            _reminders = [r for r in _reminders if r["id"] != self.id]
+            _reminders = [r for r in _reminders if r.get("id") != self.id]
         elif self.collection_name == "transactions":
             global _transactions
             _transactions = [t for t in _transactions if t["id"] != self.id]
@@ -158,7 +158,7 @@ class MockQuery:
         if self._limit is not None:
             filtered_items = filtered_items[:self._limit]
 
-        return [MockDocument(self.collection_name, item["id"]) for item in filtered_items]
+        return [MockDocument(self.collection_name, item.get("id")) for item in filtered_items]
 
 class MockCollection:
     def __init__(self, name: str):
@@ -358,7 +358,7 @@ def seed_db():
         }
     ]
 
-    print("🌱 Seeded in-memory store with demo data")
+    print("Seeded in-memory store with demo data")
 
 
 # ── Transaction Helpers ──────────────────────────────────────────────────────
@@ -370,6 +370,8 @@ def append_transaction_db(record: Dict[str, Any]):
 
 
 def append_reminders_db(reminders: List[Dict[str, Any]]):
+    for r in reminders:
+        r.setdefault("id", str(uuid4()))
     _reminders.extend(reminders)
 
 

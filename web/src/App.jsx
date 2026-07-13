@@ -2,20 +2,21 @@ import { Routes, Route, Navigate, useLocation, NavLink } from 'react-router-dom'
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppDataProvider, useAppData } from './context/AppDataContext';
+import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/Sidebar';
 import { Bell, Menu, Settings, LayoutDashboard, Users, CreditCard, BookOpen } from 'lucide-react';
 
 const ADMIN_MOBILE_TABS = [
-  { to: '/',           icon: LayoutDashboard, label: 'Home' },
-  { to: '/borrowers',  icon: Users,           label: 'Borrowers' },
-  { to: '/collection', icon: CreditCard,      label: 'Collect' },
-  { to: '/ledger',     icon: BookOpen,        label: 'Ledger' },
+  { to: '/',           icon: LayoutDashboard, labelKey: 'home' },
+  { to: '/borrowers',  icon: Users,           labelKey: 'borrowers' },
+  { to: '/collection', icon: CreditCard,      labelKey: 'collect' },
+  { to: '/ledger',     icon: BookOpen,        labelKey: 'ledger' },
 ];
 
 const COLLECTOR_MOBILE_TABS = [
-  { to: '/collector',           icon: CreditCard, label: 'Collect' },
-  { to: '/collector/borrowers', icon: Users,      label: 'Borrowers' },
-  { to: '/collector/history',   icon: BookOpen,   label: 'History' },
+  { to: '/collector',           icon: CreditCard, labelKey: 'collect' },
+  { to: '/collector/borrowers', icon: Users,      labelKey: 'borrowers' },
+  { to: '/collector/history',   icon: BookOpen,   labelKey: 'history' },
 ];
 
 import Dashboard from './pages/admin/Dashboard';
@@ -48,16 +49,18 @@ function DesktopShell({ collectorMode = false }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const { derived, state, dispatch } = useAppData();
+  const { t } = useLanguage();
   const location = useLocation();
 
-  const pageTitle = {
-    '/': 'Dashboard', '/borrowers': 'Borrowers', '/new-loan': 'Borrowers',
-    '/ledger': 'Ledger', '/expenses': 'Expenses', '/reports': 'Reports',
-    '/staff': 'Staff Management', '/settings': 'Settings',
-    '/collection': 'Collection Entry', '/profile': 'Profile',
-    '/collector': 'Collect Payment', '/collector/borrowers': 'Borrowers',
-    '/collector/history': 'Collection History',
-  }[location.pathname] || 'VasoolPro';
+  const pageTitleKey = {
+    '/': 'dashboard', '/borrowers': 'borrowers', '/new-loan': 'borrowers',
+    '/ledger': 'ledger', '/expenses': 'expenses', '/reports': 'reports',
+    '/staff': 'staff', '/settings': 'settings',
+    '/collection': 'collection', '/profile': 'profile',
+    '/collector': 'collectPayment', '/collector/borrowers': 'borrowers',
+    '/collector/history': 'history',
+  }[location.pathname];
+  const pageTitle = pageTitleKey ? t(pageTitleKey) : t('appName');
 
   return (
     <div className="app-layout">
@@ -91,7 +94,7 @@ function DesktopShell({ collectorMode = false }) {
                 )}
                 {notifOpen && (
                   <div style={{ position: 'absolute', top: 44, right: 0, width: 320, background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 16, padding: 16, zIndex: 300, boxShadow: '0 20px 60px rgba(15,23,42,.14)' }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Notifications</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>{t('notifications')}</div>
                     {state.notifications.slice(0, 5).map(n => (
                       <div key={n.id} style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--surface-2)', marginBottom: 8, fontSize: 13 }}>
                         <div style={{ fontWeight: 600 }}>{n.message}</div>
@@ -103,7 +106,7 @@ function DesktopShell({ collectorMode = false }) {
               </div>
             )}
             <div className="header-today-badge" style={{ background: 'var(--green-soft)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 10, padding: '6px 14px', fontSize: 13, fontWeight: 700, color: 'var(--green)', whiteSpace: 'nowrap' }}>
-              ₹{derived.todayCollected.toLocaleString()} Today
+              ₹{derived.todayCollected.toLocaleString()} {t('today')}
             </div>
           </div>
         </div>
@@ -122,7 +125,7 @@ function DesktopShell({ collectorMode = false }) {
                 <Route path="/collection"  element={<CollectionEntry />} />
                 <Route path="/profile"     element={<Profile />} />
                 <Route path="/transactions" element={<Transactions />} />
-                <Route path="/settings"    element={<div className="empty-state"><div className="empty-icon"><Settings size={32} /></div><div className="empty-title">Settings coming soon</div></div>} />
+                <Route path="/settings"    element={<div className="empty-state"><div className="empty-icon"><Settings size={32} /></div><div className="empty-title">{t('settingsComingSoon')}</div></div>} />
               </>
             ) : (
               <>
@@ -135,16 +138,16 @@ function DesktopShell({ collectorMode = false }) {
         </div>
 
         <nav className="bottom-nav mobile-only">
-          {(collectorMode ? COLLECTOR_MOBILE_TABS : ADMIN_MOBILE_TABS).map(t => (
-            <NavLink key={t.to} to={t.to} end={t.to === '/' || t.to === '/collector'}
+          {(collectorMode ? COLLECTOR_MOBILE_TABS : ADMIN_MOBILE_TABS).map(tab => (
+            <NavLink key={tab.to} to={tab.to} end={tab.to === '/' || tab.to === '/collector'}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-              <t.icon size={20} />
-              <span>{t.label}</span>
+              <tab.icon size={20} />
+              <span>{t(tab.labelKey)}</span>
             </NavLink>
           ))}
           <button className="nav-item" onClick={() => setMobileNavOpen(true)}>
             <Menu size={20} />
-            <span>More</span>
+            <span>{t('more')}</span>
           </button>
         </nav>
       </div>
@@ -176,10 +179,12 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppDataProvider>
-        <AppRoutes />
-      </AppDataProvider>
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <AppDataProvider>
+          <AppRoutes />
+        </AppDataProvider>
+      </AuthProvider>
+    </LanguageProvider>
   );
 }

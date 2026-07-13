@@ -1,5 +1,6 @@
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { TrendingUp, AlertTriangle, Wallet, Target, ArrowRight, CheckCircle2, Clock, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3, Search, SlidersHorizontal } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -48,6 +49,7 @@ function RecoveryRing({ percent }) {
 export default function Dashboard() {
   const { derived, state } = useAppData();
   const { user } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { todayCollected, overdueCount } = derived;
   const [apiStats, setApiStats] = useState(null);
@@ -82,15 +84,15 @@ export default function Dashboard() {
       <div className="mobile-home">
         <div className="mh-header">
           <div>
-            <div className="mh-greeting">Hello, {user?.name?.split(' ')[0] || 'there'}</div>
-            <div className="mh-sub">Welcome back to VasoolPro</div>
+            <div className="mh-greeting">{t('helloGreeting')}, {user?.name?.split(' ')[0] || 'there'}</div>
+            <div className="mh-sub">{t('welcomeBack')} {t('appName')}</div>
           </div>
           <div className="mh-avatar">{user?.name?.charAt(0)?.toUpperCase() || 'A'}</div>
         </div>
 
         <div className="mh-search-row">
           <div className="mh-search" onClick={() => navigate('/borrowers')}>
-            <Search size={16} /><span>Search borrowers...</span>
+            <Search size={16} /><span>{t('searchBorrowers')}</span>
           </div>
           <button className="mh-filter-btn" onClick={() => navigate('/collection')}>
             <SlidersHorizontal size={18} />
@@ -98,7 +100,7 @@ export default function Dashboard() {
         </div>
 
         <div className="mh-hero">
-          <div className="mh-hero-label">Collected Today</div>
+          <div className="mh-hero-label">{t('collectedToday')}</div>
           <div className="mh-hero-amount">₹<AnimatedNumber value={todayCollected} /></div>
           <div className="mh-hero-progress-track">
             <div className="mh-hero-progress-fill" style={{ width: `${Math.min(todayProgress, 100)}%` }} />
@@ -110,21 +112,21 @@ export default function Dashboard() {
         </div>
 
         <div className="mh-quick-row">
-          <button className="mh-quick-btn" onClick={() => navigate('/borrowers')}><UserPlus size={18} />New Loan</button>
-          <button className="mh-quick-btn" onClick={() => navigate('/collection')}><Banknote size={18} />Collect</button>
-          <button className="mh-quick-btn" onClick={() => navigate('/reports')}><BarChart3 size={18} />Reports</button>
+          <button className="mh-quick-btn" onClick={() => navigate('/borrowers')}><UserPlus size={18} />{t('newLoan')}</button>
+          <button className="mh-quick-btn" onClick={() => navigate('/collection')}><Banknote size={18} />{t('collect')}</button>
+          <button className="mh-quick-btn" onClick={() => navigate('/reports')}><BarChart3 size={18} />{t('reports')}</button>
         </div>
 
         <div className="mh-pills">
-          <button className={`mh-pill${mobileFilter === 'due' ? ' active' : ''}`} onClick={() => setMobileFilter('due')}>Due Today ({dueToday.length})</button>
-          <button className={`mh-pill${mobileFilter === 'overdue' ? ' active' : ''}`} onClick={() => setMobileFilter('overdue')}>Overdue ({overdueItems.length})</button>
+          <button className={`mh-pill${mobileFilter === 'due' ? ' active' : ''}`} onClick={() => setMobileFilter('due')}>{t('dueToday')} ({dueToday.length})</button>
+          <button className={`mh-pill${mobileFilter === 'overdue' ? ' active' : ''}`} onClick={() => setMobileFilter('overdue')}>{t('overdueAlerts')} ({overdueItems.length})</button>
         </div>
 
         {mobileFilter === 'due' ? (
           <>
             <div className="mh-row-header">
-              <span className="mh-section-title">Due Today</span>
-              <button className="mh-see-all" onClick={() => navigate('/collection')}>See all <ArrowRight size={12} /></button>
+              <span className="mh-section-title">{t('dueToday')}</span>
+              <button className="mh-see-all" onClick={() => navigate('/collection')}>{t('seeAll')} <ArrowRight size={12} /></button>
             </div>
             {dueToday.length === 0 ? (
               <div className="mh-empty">All today's dues collected!</div>
@@ -146,8 +148,8 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="mh-row-header">
-              <span className="mh-section-title">Overdue Alerts</span>
-              <button className="mh-see-all" onClick={() => navigate('/ledger')}>See all <ArrowRight size={12} /></button>
+              <span className="mh-section-title">{t('overdueAlerts')}</span>
+              <button className="mh-see-all" onClick={() => navigate('/ledger')}>{t('seeAll')} <ArrowRight size={12} /></button>
             </div>
             {overdueItems.length === 0 ? (
               <div className="mh-empty">No overdue accounts!</div>
@@ -174,17 +176,17 @@ export default function Dashboard() {
       {/* Stat cards */}
       <div className="stat-grid">
         {[
-          { label: "Today's Collection", value: todayCollected, prefix: '₹', color: 'green', icon: IndianRupee },
-          { label: 'Active Borrowers', value: activeCount, color: 'indigo', icon: ClipboardList },
-          { label: 'Total Outstanding', value: outstanding, prefix: '₹', color: 'amber', icon: Hourglass },
-          { label: 'Total Collected', value: totalCollected, prefix: '₹', color: 'cyan', icon: Inbox },
+          { id: 'todaysCollection', label: t('todaysCollection'), value: todayCollected, prefix: '₹', color: 'green', icon: IndianRupee },
+          { id: 'activeBorrowers', label: t('activeBorrowers'), value: activeCount, color: 'indigo', icon: ClipboardList },
+          { id: 'totalOutstanding', label: t('totalOutstanding'), value: outstanding, prefix: '₹', color: 'amber', icon: Hourglass },
+          { id: 'totalCollected', label: t('totalCollected'), value: totalCollected, prefix: '₹', color: 'cyan', icon: Inbox },
         ].map((s, i) => (
-          <div key={s.label} className={`stat-card ${s.color} card-hover`} style={{ animationDelay: `${i * 0.08}s`, animation: 'popIn .45s ease both' }}>
+          <div key={s.id} className={`stat-card ${s.color} card-hover`} style={{ animationDelay: `${i * 0.08}s`, animation: 'popIn .45s ease both' }}>
             <div className="stat-card-label">{s.label}</div>
             <div className="stat-card-value" style={{ color: s.color === 'green' ? 'var(--green)' : s.color === 'indigo' ? 'var(--brand-light)' : s.color === 'amber' ? 'var(--amber)' : 'var(--cyan)' }}>
               <AnimatedNumber value={s.value} prefix={s.prefix || ''} />
             </div>
-            {s.label === 'Active Borrowers' && overdueCount > 0 && (
+            {s.id === 'activeBorrowers' && overdueCount > 0 && (
               <div className="stat-card-trend" style={{ color: 'var(--red)' }}>
                 <AlertTriangle size={12} /> {overdueCount} overdue
               </div>
@@ -248,7 +250,7 @@ export default function Dashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
         <div className="chart-card card-hover animate-fadeUp-1">
           <div className="chart-title" style={{ justifyContent: 'space-between' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={16} style={{ color: 'var(--amber)' }} />Due Today</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={16} style={{ color: 'var(--amber)' }} />{t('dueToday')}</span>
             {dueToday.length > 0 && <span className="badge badge-amber">{dueToday.length}</span>}
           </div>
           {dueToday.length === 0 ? (
@@ -275,7 +277,7 @@ export default function Dashboard() {
         </div>
 
         <div className="chart-card card-hover animate-fadeUp-2">
-          <div className="chart-title"><AlertTriangle size={16} style={{ color: 'var(--red)' }} />Overdue Alerts</div>
+          <div className="chart-title"><AlertTriangle size={16} style={{ color: 'var(--red)' }} />{t('overdueAlerts')}</div>
           {overdueItems.length === 0 ? (
             <div style={{ color: 'var(--text-2)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} style={{ color: 'var(--green)' }} /> No overdue accounts</div>
           ) : (

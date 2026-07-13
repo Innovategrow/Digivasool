@@ -1,18 +1,20 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
-
-const REPORT_TYPES = [
-  { id: 'pl',          label: 'Profit & Loss',       icon: PieChart,      desc: 'Revenue and expenses' },
-  { id: 'collection',  label: 'Collection Summary',  icon: Inbox,         desc: 'Day-wise collection performance' },
-  { id: 'portfolio',   label: 'Loan Portfolio',      icon: ClipboardList, desc: 'Active loans by type and status' },
-  { id: 'overdue',     label: 'Overdue Report',      icon: AlertCircle,   desc: 'All overdue accounts and aging' },
-];
 
 export default function Reports() {
   const { state, derived } = useAppData();
+  const { t } = useLanguage();
   const [reportType, setReportType] = useState('pl');
   const [toast, setToast] = useState('');
+
+  const REPORT_TYPES = [
+    { id: 'pl',          label: t('reportPL'),         icon: PieChart,      desc: t('reportPLDesc') },
+    { id: 'collection',  label: t('reportCollection'), icon: Inbox,         desc: t('reportCollectionDesc') },
+    { id: 'portfolio',   label: t('reportPortfolio'),  icon: ClipboardList, desc: t('reportPortfolioDesc') },
+    { id: 'overdue',     label: t('reportOverdue'),    icon: AlertCircle,   desc: t('reportOverdueDesc') },
+  ];
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
   const handleExport = (type) => showToast(`${type} export ready!`);
@@ -20,9 +22,9 @@ export default function Reports() {
   const { totalCollected, totalExpenses, totalOutstanding, totalCapital } = derived;
 
   const loanByStatus = [
-    { name: 'Active',    count: state.loans.filter(l => l.status === 'active').length,   amount: state.loans.filter(l => l.status === 'active').reduce((s, l) => s + l.principal, 0) },
-    { name: 'Closed',    count: state.loans.filter(l => l.status === 'closed').length,    amount: state.loans.filter(l => l.status === 'closed').reduce((s, l) => s + l.principal, 0) },
-    { name: 'Defaulted', count: state.loans.filter(l => l.status === 'defaulted').length, amount: state.loans.filter(l => l.status === 'defaulted').reduce((s, l) => s + l.principal, 0) },
+    { id: 'active', name: t('statusActive'),    count: state.loans.filter(l => l.status === 'active').length,   amount: state.loans.filter(l => l.status === 'active').reduce((s, l) => s + l.principal, 0) },
+    { id: 'closed', name: t('statusClosed'),    count: state.loans.filter(l => l.status === 'closed').length,    amount: state.loans.filter(l => l.status === 'closed').reduce((s, l) => s + l.principal, 0) },
+    { id: 'defaulted', name: t('statusDefaulted'), count: state.loans.filter(l => l.status === 'defaulted').length, amount: state.loans.filter(l => l.status === 'defaulted').reduce((s, l) => s + l.principal, 0) },
   ];
 
   const overdueItems = state.installments.filter(i => i.status === 'overdue');
@@ -34,12 +36,12 @@ export default function Reports() {
 
       <div className="page-header">
         <div>
-          <div className="page-title">Financial Reports</div>
-          <div className="page-subtitle">Analytics and export center</div>
+          <div className="page-title">{t('financialReports')}</div>
+          <div className="page-subtitle">{t('analyticsExportCenter')}</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-secondary" onClick={() => handleExport('Excel')}><Download size={16} />Excel</button>
-          <button className="btn btn-primary" onClick={() => handleExport('PDF')}><FileText size={16} />PDF Report</button>
+          <button className="btn btn-secondary" onClick={() => handleExport('Excel')}><Download size={16} />{t('excel')}</button>
+          <button className="btn btn-primary" onClick={() => handleExport('PDF')}><FileText size={16} />{t('pdfReport')}</button>
         </div>
       </div>
 
@@ -59,11 +61,11 @@ export default function Reports() {
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
             {[
-              { label: 'Gross Revenue',   value: totalCollected,     color: 'var(--green)',        note: 'Total interest + principal collected' },
-              { label: 'Total Expenses',  value: totalExpenses,      color: 'var(--red)',           note: 'Salaries, fuel, office, misc' },
-              { label: 'Outstanding',     value: totalOutstanding,   color: 'var(--cyan)',         note: 'Pending amount to recover' },
+              { id: 'grossRevenue', label: t('grossRevenue'),   value: totalCollected,     color: 'var(--green)',        note: t('grossRevenueNote') },
+              { id: 'totalExpenses', label: t('totalExpenses'),  value: totalExpenses,      color: 'var(--red)',           note: t('totalExpensesNote') },
+              { id: 'outstanding', label: t('outstandingLabel'),     value: totalOutstanding,   color: 'var(--cyan)',         note: t('outstandingNote') },
             ].map(s => (
-              <div key={s.label} className="card" style={{ borderColor: `${s.color}33` }}>
+              <div key={s.id} className="card" style={{ borderColor: `${s.color}33` }}>
                 <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.label}</div>
                 <div style={{ fontSize: 28, fontWeight: 900, color: s.color, fontFamily: 'var(--mono)', margin: '8px 0' }}>₹{s.value.toLocaleString()}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{s.note}</div>
@@ -78,7 +80,7 @@ export default function Reports() {
         <div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Day</th><th>Collected</th><th>Target</th><th>Achievement</th></tr></thead>
+              <thead><tr><th>{t('dateLabel')}</th><th>{t('tableDay')}</th><th>{t('collectedLabel')}</th><th>{t('tableTarget')}</th><th>{t('tableAchievement')}</th></tr></thead>
               <tbody>
                 {collectionData.slice(-7).map((d, i) => {
                   const pct = Math.round((d.amount / d.target) * 100);
@@ -103,8 +105,8 @@ export default function Reports() {
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
             {loanByStatus.map(s => (
-              <div key={s.name} className="card">
-                <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.name} Loans</div>
+              <div key={s.id} className="card">
+                <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>{s.name} {t('loansSuffix')}</div>
                 <div style={{ fontSize: 28, fontWeight: 900, fontFamily: 'var(--mono)', margin: '6px 0' }}>{s.count}</div>
                 <div style={{ fontSize: 14, color: 'var(--text-2)' }}>₹{s.amount.toLocaleString()}</div>
               </div>
@@ -112,7 +114,7 @@ export default function Reports() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Borrower</th><th>Type</th><th>Principal</th><th>Total Due</th><th>Collected</th><th>Status</th></tr></thead>
+              <thead><tr><th>{t('tableBorrower')}</th><th>{t('tableType')}</th><th>{t('tablePrincipal')}</th><th>{t('tableTotalDue')}</th><th>{t('collectedLabel')}</th><th>{t('tableStatus')}</th></tr></thead>
               <tbody>
                 {state.loans.map(l => (
                   <tr key={l.id}>
@@ -134,11 +136,11 @@ export default function Reports() {
       {reportType === 'overdue' && (
         <div>
           {overdueItems.length === 0 ? (
-            <div className="empty-state"><div className="empty-icon"><CheckCircle2 size={40} style={{ color: 'var(--green)' }} /></div><div className="empty-title">No overdue accounts!</div></div>
+            <div className="empty-state"><div className="empty-icon"><CheckCircle2 size={40} style={{ color: 'var(--green)' }} /></div><div className="empty-title">{t('noOverdueAccounts')}</div></div>
           ) : (
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Borrower</th><th>Phone</th><th>Due Date</th><th>Amount Due</th><th>Days Overdue</th><th>Type</th></tr></thead>
+                <thead><tr><th>{t('tableBorrower')}</th><th>{t('tablePhone')}</th><th>{t('tableDueDate')}</th><th>{t('tableAmountDue')}</th><th>{t('tableDaysOverdue')}</th><th>{t('tableType')}</th></tr></thead>
                 <tbody>
                   {overdueItems.map(i => {
                     const days = Math.round((new Date() - new Date(i.dueDate)) / 86400000);
@@ -148,7 +150,7 @@ export default function Reports() {
                         <td style={{ fontSize: 13 }}>{i.phone}</td>
                         <td style={{ fontSize: 13 }}>{i.dueDate}</td>
                         <td style={{ fontWeight: 700, color: 'var(--red)', fontFamily: 'var(--mono)' }}>₹{i.amount.toLocaleString()}</td>
-                        <td><span className={`badge ${days > 7 ? 'badge-red' : 'badge-amber'}`}>{days} days</span></td>
+                        <td><span className={`badge ${days > 7 ? 'badge-red' : 'badge-amber'}`}>{days} {t('daysSuffix')}</span></td>
                         <td style={{ textTransform: 'capitalize', fontSize: 13 }}>{i.type.replace('_',' ')}</td>
                       </tr>
                     );

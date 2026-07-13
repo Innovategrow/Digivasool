@@ -96,6 +96,8 @@ class LoanCreate(BaseModel):
     closing_date: str
     repayment_frequency: Literal["daily", "weekly", "monthly", "custom"] = "monthly"
     repayment_amount: Optional[float] = 0.0
+    # Preferred language for the post-disbursement SMS
+    preferred_language: Literal["en", "hi", "ta", "te", "kn", "ml"] = "en"
 
 
 class LoanPaymentCreate(BaseModel):
@@ -146,6 +148,9 @@ class LoanRecord(BaseModel):
     guarantor_name: Optional[str] = None
     guarantor_phone: Optional[str] = None
     guarantor_address: Optional[str] = None
+    # Unique borrower account number, assigned at disbursement
+    account_number: Optional[str] = None
+    preferred_language: Optional[str] = "en"
     # Amounts
     loan_amount: float
     monthly_interest_amount: Optional[float] = 0.0
@@ -187,10 +192,22 @@ class WhatsAppLinks(BaseModel):
     message_preview: str
 
 
+class SMSLinks(BaseModel):
+    send_sms_url: Optional[str] = None
+    message_preview: str
+    language: str
+
+
 class PaymentResponse(BaseModel):
     status: str
     data: Dict[str, Any]
     whatsapp: WhatsAppLinks
+
+
+class LoanCreateResponse(BaseModel):
+    status: str
+    data: LoanRecord
+    sms: SMSLinks
 
 
 class BorrowerOTPRequest(BaseModel):

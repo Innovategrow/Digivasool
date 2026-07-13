@@ -3,30 +3,29 @@ import {
   UserPlus, IndianRupee, ShieldCheck, Mail, Phone, MapPin,
   RefreshCw, CheckCircle, Building2,
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
-  Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store
+  Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store,
+  MessageSquare, Languages, Hash, ExternalLink, CheckCircle2
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { ZONES } from '../../context/AppDataContext';
 import PhotoCapture from '../../components/PhotoCapture';
 
-const FREQ_OPTIONS = [
-  { value: 'daily',   icon: Calendar,      label: 'Daily',   desc: 'Collected every day' },
-  { value: 'weekly',  icon: CalendarDays,  label: 'Weekly',  desc: 'Once a week' },
-  { value: 'monthly', icon: CalendarRange, label: 'Monthly', desc: 'Once a month' },
-  { value: 'custom',  icon: Settings2,     label: 'Custom',  desc: 'Set your own amount' },
-];
-
-const SORT_OPTIONS = [
-  { value: 'name',     icon: null,    label: 'Name A-Z' },
-  { value: 'balance',  icon: null,    label: 'Highest Balance' },
-  { value: 'location', icon: MapPin,  label: 'By Coimbatore Area' },
-  { value: 'newest',   icon: null,    label: 'Newest First' },
+// SMS to the borrower can be sent in any of these Indian languages
+const SMS_LANGUAGES = [
+  { value: 'en', label: 'English' },
+  { value: 'hi', label: 'Hindi हिन्दी' },
+  { value: 'ta', label: 'Tamil தமிழ்' },
+  { value: 'te', label: 'Telugu తెలుగు' },
+  { value: 'kn', label: 'Kannada ಕನ್ನಡ' },
+  { value: 'ml', label: 'Malayalam മലയാളം' },
 ];
 
 // ── OTP Verifier sub-component ─────────────────────────────────────────────
 function OtpVerifier({ phone, onVerified }) {
+  const { t } = useLanguage();
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [devOtp, setDevOtp] = useState('');
   const [sent, setSent] = useState(false);
@@ -78,7 +77,7 @@ function OtpVerifier({ phone, onVerified }) {
   if (verified) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(16,185,129,.1)', borderRadius: 10, border: '1px solid rgba(16,185,129,.3)' }}>
       <CheckCircle size={16} style={{ color: 'var(--green)' }} />
-      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>Phone verified</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>{t('phoneVerified')}</span>
     </div>
   );
 
@@ -87,11 +86,11 @@ function OtpVerifier({ phone, onVerified }) {
       {!sent ? (
         <button type="button" onClick={sendOtp} disabled={!phone || loading}
           style={{ width: '100%', padding: '10px', background: 'var(--brand-soft)', border: '1px solid var(--brand)', color: 'var(--brand-light)', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          <Phone size={14} /> {loading ? 'Sending…' : 'Send OTP to verify phone'}
+          <Phone size={14} /> {loading ? t('otpSending') : t('sendOtpToVerifyPhone')}
         </button>
       ) : (
         <div>
-          {devOtp && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Wrench size={12} /> Test OTP: <strong style={{ letterSpacing: 3 }}>{devOtp}</strong></div>}
+          {devOtp && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Wrench size={12} /> {t('testOtpLabel')} <strong style={{ letterSpacing: 3 }}>{devOtp}</strong></div>}
           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
             {otp.map((d, i) => (
               <input key={i} ref={el => refs.current[i] = el} type="tel" maxLength={1} value={d}
@@ -102,7 +101,7 @@ function OtpVerifier({ phone, onVerified }) {
           {error && <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>{error}</div>}
           <button type="button" onClick={verifyOtp} disabled={otp.join('').length < 6 || loading}
             style={{ width: '100%', padding: '10px', background: 'var(--green)', border: 'none', color: 'white', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Check size={14} /> {loading ? 'Verifying…' : 'Verify OTP'}
+            <Check size={14} /> {loading ? t('otpVerifying') : t('verifyOtpBtn')}
           </button>
         </div>
       )}
@@ -112,6 +111,7 @@ function OtpVerifier({ phone, onVerified }) {
 }
 
 function MergeModal({ loans, onClose, onMerge }) {
+  const { t } = useLanguage();
   const [selected, setSelected] = useState([]);
   const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : s.length < 2 ? [...s, id] : s);
 
@@ -119,10 +119,10 @@ function MergeModal({ loans, onClose, onMerge }) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
       <div className="card" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: '440px', padding: 24, animation: 'slideUp 0.3s ease' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Merge Borrowers</h3>
+          <h3 style={{ fontSize: '18px', fontWeight: 800 }}>{t('mergeBorrowers')}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', display: 'flex' }}><X size={22} /></button>
         </div>
-        <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 16 }}>Select exactly 2 borrowers to merge. Their loan records will be combined under the first selected.</p>
+        <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 16 }}>{t('mergeBorrowersDesc')}</p>
         <div style={{ display: 'grid', gap: 8, maxHeight: 300, overflowY: 'auto', marginBottom: 16 }}>
           {loans.map(b => (
             <div key={b.id} onClick={() => toggle(b.id)}
@@ -130,7 +130,7 @@ function MergeModal({ loans, onClose, onMerge }) {
               <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--brand-light)' }}>{b.customer_name.charAt(0)}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{b.customer_name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{b.customer_phone || 'No phone'} · Outstanding: ₹{b.pending_amount.toLocaleString()}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{b.customer_phone || t('noPhone')} · {t('outstandingColon')} ₹{b.pending_amount.toLocaleString()}</div>
               </div>
               {selected.includes(b.id) && <Check size={18} style={{ color: 'var(--green)' }} />}
             </div>
@@ -138,7 +138,7 @@ function MergeModal({ loans, onClose, onMerge }) {
         </div>
         <button className="save-btn" style={{ width: '100%' }} disabled={selected.length !== 2}
           onClick={() => { onMerge(selected[0], selected[1]); onClose(); }}>
-          <GitMerge size={16} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Merge Selected Borrowers
+          <GitMerge size={16} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> {t('mergeSelected')}
         </button>
       </div>
     </div>
@@ -148,6 +148,19 @@ function MergeModal({ loans, onClose, onMerge }) {
 // ── Main Component ──────────────────────────────────────────────────────────
 export default function Members({ readOnly = false }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
+  const FREQ_OPTIONS = [
+    { value: 'daily',   icon: Calendar,      label: t('daily'),   desc: t('freqDailyDesc') },
+    { value: 'weekly',  icon: CalendarDays,  label: t('weekly'),  desc: t('freqWeeklyDesc') },
+    { value: 'monthly', icon: CalendarRange, label: t('monthly'), desc: t('freqMonthlyDesc') },
+    { value: 'custom',  icon: Settings2,     label: t('freqCustom'),  desc: t('freqCustomDesc') },
+  ];
+  const SORT_OPTIONS = [
+    { value: 'name',     icon: null,    label: t('nameAZ') },
+    { value: 'balance',  icon: null,    label: t('highestBalance') },
+    { value: 'location', icon: MapPin,  label: t('byArea') },
+    { value: 'newest',   icon: null,    label: t('newestFirst') },
+  ];
   const canCreate = !readOnly && user?.role === 'admin';
   const canMerge = !readOnly && user?.role === 'admin';
   const [loans, setLoans] = useState([]);
@@ -185,10 +198,11 @@ export default function Members({ readOnly = false }) {
     name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '',
     shop_name: '', aadhaar_number: '',
     guarantor_name: '', guarantor_phone: '', guarantor_address: '',
-    amount: '', interest_rate: '10', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
+    amount: '', interest_rate: '18', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
     startDate: new Date().toISOString().split('T')[0],
-    closeDate: '', repaymentFreq: 'monthly', repaymentAmount: '',
+    closeDate: '', repaymentFreq: 'monthly', repaymentAmount: '', preferred_language: 'en',
   });
+  const [disburseResult, setDisburseResult] = useState(null);
 
   useEffect(() => {
     apiFetch('/api/loans/')
@@ -226,8 +240,11 @@ export default function Members({ readOnly = false }) {
   const fieldVisit = parseFloat(formData.field_visit_charge) || 0;
   const docFee = parseFloat(formData.document_fee) || 0;
   const procFee = parseFloat(formData.processing_fee) || 0;
-  // Field Verification / Document / Processing are a breakdown of the interest itself (40/30/30 split),
-  // not additional charges — so Total Due is just Principal + Interest, not interest counted twice.
+  // Field Verification / Document / Processing charges are deducted upfront from
+  // the cash handed to the borrower (see cashDisbursed below), but the borrower's
+  // full repayable total still includes them on top of the principal — standard
+  // practice: charges are financed into the loan, not waived because they were
+  // collected via reduced disbursal.
   const totalDeductions = fieldVisit + docFee + procFee;
   const totalDue = principal + monthlyInterest;
   const cashDisbursed = Math.max(0, principal - totalDeductions);
@@ -237,13 +254,14 @@ export default function Members({ readOnly = false }) {
     setPhoneVerified(false);
     setPhotoPreview(null);
     setShowOtpSection(false);
+    setDisburseResult(null);
     setFormData({
       name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '',
       shop_name: '', aadhaar_number: '',
       guarantor_name: '', guarantor_phone: '', guarantor_address: '',
-      amount: '', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
+      amount: '', interest_rate: '18', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
       startDate: new Date().toISOString().split('T')[0],
-      closeDate: '', repaymentFreq: 'monthly', repaymentAmount: '',
+      closeDate: '', repaymentFreq: 'monthly', repaymentAmount: '', preferred_language: 'en',
     });
   };
 
@@ -251,10 +269,6 @@ export default function Members({ readOnly = false }) {
     e.preventDefault();
     if (!formData.name || !formData.phone || !formData.zone || !formData.amount || !formData.closeDate) {
       alert('Name, Phone, Coimbatore area, Amount and Due Date are required.'); return;
-    }
-    if (!phoneVerified) {
-      alert('Please verify borrower phone with OTP before creating the loan.');
-      return;
     }
     setLoading(true);
     const payload = {
@@ -280,6 +294,7 @@ export default function Members({ readOnly = false }) {
       closing_date: formData.closeDate,
       repayment_frequency: formData.repaymentFreq,
       repayment_amount: parseFloat(formData.repaymentAmount) || 0,
+      preferred_language: formData.preferred_language,
     };
     try {
       const res = await apiFetch('/api/loans/', {
@@ -288,8 +303,8 @@ export default function Members({ readOnly = false }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to create');
-      setLoans([data, ...loans]);
-      resetModal();
+      setLoans([data.data, ...loans]);
+      setDisburseResult(data);
     } catch (err) { alert('Error creating loan: ' + err.message); }
     finally { setLoading(false); }
   };
@@ -310,18 +325,18 @@ export default function Members({ readOnly = false }) {
       <div className="desktop-only">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Borrowers & Loans</h2>
+          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('borrowersAndLoans')}</h2>
           <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>Combined borrower profile with loan details</p>
         </div>
         {canCreate && (
           <div style={{ display: 'flex', gap: 8 }}>
             {canMerge && (
               <button className="btn btn-secondary card-hover" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowMerge(true)}>
-                <GitMerge size={18} /> Merge
+                <GitMerge size={18} /> {t('merge')}
               </button>
             )}
             <button className="save-btn card-hover" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px' }} onClick={() => setShowModal(true)}>
-              <UserPlus size={18} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Add Borrower
+              <UserPlus size={18} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> {t('addBorrower')}
             </button>
           </div>
         )}
@@ -335,7 +350,7 @@ export default function Members({ readOnly = false }) {
             style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
               background: zoneFilter === z ? 'var(--brand)' : 'var(--surface)',
               color: zoneFilter === z ? 'white' : 'var(--text-2)' }}>
-            {z === 'all' ? 'All Areas' : z}
+            {z === 'all' ? t('allAreas') : z}
           </button>
         ))}
       </div>
@@ -378,7 +393,16 @@ export default function Members({ readOnly = false }) {
                     style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>{loan.status}</span>
                 </div>
               </div>
-              {loan.customer_phone && <div style={{ fontSize: '12px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={11} /> {loan.customer_phone}{loan.alternate_phone ? ` · Alt: ${loan.alternate_phone}` : ''}</div>}
+              {loan.customer_phone && (
+                <div style={{ fontSize: '12px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Phone size={11} /> {loan.customer_phone}{loan.alternate_phone ? ` · Alt: ${loan.alternate_phone}` : ''}
+                  <a href={`tel:${loan.customer_phone}`} onClick={e => e.stopPropagation()} title="Call borrower"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, padding: '1px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                    <PhoneCall size={10} /> Call
+                  </a>
+                </div>
+              )}
+              {loan.account_number && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><Hash size={11} /> A/C: {loan.account_number}</div>}
               {loan.zone && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {loan.zone}, Coimbatore</div>}
               {loan.customer_address && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {loan.customer_address.split(',')[0]}</div>}
               {loan.repayment_amount > 0 && (
@@ -402,8 +426,9 @@ export default function Members({ readOnly = false }) {
                     {loan.guarantor_name && <div><span style={{ color: 'var(--text-2)' }}>Guarantor:</span> {loan.guarantor_name}</div>}
                     {loan.guarantor_phone && <div><span style={{ color: 'var(--text-2)' }}>Guarantor Ph:</span> {loan.guarantor_phone}</div>}
                     {loan.guarantor_address && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-2)' }}>Guarantor Addr:</span> {loan.guarantor_address}</div>}
+                    {loan.account_number && <div><span style={{ color: 'var(--text-2)' }}>Account No:</span> {loan.account_number}</div>}
                     <div><span style={{ color: 'var(--text-2)' }}>Loan:</span> ₹{(loan.loan_amount || 0).toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Monthly Interest:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Charges:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
                     <div><span style={{ color: 'var(--text-2)' }}>Field Visit:</span> ₹{(loan.field_visit_charge || 0).toLocaleString()}</div>
                     <div><span style={{ color: 'var(--text-2)' }}>Doc Fee:</span> ₹{(loan.document_fee || 0).toLocaleString()}</div>
                     <div><span style={{ color: 'var(--text-2)' }}>Processing:</span> ₹{(loan.processing_fee || 0).toLocaleString()}</div>
@@ -430,7 +455,7 @@ export default function Members({ readOnly = false }) {
       <div className="mobile-only mobile-list-view">
         <div className="mh-header">
           <div>
-            <div className="mh-greeting" style={{ fontSize: 20 }}>Borrowers</div>
+            <div className="mh-greeting" style={{ fontSize: 20 }}>{t('borrowers')}</div>
             <div className="mh-sub">{sortedLoans.length} member{sortedLoans.length !== 1 ? 's' : ''} · {zoneFilter === 'all' ? 'All Coimbatore areas' : zoneFilter}</div>
           </div>
           {canMerge && (
@@ -443,7 +468,7 @@ export default function Members({ readOnly = false }) {
         <div className="mh-pills">
           {['all', ...ZONES].map(z => (
             <button key={z} className={`mh-pill${zoneFilter === z ? ' active' : ''}`} onClick={() => setZoneFilter(z)}>
-              {z === 'all' ? 'All Areas' : z}
+              {z === 'all' ? t('allAreas') : z}
             </button>
           ))}
         </div>
@@ -457,7 +482,7 @@ export default function Members({ readOnly = false }) {
         </div>
 
         {sortedLoans.length === 0 ? (
-          <div className="mh-empty">No borrowers{zoneFilter !== 'all' ? ` in ${zoneFilter}` : ''} yet. Tap + to add one.</div>
+          <div className="mh-empty">{t('noBorrowersYet')}</div>
         ) : (
           <div className="mm-card-list">
             {sortedLoans.map(loan => {
@@ -477,7 +502,7 @@ export default function Members({ readOnly = false }) {
                       {loan.shop_name && <div className="mm-shop"><Store size={11} /> {loan.shop_name}</div>}
                       <div className="mm-badges">
                         {loan.zone && <span className="badge badge-indigo"><MapPin size={9} /> {loan.zone}</span>}
-                        <span className={`badge ${settled ? 'badge-green' : 'badge-amber'}`}>{Math.round(progress)}% paid</span>
+                        <span className={`badge ${settled ? 'badge-green' : 'badge-amber'}`}>{Math.round(progress)}% {t('paidSuffix')}</span>
                       </div>
                     </div>
                     <div className="mm-right">
@@ -487,9 +512,18 @@ export default function Members({ readOnly = false }) {
                   </div>
                   {expanded && (
                     <div className="mm-detail" onClick={e => e.stopPropagation()}>
-                      {loan.customer_phone && <div><span className="mm-detail-label">Phone:</span> {loan.customer_phone}</div>}
+                      {loan.customer_phone && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="mm-detail-label">Phone:</span> {loan.customer_phone}
+                          <a href={`tel:${loan.customer_phone}`} onClick={e => e.stopPropagation()}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                            <PhoneCall size={10} /> Call
+                          </a>
+                        </div>
+                      )}
+                      {loan.account_number && <div><span className="mm-detail-label">Account No:</span> {loan.account_number}</div>}
                       <div><span className="mm-detail-label">Loan:</span> ₹{(loan.loan_amount || 0).toLocaleString()}</div>
-                      <div><span className="mm-detail-label">Interest:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
+                      <div><span className="mm-detail-label">Charges:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
                       <div><span className="mm-detail-label">Cash Disbursed:</span> ₹{cashDisbursed.toLocaleString()}</div>
                       <div><span className="mm-detail-label">Collected:</span> ₹{(loan.collected_amount || 0).toLocaleString()}</div>
                       <div><span className="mm-detail-label">Total Due:</span> ₹{(loan.due_amount || 0).toLocaleString()}</div>
@@ -514,56 +548,59 @@ export default function Members({ readOnly = false }) {
           <div className="card borrower-modal-card" style={{ animation: 'slideUp 0.3s ease' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div>
-                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>New Borrower + Loan</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>* = required</p>
+                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>{t('newBorrowerLoan')}</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>{t('requiredNote')}</p>
               </div>
               <button onClick={resetModal} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', display: 'flex' }}><X size={22} /></button>
             </div>
 
+            {disburseResult ? (
+              <DisburseSuccess result={disburseResult} onDone={resetModal} />
+            ) : (
             <form onSubmit={handleCreate}>
               {/* ── Photo: upload or live camera ── */}
               <div style={{ marginBottom: 20 }}>
-                <PhotoCapture value={photoPreview} onChange={setPhotoPreview} label="Add photo (upload or camera)" />
+                <PhotoCapture value={photoPreview} onChange={setPhotoPreview} label={t('addPhotoUploadCamera')} />
               </div>
 
               {/* ── Personal Details ── */}
-              <SectionLabel>Personal Details</SectionLabel>
+              <SectionLabel>{t('personalDetails')}</SectionLabel>
 
               <div className="form-group">
-                <label className="form-label">Full Name *</label>
+                <label className="form-label">{t('fullName')}</label>
                 <IconInput icon={<User size={16} />}><input required type="text" className="form-input" placeholder="e.g. Ramesh Kumar" {...field('name')} /></IconInput>
               </div>
               <div className="form-group">
-                <label className="form-label">Shop / Business Name</label>
+                <label className="form-label">{t('shopBusinessName')}</label>
                 <IconInput icon={<Building2 size={16} />}><input type="text" className="form-input" placeholder="e.g. Ramesh General Store" {...field('shop_name')} /></IconInput>
               </div>
 
               <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
-                  <label className="form-label">Primary Mobile *</label>
+                  <label className="form-label">{t('primaryMobile')}</label>
                   <IconInput icon={<Phone size={16} />}><input required type="tel" className="form-input" placeholder="+91 9876543210" {...field('phone')} /></IconInput>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Alternate Mobile</label>
+                  <label className="form-label">{t('alternateMobile')}</label>
                   <IconInput icon={<PhoneCall size={16} />}><input type="tel" className="form-input" placeholder="+91 9876543211" {...field('alternate_phone')} /></IconInput>
                 </div>
               </div>
 
               <div className="form-group">
-                <label className="form-label">Area in Coimbatore *</label>
+                <label className="form-label">{t('areaInCoimbatore')}</label>
                 <IconInput icon={<MapPin size={16} />}>
-                  <select className="form-input" {...field('zone')}>
-                    <option value="">Select area…</option>
-                    {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
-                  </select>
+                  <input type="text" list="zones-datalist" className="form-input" placeholder="Select an area or type a new one…" {...field('zone')} />
                 </IconInput>
+                <datalist id="zones-datalist">
+                  {ZONES.map(z => <option key={z} value={z} />)}
+                </datalist>
               </div>
 
               {/* OTP Section */}
               <div style={{ marginBottom: 12 }}>
                 <button type="button" onClick={() => setShowOtpSection(!showOtpSection)}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--brand-light)', fontSize: 13, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
-                  {phoneVerified ? <Check size={14} style={{ color: 'var(--green)' }} /> : <Shield size={14} />} {phoneVerified ? 'Phone Verified' : 'Verify Phone with OTP'}
+                  {phoneVerified ? <Check size={14} style={{ color: 'var(--green)' }} /> : <Shield size={14} />} {phoneVerified ? t('phoneVerified') : t('verifyPhoneOtp')}
                   {showOtpSection ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </button>
                 {showOtpSection && !phoneVerified && (
@@ -573,11 +610,11 @@ export default function Members({ readOnly = false }) {
 
               <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
-                  <label className="form-label">Email</label>
+                  <label className="form-label">{t('email')}</label>
                   <IconInput icon={<Mail size={16} />}><input type="email" className="form-input" placeholder="email@gmail.com" {...field('email')} /></IconInput>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Aadhaar Number</label>
+                  <label className="form-label">{t('aadhaarNumber')}</label>
                   <IconInput icon={<Key size={16} />}>
                     <input type="text" className="form-input" placeholder="XXXX XXXX XXXX" maxLength={14} {...field('aadhaar_number')} />
                   </IconInput>
@@ -585,79 +622,79 @@ export default function Members({ readOnly = false }) {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Address</label>
+                <label className="form-label">{t('address')}</label>
                 <IconInput icon={<MapPin size={16} />} top>
                   <textarea rows={2} className="form-input" style={{ resize: 'none' }} placeholder="House no., Street, City, State" {...field('address')} />
                 </IconInput>
               </div>
 
               {/* ── Guarantor ── */}
-              <SectionLabel>Guarantor Details</SectionLabel>
+              <SectionLabel>{t('guarantorDetails')}</SectionLabel>
 
               <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
-                  <label className="form-label">Guarantor Name</label>
+                  <label className="form-label">{t('guarantorName')}</label>
                   <IconInput icon={<User size={16} />}><input type="text" className="form-input" placeholder="Guarantor name" {...field('guarantor_name')} /></IconInput>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Guarantor Phone</label>
+                  <label className="form-label">{t('guarantorPhone')}</label>
                   <IconInput icon={<Phone size={16} />}><input type="tel" className="form-input" placeholder="+91 ..." {...field('guarantor_phone')} /></IconInput>
                 </div>
               </div>
               <div className="form-group">
-                <label className="form-label">Guarantor Address</label>
+                <label className="form-label">{t('guarantorAddress')}</label>
                 <IconInput icon={<MapPin size={16} />} top>
                   <textarea rows={2} className="form-input" style={{ resize: 'none' }} placeholder="Guarantor's address" {...field('guarantor_address')} />
                 </IconInput>
               </div>
 
               {/* ── Loan Details ── */}
-              <SectionLabel>Loan Details</SectionLabel>
+              <SectionLabel>{t('loanDetails')}</SectionLabel>
 
               <div className="form-row-3" style={{ gap: '12px', marginBottom: 12 }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Loan Amount (₹) *</label>
+                  <label className="form-label">{t('loanAmount')}</label>
                   <IconInput icon={<IndianRupee size={16} />}><input required min="1" step="0.01" type="number" className="form-input" placeholder="0.00" value={formData.amount} onChange={e => handleAmountChange(e.target.value)} /></IconInput>
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Interest Rate (%)</label>
-                  <input min="0" step="0.01" type="number" className="form-input" placeholder="10" value={formData.interest_rate} onChange={e => handleRateChange(e.target.value)} />
+                  <label className="form-label">{t('charges')}</label>
+                  <input min="0" step="0.01" type="number" className="form-input" placeholder="18" value={formData.interest_rate} onChange={e => handleRateChange(e.target.value)} />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Monthly Interest (₹) <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>auto</span></label>
+                  <label className="form-label">{t('chargesAmount')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>{t('auto')}</span></label>
                   <IconInput icon={<IndianRupee size={16} />}><input min="0" step="0.01" type="number" className="form-input" placeholder="Auto-calculated" value={formData.monthly_interest_amount} onChange={e => handleInterestChange(e.target.value)} /></IconInput>
                 </div>
               </div>
 
               <div className="form-row" style={{ gap: '12px' }}>
                 <div className="form-group">
-                  <label className="form-label">Start Date *</label>
+                  <label className="form-label">{t('startDate')}</label>
                   <input required type="date" className="form-input" {...field('startDate')} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Due Date *</label>
+                  <label className="form-label">{t('dueDate')}</label>
                   <input required type="date" className="form-input" {...field('closeDate')} />
                 </div>
               </div>
 
               {/* ── Fee Breakdown ── */}
-              <SectionLabel>Charges & Fees (₹)</SectionLabel>
+              <SectionLabel>{t('chargesAndFees')}</SectionLabel>
               <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: -8, marginBottom: 10 }}>
-                Auto-split from Monthly Interest — Field Verification 40%, Document Fee 30%, Processing Fee 30%. Adjust below if this loan needs different amounts.
+                {t('autoSplitNote')}
               </p>
 
               <div style={{ background: 'var(--bg)', borderRadius: 14, padding: 14, border: '1px solid var(--border)', marginBottom: 16 }}>
                 <div className="form-row-3" style={{ gap: 10, marginBottom: 12 }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Field Verification <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>40%</span></label>
+                    <label className="form-label">{t('fieldVerification')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>40%</span></label>
                     <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('field_visit_charge')} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Document Fee <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>30%</span></label>
+                    <label className="form-label">{t('documentFee')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>30%</span></label>
                     <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('document_fee')} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Processing Fee <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>30%</span></label>
+                    <label className="form-label">{t('processingFee')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>30%</span></label>
                     <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('processing_fee')} />
                   </div>
                 </div>
@@ -665,39 +702,39 @@ export default function Members({ readOnly = false }) {
                 {/* Total Due Summary */}
                 {totalDue > 0 && (
                   <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 6 }}>BREAKDOWN</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 6 }}>{t('breakdown')}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                      <span style={{ color: 'var(--text-2)' }}>Principal (Loan Amount)</span>
+                      <span style={{ color: 'var(--text-2)' }}>{t('principalLoanAmount')}</span>
                       <span>₹{principal.toLocaleString()}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                      <span style={{ color: 'var(--text-2)' }}>Monthly Interest (₹)</span>
+                      <span style={{ color: 'var(--text-2)' }}>{t('charges')}</span>
                       <span>₹{monthlyInterest.toLocaleString()}</span>
                     </div>
                     {[
-                      { label: 'Field Verification (40%)', value: fieldVisit },
-                      { label: 'Document Fee (30%)', value: docFee },
-                      { label: 'Processing Fee (30%)', value: procFee },
+                      { id: 'fieldVerification', label: `${t('fieldVerification')} (40%)`, value: fieldVisit },
+                      { id: 'documentFee', label: `${t('documentFee')} (30%)`, value: docFee },
+                      { id: 'processingFee', label: `${t('processingFee')} (30%)`, value: procFee },
                     ].filter(r => r.value > 0).map(r => (
-                      <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3, paddingLeft: 14, color: 'var(--text-3)' }}>
-                        <span>of which {r.label}</span>
+                      <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3, paddingLeft: 14, color: 'var(--text-3)' }}>
+                        <span>{t('ofWhich')} {r.label}</span>
                         <span>₹{r.value.toLocaleString()}</span>
                       </div>
                     ))}
                     {totalDeductions > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, marginTop: 4, color: 'var(--red)' }}>
-                        <span>Deducted upfront from principal</span>
+                        <span>{t('deductedUpfront')}</span>
                         <span>− ₹{totalDeductions.toLocaleString()}</span>
                       </div>
                     )}
                     {principal > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4, color: 'var(--green)' }}>
-                        <span>Cash Disbursed to Borrower</span>
+                        <span>{t('cashDisbursedToBorrower')}</span>
                         <span>₹{cashDisbursed.toLocaleString()}</span>
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 14, paddingTop: 6, borderTop: '1px solid var(--border)', marginTop: 4, color: 'var(--amber)' }}>
-                      <span>Total Due (Repayable)</span>
+                      <span>{t('totalDueRepayable')}</span>
                       <span>₹{totalDue.toLocaleString()}</span>
                     </div>
                   </div>
@@ -705,7 +742,7 @@ export default function Members({ readOnly = false }) {
               </div>
 
               {/* ── Repayment Frequency ── */}
-              <SectionLabel>Repayment Schedule</SectionLabel>
+              <SectionLabel>{t('repaymentSchedule')}</SectionLabel>
 
               <div className="form-row" style={{ gap: '8px', marginBottom: '16px' }}>
                 {FREQ_OPTIONS.map(opt => (
@@ -721,9 +758,18 @@ export default function Members({ readOnly = false }) {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Amount per installment (₹)</label>
+                <label className="form-label">{t('amountPerInstallment')}</label>
                 <IconInput icon={<IndianRupee size={16} />}>
                   <input min="0" step="0.01" type="number" className="form-input" placeholder="e.g. 500" {...field('repaymentAmount')} />
+                </IconInput>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">{t('disbursementSmsLanguage')}</label>
+                <IconInput icon={<Languages size={16} />}>
+                  <select className="form-input" {...field('preferred_language')}>
+                    {SMS_LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                  </select>
                 </IconInput>
               </div>
 
@@ -732,7 +778,7 @@ export default function Members({ readOnly = false }) {
                 <div style={{ background: 'var(--bg)', padding: '14px', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
                     <ShieldCheck size={15} style={{ color: 'var(--brand)' }} />
-                    <span style={{ fontSize: '12px', fontWeight: 700 }}>Auto WhatsApp Reminders</span>
+                    <span style={{ fontSize: '12px', fontWeight: 700 }}>{t('autoWhatsappReminders')}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
                     {[5, 7, 10, 60].map(offset => {
@@ -750,9 +796,10 @@ export default function Members({ readOnly = false }) {
               )}
 
               <button type="submit" className="save-btn" disabled={loading} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <Check size={16} /> {loading ? 'Creating...' : 'Confirm Loan Disbursal'}
+                <Check size={16} /> {loading ? t('creating') : t('confirmLoanDisbursal')}
               </button>
             </form>
+            )}
           </div>
         </div>
       )}
@@ -763,6 +810,54 @@ export default function Members({ readOnly = false }) {
         @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         textarea.form-input { font-family: var(--font-family); }
       `}</style>
+    </div>
+  );
+}
+
+// ── Loan Disbursed Success Panel ────────────────────────────────────────────
+function DisburseSuccess({ result, onDone }) {
+  const { t } = useLanguage();
+  const loan = result.data;
+  const sms = result.sms;
+  const langLabel = SMS_LANGUAGES.find(l => l.value === sms.language)?.label || sms.language;
+
+  return (
+    <div style={{ textAlign: 'center', animation: 'slideUp 0.3s ease' }}>
+      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--green-soft)', border: '2px solid var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+        <CheckCircle2 size={30} style={{ color: 'var(--green)' }} />
+      </div>
+      <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{t('loanDisbursed')}</h3>
+      <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 20 }}>
+        ₹{(loan.loan_amount || 0).toLocaleString()} {t('disbursedTo')} <strong>{loan.customer_name}</strong>
+      </p>
+
+      <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 16, textAlign: 'left' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <Hash size={15} style={{ color: 'var(--brand-light)' }} />
+          <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{t('borrowerAccountNumber')}</span>
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 1, fontFamily: 'var(--mono)' }}>{loan.account_number}</div>
+      </div>
+
+      <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 20, textAlign: 'left' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <MessageSquare size={16} style={{ color: 'var(--brand-light)' }} />
+          <span style={{ fontSize: 13, fontWeight: 700 }}>{t('disbursementSms')} · {langLabel}</span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-2)', background: 'var(--surface-2)', borderRadius: 10, padding: 10, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+          {sms.message_preview}
+        </div>
+        {sms.send_sms_url ? (
+          <a href={sms.send_sms_url}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: 12, borderRadius: 12, background: 'var(--brand)', color: '#fff', textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>
+            <MessageSquare size={16} /> {t('sendSmsToBorrower')} <ExternalLink size={13} style={{ opacity: 0.7 }} />
+          </a>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{t('noPhoneSmsUnavailable')}</div>
+        )}
+      </div>
+
+      <button className="save-btn" onClick={onDone}>{t('done')}</button>
     </div>
   );
 }

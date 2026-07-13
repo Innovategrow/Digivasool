@@ -2,16 +2,17 @@ import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Wallet, Banknote, Search, Filter, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
-
-const SORT_OPTIONS = [
-  { value: 'balance',  icon: null,   label: 'Highest Balance' },
-  { value: 'name',     icon: null,   label: 'Name A-Z' },
-  { value: 'location', icon: MapPin, label: 'By Coimbatore Area' },
-  { value: 'newest',   icon: null,   label: 'Newest First' },
-];
+import { useLanguage } from '../../context/LanguageContext';
 
 export default function CollectionEntry() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
+  const SORT_OPTIONS = [
+    { value: 'balance',  icon: null,   label: t('highestBalance') },
+    { value: 'name',     icon: null,   label: t('nameAZ') },
+    { value: 'location', icon: MapPin, label: t('byArea') },
+    { value: 'newest',   icon: null,   label: t('newestFirst') },
+  ];
   const [loans, setLoans] = useState([]);
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [amount, setAmount] = useState('');
@@ -70,18 +71,18 @@ export default function CollectionEntry() {
           <button onClick={() => navigate(-1)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '8px', color: 'var(--text)', cursor: 'pointer', display: 'flex' }}>
             <ArrowLeft size={20} />
           </button>
-          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Select Borrower</h2>
+          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('selectBorrower')}</h2>
         </div>
 
         {loans.length === 0 ? (
-          <p className="text-muted text-center mt-4">No active loans. Provision members first.</p>
+          <p className="text-muted text-center mt-4">{t('noActiveLoans')}</p>
         ) : (
           <>
             <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
               <div style={{ position: 'relative', flex: 1 }}>
                 <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-2)' }} />
                 <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search name or location..." className="form-input" style={{ paddingLeft: '40px', borderRadius: '16px' }} />
+                  placeholder={t('searchNameLocation')} className="form-input" style={{ paddingLeft: '40px', borderRadius: '16px' }} />
               </div>
               <button onClick={() => setShowFilters(!showFilters)}
                 style={{ background: showFilters ? 'var(--brand-soft)' : 'var(--surface)', border: `1px solid ${showFilters ? 'var(--brand)' : 'var(--border)'}`, color: showFilters ? 'var(--brand)' : 'var(--text)', padding: '0 16px', borderRadius: '16px', cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -122,7 +123,7 @@ export default function CollectionEntry() {
                   </div>
                 </div>
               ))}
-              {processedLoans.length === 0 && <p className="text-center text-muted">No members match your search.</p>}
+              {processedLoans.length === 0 && <p className="text-center text-muted">{t('noMembersMatch')}</p>}
             </div>
           </>
         )}
@@ -139,7 +140,7 @@ export default function CollectionEntry() {
         <button onClick={() => setSelectedLoan(null)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '8px', color: 'var(--text)', cursor: 'pointer', display: 'flex' }}>
           <ArrowLeft size={20} />
         </button>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>Capture Payment</h2>
+        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('capturePayment')}</h2>
       </div>
 
       <div className="card">
@@ -149,7 +150,7 @@ export default function CollectionEntry() {
             <div>
               <h3 style={{ fontSize: '18px', fontWeight: 800 }}>{selectedLoan.customer_name}</h3>
               <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
-                Status: <span className="text-green" style={{ textTransform: 'uppercase' }}>{selectedLoan.status}</span>
+                {t('statusColon')} <span className="text-green" style={{ textTransform: 'uppercase' }}>{selectedLoan.status}</span>
               </div>
               {selectedLoan.customer_address && (
                 <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={10} /> {selectedLoan.customer_address.split(',')[0]}</div>
@@ -160,7 +161,7 @@ export default function CollectionEntry() {
 
         <div style={{ background: 'var(--bg)', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
-            <span className="text-muted">Recovery Progress</span>
+            <span className="text-muted">{t('recoveryProgress')}</span>
             <span style={{ fontWeight: 700, color: 'var(--green)' }}>{clampedProgress.toFixed(1)}%</span>
           </div>
           <div style={{ height: '8px', background: 'var(--surface-3)', borderRadius: '4px', overflow: 'hidden' }}>
@@ -170,26 +171,26 @@ export default function CollectionEntry() {
 
         <div className="detail-grid">
           <div className="detail-row">
-            <span className="detail-label">Principal Amount</span>
+            <span className="detail-label">{t('principalAmount')}</span>
             <span className="detail-value text-muted">₹{selectedLoan.loan_amount?.toLocaleString()}</span>
           </div>
           <div className="detail-row">
-            <span className="detail-label">Total Due</span>
+            <span className="detail-label">{t('totalDueLabel')}</span>
             <span className="detail-value">₹{selectedLoan.due_amount?.toLocaleString()}</span>
           </div>
           <div className="detail-row">
-            <span className="detail-label">Recovered</span>
+            <span className="detail-label">{t('recovered')}</span>
             <span className="detail-value text-green">₹{selectedLoan.collected_amount?.toLocaleString()}</span>
           </div>
           <div className="detail-row pt-2" style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-            <span className="detail-label text-warning" style={{ fontWeight: 700 }}>Outstanding Balance</span>
+            <span className="detail-label text-warning" style={{ fontWeight: 700 }}>{t('outstandingBalance')}</span>
             <span className="detail-value text-warning" style={{ fontSize: '18px' }}>₹{selectedLoan.pending_amount?.toLocaleString()}</span>
           </div>
         </div>
       </div>
 
       <div className="card" style={{ padding: '24px' }}>
-        <h3 style={{ fontSize: '14px', marginBottom: '16px', color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payment Details</h3>
+        <h3 style={{ fontSize: '14px', marginBottom: '16px', color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('paymentDetails')}</h3>
 
         <div style={{ position: 'relative', marginBottom: '20px' }}>
           <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', fontSize: '24px', color: 'var(--text-2)', fontWeight: 800 }}>₹</span>
@@ -199,15 +200,15 @@ export default function CollectionEntry() {
 
         <div className="payment-toggle" style={{ marginBottom: '24px' }}>
           <button className={`payment-btn ${paymentMethod === 'Cash' ? 'active' : ''}`} onClick={() => setPaymentMethod('Cash')}>
-            <Banknote size={20} /> Cash Flow
+            <Banknote size={20} /> {t('cashFlow')}
           </button>
           <button className={`payment-btn ${paymentMethod === 'GPay' ? 'active' : ''}`} onClick={() => setPaymentMethod('GPay')}>
-            <Wallet size={20} /> UPI / GPay
+            <Wallet size={20} /> {t('upiGpay')}
           </button>
         </div>
 
         <button className="save-btn" onClick={handleSave} disabled={loading || !amount}>
-          {loading ? 'Processing...' : `Record ₹${amount || '0'} Payment`}
+          {loading ? t('processing') : `${t('record')} ₹${amount || '0'} ${t('payment')}`}
         </button>
       </div>
     </div>

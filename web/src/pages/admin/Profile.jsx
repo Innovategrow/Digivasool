@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { User, Mail, ShieldCheck, LogOut, Clock, Smartphone, MapPin, Building, FileText, Upload, CheckCircle2 } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
 
 export default function Profile() {
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
   const [profileData, setProfileData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -49,12 +51,12 @@ export default function Profile() {
     }
   };
 
-  if (loading) return <div className="screen-container pt-8 text-center text-muted">Loading profile...</div>;
+  if (loading) return <div className="screen-container pt-8 text-center text-muted">{t('loadingProfile')}</div>;
 
   return (
     <div className="screen-container pt-4 pb-12">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>My Profile</h2>
+        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('myProfile')}</h2>
       </div>
 
       {/* Header Card */}
@@ -71,7 +73,7 @@ export default function Profile() {
                 {user.role}
               </span>
               <span style={{ fontSize: '13px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <CheckCircle2 size={14} className="text-positive" /> Verified
+                <CheckCircle2 size={14} className="text-positive" /> {t('verified')}
               </span>
             </div>
           </div>
@@ -81,24 +83,24 @@ export default function Profile() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
         {/* Contact Info */}
         <div>
-          <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Contact Information</h3>
+          <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>{t('contactInformation')}</h3>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Mail size={20} className="text-muted" />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>Email Address</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('emailAddress')}</div>
                 <div style={{ fontSize: '15px', fontWeight: 600 }}>{profileData.customer_email || '—'}</div>
               </div>
             </div>
-            
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Smartphone size={20} className="text-muted" />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>Phone Number</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('phoneNumber')}</div>
                 <div style={{ fontSize: '15px', fontWeight: 600 }}>{profileData.customer_phone || '—'}</div>
               </div>
             </div>
@@ -108,7 +110,7 @@ export default function Profile() {
                 <MapPin size={20} className="text-muted" />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>Home Address</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('homeAddress')}</div>
                 <div style={{ fontSize: '14px', fontWeight: 600, lineHeight: 1.4 }}>{profileData.customer_address || '—'}</div>
               </div>
             </div>
@@ -117,28 +119,28 @@ export default function Profile() {
 
         {/* Documents & Bank */}
         <div>
-          <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Finance & Proofs</h3>
+          <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>{t('financeAndProofs')}</h3>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Building size={20} className="text-muted" />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>Linked Bank Account</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('linkedBankAccount')}</div>
                 <div style={{ fontSize: '15px', fontWeight: 600 }}>SBI ···· 4291</div>
               </div>
             </div>
-            
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <FileText size={20} className="text-muted" />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>Mandatory Proof Copy (KYC)</div>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>Not yet uploaded</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('mandatoryProofKyc')}</div>
+                <div style={{ fontSize: '14px', fontWeight: 600 }}>{t('notYetUploaded')}</div>
               </div>
               <label style={{ background: 'var(--brand)', color: 'white', padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Upload size={14} /> {uploading ? '...' : 'Upload'}
+                <Upload size={14} /> {uploading ? '...' : t('upload')}
                 <input type="file" hidden onChange={handleFileUpload} disabled={uploading} />
               </label>
             </div>
@@ -147,7 +149,7 @@ export default function Profile() {
       </div>
 
       {/* Activity Log */}
-      <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginTop: '32px', marginBottom: '12px', letterSpacing: '0.5px' }}>Login History</h3>
+      <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginTop: '32px', marginBottom: '12px', letterSpacing: '0.5px' }}>{t('loginHistory')}</h3>
       <div className="card">
         {auditLogs.map((log, i) => (
           <div key={log.id} style={{ display: 'flex', gap: '12px', marginBottom: i === auditLogs.length - 1 ? 0 : '16px', borderBottom: i === auditLogs.length - 1 ? 'none' : '1px solid var(--border)', paddingBottom: i === auditLogs.length - 1 ? 0 : '16px' }}>
@@ -165,7 +167,7 @@ export default function Profile() {
       </div>
 
       <button onClick={logout} style={{ width: '100%', marginTop: '40px', padding: '16px', borderRadius: '18px', background: 'var(--red-soft)', border: '2px solid rgba(239, 68, 68, 0.1)', color: 'var(--red)', fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer' }}>
-        <LogOut size={20} /> Sign Out Safely
+        <LogOut size={20} /> {t('signOutSafely')}
       </button>
     </div>
   );

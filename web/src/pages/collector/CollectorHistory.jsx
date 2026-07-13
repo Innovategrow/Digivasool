@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { apiFetch } from '../../utils/api';
 import { ClipboardList, Banknote, Smartphone, Calendar, User } from 'lucide-react';
 
 export default function CollectorHistory() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -21,26 +23,26 @@ export default function CollectorHistory() {
   if (loading) {
     return (
       <div className="screen-container pt-4" style={{ textAlign: 'center', paddingTop: '80px' }}>
-        <p style={{ color: 'var(--text-muted)' }}>Loading your collection history...</p>
+        <p style={{ color: 'var(--text-muted)' }}>{t('loadingHistory')}</p>
       </div>
     );
   }
 
   return (
     <div className="screen-container pt-4">
-      <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px' }}>My Collections</h2>
-      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '24px' }}>All payments you have recorded</p>
+      <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px' }}>{t('myCollections')}</h2>
+      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '24px' }}>{t('allPaymentsRecorded')}</p>
 
       {/* Summary */}
       <div className="card summary-card" style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', gap: '20px' }}>
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Total Collected</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>{t('totalCollected')}</div>
             <div className="text-green" style={{ fontSize: '26px', fontWeight: 900 }}>₹{totalCollected.toLocaleString()}</div>
           </div>
           <div style={{ width: '1px', background: 'var(--border-highlight)' }} />
           <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Entries</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>{t('entriesLabel')}</div>
             <div style={{ fontSize: '26px', fontWeight: 900 }}>{payments.length}</div>
           </div>
         </div>
@@ -49,7 +51,7 @@ export default function CollectorHistory() {
       {payments.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
           <ClipboardList size={48} style={{ opacity: 0.15, margin: '0 auto 16px', display: 'block' }} />
-          <p>No collections recorded yet. Start collecting!</p>
+          <p>{t('noCollectionsYet')}</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

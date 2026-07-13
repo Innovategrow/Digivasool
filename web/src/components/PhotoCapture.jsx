@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLanguage } from '../context/LanguageContext';
 import { Camera, Upload, X, RefreshCw, Check } from 'lucide-react';
 
 // Reusable photo input that supports both file upload and live camera capture.
 // `value` is a base64 data URL (or null). `onChange(dataUrl)` is called on change.
-export default function PhotoCapture({ value, onChange, size = 72, label = 'Add photo' }) {
+export default function PhotoCapture({ value, onChange, size = 72, label }) {
+  const { t } = useLanguage();
+  const displayLabel = label ?? t('addPhotoDefault');
   const fileRef = useRef(null);
   const [camOpen, setCamOpen] = useState(false);
 
@@ -34,19 +37,19 @@ export default function PhotoCapture({ value, onChange, size = 72, label = 'Add 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: value ? 0 : 6 }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileRef.current?.click()}>
-            <Upload size={14} /> Upload
+            <Upload size={14} /> {t('uploadBtn')}
           </button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCamOpen(true)}>
-            <Camera size={14} /> Camera
+            <Camera size={14} /> {t('cameraBtn')}
           </button>
           {value && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => onChange(null)}
               style={{ color: 'var(--red)' }}>
-              <X size={14} /> Remove
+              <X size={14} /> {t('removeBtn')}
             </button>
           )}
         </div>
-        {!value && <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{label}</div>}
+        {!value && <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{displayLabel}</div>}
       </div>
 
       <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFile} />
@@ -62,6 +65,7 @@ export default function PhotoCapture({ value, onChange, size = 72, label = 'Add 
 }
 
 function CameraModal({ onClose, onCapture }) {
+  const { t } = useLanguage();
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [error, setError] = useState('');
@@ -79,7 +83,7 @@ function CameraModal({ onClose, onCapture }) {
     setError('');
     stopStream();
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError('Camera not supported on this device/browser. Please use Upload instead.');
+      setError(t('cameraNotSupported'));
       return;
     }
     try {
@@ -94,8 +98,8 @@ function CameraModal({ onClose, onCapture }) {
     } catch (e) {
       setError(
         e?.name === 'NotAllowedError'
-          ? 'Camera permission denied. Allow camera access or use Upload.'
-          : 'Could not access camera. Please use Upload instead.'
+          ? t('cameraPermissionDenied')
+          : t('cameraAccessError')
       );
     }
   };
@@ -126,7 +130,7 @@ function CameraModal({ onClose, onCapture }) {
     <div className="modal-backdrop" onClick={close} style={{ zIndex: 600 }}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420, textAlign: 'center' }}>
         <div className="modal-header">
-          <div className="modal-title">Take Photo</div>
+          <div className="modal-title">{t('takePhoto')}</div>
           <button className="modal-close" onClick={close}><X size={16} /></button>
         </div>
 
@@ -144,19 +148,19 @@ function CameraModal({ onClose, onCapture }) {
           {snapshot ? (
             <>
               <button type="button" className="btn btn-secondary" onClick={retake}>
-                <RefreshCw size={16} /> Retake
+                <RefreshCw size={16} /> {t('retake')}
               </button>
               <button type="button" className="btn btn-success" onClick={() => onCapture(snapshot)}>
-                <Check size={16} /> Use Photo
+                <Check size={16} /> {t('usePhoto')}
               </button>
             </>
           ) : !error ? (
             <>
               <button type="button" className="btn btn-secondary" onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))}>
-                <RefreshCw size={16} /> Flip
+                <RefreshCw size={16} /> {t('flip')}
               </button>
               <button type="button" className="btn btn-primary" onClick={capture}>
-                <Camera size={16} /> Capture
+                <Camera size={16} /> {t('capture')}
               </button>
             </>
           ) : null}

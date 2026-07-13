@@ -1,12 +1,7 @@
 import { useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList } from 'lucide-react';
-
-const ROLE_CONFIG = {
-  admin:     { label: 'Admin',       cls: 'badge-indigo', icon: <Shield size={11} /> },
-  manager:   { label: 'Manager',     cls: 'badge-cyan',   icon: <UserCog size={11} /> },
-  collector: { label: 'Collector',   cls: 'badge-amber',  icon: <User size={11} /> },
-};
 
 const AUDIT_LOG = [
   { user: 'Arjun Nair',  action: 'Disbursed loan ₹50,000 to Rajan Kumar',  time: '2 hrs ago' },
@@ -17,41 +12,42 @@ const AUDIT_LOG = [
 ];
 
 function AddStaffModal({ onClose, onAdd }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({ name: '', role: 'collector', phone: '', email: '', target: 50000 });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <div className="modal-title">Add Staff Member</div>
+          <div className="modal-title">{t('addStaffMember')}</div>
           <button className="modal-close" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Full Name *</label>
+            <label className="form-label">{t('fullNameRequired')}</label>
             <input className="form-input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Staff name" />
           </div>
           <div className="form-group">
-            <label className="form-label">Role</label>
+            <label className="form-label">{t('role')}</label>
             <select className="form-input" value={form.role} onChange={e => set('role', e.target.value)}>
-              <option value="admin">Admin</option>
-              <option value="manager">Manager</option>
-              <option value="collector">Collector</option>
+              <option value="admin">{t('roleAdmin')}</option>
+              <option value="manager">{t('roleManager')}</option>
+              <option value="collector">{t('roleCollector')}</option>
             </select>
           </div>
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Phone</label>
+            <label className="form-label">{t('phone')}</label>
             <input className="form-input" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="Phone number" />
           </div>
           <div className="form-group">
-            <label className="form-label">Monthly Target (₹)</label>
+            <label className="form-label">{t('monthlyTarget')}</label>
             <input className="form-input" type="number" value={form.target} onChange={e => set('target', Number(e.target.value))} />
           </div>
         </div>
         <button className="btn btn-primary w-full" onClick={() => { if (form.name) { onAdd(form); onClose(); } }}>
-          <Plus size={16} /> Add Staff
+          <Plus size={16} /> {t('addStaff')}
         </button>
       </div>
     </div>
@@ -60,16 +56,23 @@ function AddStaffModal({ onClose, onAdd }) {
 
 export default function Staff() {
   const { state, dispatch } = useAppData();
+  const { t } = useLanguage();
   const [showAdd, setShowAdd] = useState(false);
+
+  const ROLE_CONFIG = {
+    admin:     { label: t('roleAdmin'),     cls: 'badge-indigo', icon: <Shield size={11} /> },
+    manager:   { label: t('roleManager'),   cls: 'badge-cyan',   icon: <UserCog size={11} /> },
+    collector: { label: t('roleCollector'), cls: 'badge-amber',  icon: <User size={11} /> },
+  };
 
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
       <div className="page-header">
         <div>
-          <div className="page-title">Staff Management</div>
-          <div className="page-subtitle">{state.staff.length} team members · RBAC enabled</div>
+          <div className="page-title">{t('staffManagement')}</div>
+          <div className="page-subtitle">{state.staff.length} {t('teamMembers')} · {t('rbacEnabled')}</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} />Add Staff</button>
+        <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} />{t('addStaff')}</button>
       </div>
 
       {/* Staff Cards */}
@@ -94,17 +97,17 @@ export default function Staff() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 22, fontWeight: 900, color: barColor }}>{pct}%</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-2)' }}>Efficiency</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{t('efficiency')}</div>
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
                 {[
-                  { label: 'Target',    value: `₹${s.target.toLocaleString()}`,    color: 'var(--text-2)' },
-                  { label: 'Collected', value: `₹${s.collected.toLocaleString()}`, color: 'var(--green)' },
-                  { label: 'Loans',     value: s.loans,                             color: 'var(--brand-light)' },
+                  { id: 'target', label: t('target'),    value: `₹${s.target.toLocaleString()}`,    color: 'var(--text-2)' },
+                  { id: 'collected', label: t('collectedLabel'), value: `₹${s.collected.toLocaleString()}`, color: 'var(--green)' },
+                  { id: 'loans', label: t('loans'),     value: s.loans,                             color: 'var(--brand-light)' },
                 ].map(m => (
-                  <div key={m.label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '8px 10px', textAlign: 'center' }}>
+                  <div key={m.id} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '8px 10px', textAlign: 'center' }}>
                     <div style={{ fontSize: 14, fontWeight: 800, color: m.color }}>{m.value}</div>
                     <div style={{ fontSize: 10, color: 'var(--text-2)' }}>{m.label}</div>
                   </div>
@@ -115,8 +118,8 @@ export default function Staff() {
                 <div className="progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(to right, ${barColor}, ${barColor}cc)` }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-2)', marginTop: 6 }}>
-                <span>₹{s.collected.toLocaleString()} collected</span>
-                <span>Target: ₹{s.target.toLocaleString()}</span>
+                <span>₹{s.collected.toLocaleString()} {t('collectedLabel').toLowerCase()}</span>
+                <span>{t('target')}: ₹{s.target.toLocaleString()}</span>
               </div>
 
               <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-2)', display: 'flex', gap: 12 }}>
@@ -130,25 +133,25 @@ export default function Staff() {
 
       {/* RBAC Permission Matrix */}
       <div className="card" style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} /> Role Permission Matrix</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} /> {t('rolePermissionMatrix')}</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left' }}>Permission</th>
-                {['Admin', 'Manager', 'Collector'].map(r => <th key={r} style={{ textAlign: 'center' }}>{r}</th>)}
+                <th style={{ textAlign: 'left' }}>{t('permission')}</th>
+                {[t('roleAdmin'), t('roleManager'), t('roleCollector')].map(r => <th key={r} style={{ textAlign: 'center' }}>{r}</th>)}
               </tr>
             </thead>
             <tbody>
               {[
-                ['View Dashboard',         true,  true,  false],
-                ['Create Loans',           true,  true,  false],
-                ['Collect Payments',       true,  true,  true ],
-                ['View Reports & P&L',     true,  true,  false],
-                ['Manage Staff',           true,  false, false],
-                ['Delete Records',         true,  false, false],
-                ['Export Data',            true,  true,  false],
-                ['View Capital/Investment',true,  false, false],
+                [t('permViewDashboard'),    true,  true,  false],
+                [t('permCreateLoans'),      true,  true,  false],
+                [t('permCollectPayments'),  true,  true,  true ],
+                [t('permViewReports'),      true,  true,  false],
+                [t('permManageStaff'),      true,  false, false],
+                [t('permDeleteRecords'),    true,  false, false],
+                [t('permExportData'),       true,  true,  false],
+                [t('permViewCapital'),      true,  false, false],
               ].map(([perm, ...roles]) => (
                 <tr key={perm}>
                   <td style={{ padding: '10px 16px', fontWeight: 600, fontSize: 13 }}>{perm}</td>
@@ -166,7 +169,7 @@ export default function Staff() {
 
       {/* Audit Log */}
       <div className="card">
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><ClipboardList size={16} /> Recent Audit Log</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><ClipboardList size={16} /> {t('recentAuditLog')}</div>
         {AUDIT_LOG.map((log, i) => (
           <div key={i} style={{ display: 'flex', gap: 14, padding: '12px 0', borderBottom: i < AUDIT_LOG.length - 1 ? '1px solid var(--border)' : 'none' }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'var(--brand-light)', flexShrink: 0, fontSize: 14 }}>

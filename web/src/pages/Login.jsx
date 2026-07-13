@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, Mail, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench } from 'lucide-react';
+import { ShieldCheck, Mail, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench, Languages } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
+  const { t, language, setLanguage, LANGUAGES } = useLanguage();
   const [step, setStep] = useState('choose');
   const [role, setRole] = useState('');
   const [adminName, setAdminName] = useState('');
@@ -110,7 +112,7 @@ export default function Login() {
   const roleCards = [
     {
       id: 'admin',
-      label: "I'm an Admin",
+      label: t('imAdmin'),
       desc: 'Full control — all loans & members',
       icon: <Lock size={22} color="white" />,
       bg: 'var(--brand)',
@@ -119,7 +121,7 @@ export default function Login() {
     },
     {
       id: 'collector',
-      label: "I'm a Collector",
+      label: t('imCollector'),
       desc: 'Record daily collections & notify admin',
       icon: <HardHat size={22} color="white" />,
       bg: '#f59e0b',
@@ -133,6 +135,15 @@ export default function Login() {
       minHeight: '100vh', background: 'var(--bg)', display: 'flex',
       flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px',
     }}>
+      {/* Language Switcher */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, padding: '6px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+        <Languages size={14} style={{ color: 'var(--text-2)' }} />
+        <select value={language} onChange={e => setLanguage(e.target.value)}
+          style={{ background: 'none', border: 'none', color: 'var(--text)', fontSize: 12, fontWeight: 600, cursor: 'pointer', outline: 'none' }}>
+          {LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+        </select>
+      </div>
+
       {/* Demo Banner */}
       <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '6px 14px', marginBottom: 24, fontSize: 12, color: 'var(--text-2)', fontWeight: 500, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Zap size={13} style={{ color: 'var(--amber)', flexShrink: 0 }} />
@@ -183,8 +194,8 @@ export default function Login() {
         {/* ── STEP 1: Choose Role ── */}
         {step === 'choose' && (
           <>
-            <h2 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '6px', textAlign: 'center' }}>Welcome!</h2>
-            <p style={{ color: 'var(--text-2)', textAlign: 'center', marginBottom: '28px', fontSize: '14px' }}>How do you want to log in?</p>
+            <h2 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '6px', textAlign: 'center' }}>{t('welcome')}</h2>
+            <p style={{ color: 'var(--text-2)', textAlign: 'center', marginBottom: '28px', fontSize: '14px' }}>{t('howLogin')}</p>
 
             {roleCards.map(rc => (
               <button
@@ -217,7 +228,7 @@ export default function Login() {
           <form onSubmit={handleRequestOtp}>
             <button type="button" onClick={reset}
               style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', fontSize: '13px', marginBottom: '20px', padding: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <ArrowLeft size={16} /> Back
+              <ArrowLeft size={16} /> {t('back')}
             </button>
 
             <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -286,7 +297,7 @@ export default function Login() {
 
             {error && <div style={{ color: 'var(--red)', background: 'var(--red-soft)', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
             <button id="send-otp-btn" type="submit" className="save-btn" disabled={loading}>
-              {loading ? 'Sending OTP...' : 'Send OTP →'}
+              {loading ? 'Sending OTP...' : `${t('sendOtp')} →`}
             </button>
           </form>
         )}
@@ -299,7 +310,7 @@ export default function Login() {
               <ArrowLeft size={16} /> Change contact
             </button>
 
-            <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '6px' }}>Enter OTP</h2>
+            <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '6px' }}>{t('enterOtp')}</h2>
             <p style={{ color: 'var(--text-2)', fontSize: '14px', marginBottom: '8px' }}>
               A 6-digit code was sent to <strong style={{ color: 'var(--text)' }}>{contact}</strong>
             </p>
@@ -332,7 +343,7 @@ export default function Login() {
             {error && <div style={{ color: 'var(--red)', background: 'var(--red-soft)', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
 
             <button id="verify-otp-btn" className="save-btn" onClick={handleVerifyOtp} disabled={loading || otp.join('').length < 6}>
-              {loading ? 'Verifying...' : 'Verify & Sign In'}
+              {loading ? 'Verifying...' : t('verifySignIn')}
             </button>
             <button type="button" onClick={handleRequestOtp}
               style={{ width: '100%', marginTop: '12px', background: 'none', border: 'none', color: 'var(--text-2)', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}>

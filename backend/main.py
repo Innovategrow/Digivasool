@@ -25,7 +25,8 @@ from schemas import (
     TransactionResponse,
     VoiceToLedgerResponse,
     LoanCreate,
-    LoanPaymentCreate,
+    LoanCreateResponse,
+    LoanPaymentCreate,  
     LoanPaymentRecord,
     LoanPaymentWithBorrower,
     LoanStatsResponse,
@@ -34,6 +35,7 @@ from schemas import (
     OTPVerify,
     PaymentResponse,
     WhatsAppLinks,
+    SMSLinks,
     BorrowerOTPRequest,
     BorrowerOTPVerify,
     LoanMergeRequest,
@@ -43,6 +45,7 @@ from services.reminders import (
     build_whatsapp_reminder_schedule,
     queue_whatsapp_reminders,
 )
+from services.sms import build_disbursement_sms, queue_disbursement_sms
 
 load_dotenv()
 
@@ -84,6 +87,22 @@ def _build_whatsapp_url(phone: str, message: str) -> str:
     """Build a wa.me deep-link with a pre-filled message."""
     clean_phone = phone.replace("+", "").replace(" ", "").replace("-", "")
     return f"https://wa.me/{clean_phone}?text={urllib.parse.quote(message)}"
+
+
+def _build_sms_url(phone: str, message: str) -> str:
+    """Build an sms: deep-link that opens the phone's messaging app with the text pre-filled."""
+    return f"sms:{phone}?body={urllib.parse.quote(message)}"
+
+
+def _generate_unique_account_number(db) -> str:
+    """3-digit unique borrower account number, checked against existing loans."""
+    import random
+
+    existing = {doc.to_dict().get("account_number") for doc in db.collection("loans").get()}
+    candidates = [f"{n:03d}" for n in range(1000) if f"{n:03d}" not in existing]
+    if not candidates:
+        raise HTTPException(status_code=400, detail="All 3-digit account numbers are in use")
+    return random.choice(candidates)
 
 
 @app.post("/api/auth/request-otp")
@@ -266,16 +285,22 @@ async def get_collectors():
 # LOANS & COLLECTIONS ROUTES
 # ==============================
 
-@app.post("/api/loans/", response_model=LoanRecord)
+@app.post("/api/loans/", response_model=LoanCreateResponse)
 async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
     db = get_firestore_client()
     loan_id = str(uuid4())
     create_time = datetime.utcnow()
     created_at = create_time.isoformat()
 
-    # Field visit/document/processing charges are a breakdown of the interest itself
-    # (not additional charges on top), so total due is principal + interest only.
+    # Field visit/document/processing charges are deducted upfront from the cash
+    # handed to the borrower (see cash_disbursed below), but the repayable total
+    # still includes them on top of the principal — charges are financed into
+    # the loan, not waived because they were collected via reduced disbursal.
+    total_charges = loan.field_visit_charge + loan.document_fee + loan.processing_fee
     due_amount = loan.loan_amount + loan.monthly_interest_amount
+    cash_disbursed = max(0.0, loan.loan_amount - total_charges)
+
+    account_number = _generate_unique_account_number(db)
 
     record = {
         "id": loan_id,
@@ -293,6 +318,8 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
         "guarantor_name": loan.guarantor_name or "",
         "guarantor_phone": loan.guarantor_phone or "",
         "guarantor_address": loan.guarantor_address or "",
+        "account_number": account_number,
+        "preferred_language": loan.preferred_language,
         # Amounts
         "loan_amount": loan.loan_amount,
         "monthly_interest_amount": loan.monthly_interest_amount,
@@ -312,7 +339,7 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
 
     db.collection("loans").document(loan_id).set(record)
 
-    _write_audit(loan.customer_name, "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created, freq={loan.repayment_frequency}, total_due=₹{due_amount}")
+    _write_audit(loan.customer_name, "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created, freq={loan.repayment_frequency}, total_due=₹{due_amount}, account={account_number}")
 
     reminders = build_whatsapp_reminder_schedule(
         transaction_id=loan_id,
@@ -324,7 +351,25 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
     if reminders:
         background_tasks.add_task(queue_whatsapp_reminders, reminders)
 
-    return LoanRecord(**record)
+    # Post-disbursement SMS to the borrower, in their preferred Indian language
+    sms_message = build_disbursement_sms(
+        language=loan.preferred_language,
+        name=loan.customer_name,
+        account_number=account_number,
+        loan_amount=loan.loan_amount,
+        cash_disbursed=cash_disbursed,
+        installment=loan.repayment_amount or 0.0,
+        due_date=loan.closing_date,
+    )
+    sms_url = _build_sms_url(loan.customer_phone, sms_message) if loan.customer_phone else None
+    if loan.customer_phone:
+        background_tasks.add_task(queue_disbursement_sms, loan.customer_phone, sms_message)
+
+    return LoanCreateResponse(
+        status="success",
+        data=LoanRecord(**record),
+        sms=SMSLinks(send_sms_url=sms_url, message_preview=sms_message, language=loan.preferred_language),
+    )
 
 
 @app.post("/api/loans/merge")
@@ -398,6 +443,8 @@ async def get_loans(user=Depends(require_role("admin", "collector"))):
         l.setdefault("field_visit_charge", 0.0)
         l.setdefault("document_fee", 0.0)
         l.setdefault("processing_fee", 0.0)
+        l.setdefault("account_number", _generate_unique_account_number(db))
+        l.setdefault("preferred_language", "en")
 
         # Get reminders
         reminder_docs = db.collection("reminders").where("transaction_id", "==", l["id"]).get()
