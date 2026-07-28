@@ -212,13 +212,12 @@ export default function Members({ readOnly = false }) {
   const set = (k, v) => setFormData(f => ({ ...f, [k]: v }));
   const field = (key) => ({ value: formData[key], onChange: e => set(key, e.target.value) });
 
-  // Split an interest amount into charges: Field Verification 40%, Document Fee 30%, Processing Fee 30%
-  const splitCharges = (interestAmt) => {
-    if (!(interestAmt > 0)) return { field_visit_charge: '', document_fee: '', processing_fee: '' };
-    const fieldVisitCalc = Math.round(interestAmt * 40) / 100;
-    const remaining = Math.round((interestAmt - fieldVisitCalc) * 100) / 100;
-    const docFeeCalc = Math.round(remaining * 50) / 100;
-    const procFeeCalc = Math.round((remaining - docFeeCalc) * 100) / 100;
+  // Split the single Charges amount into its display breakdown.
+  const splitCharges = (chargeAmt) => {
+    if (!(chargeAmt > 0)) return { field_visit_charge: '', document_fee: '', processing_fee: '' };
+    const fieldVisitCalc = Math.round(chargeAmt * 31) / 100;
+    const docFeeCalc = Math.round(chargeAmt * 30) / 100;
+    const procFeeCalc = Math.round(chargeAmt * 21) / 100;
     return { field_visit_charge: String(fieldVisitCalc), document_fee: String(docFeeCalc), processing_fee: String(procFeeCalc) };
   };
 
@@ -240,13 +239,11 @@ export default function Members({ readOnly = false }) {
   const fieldVisit = parseFloat(formData.field_visit_charge) || 0;
   const docFee = parseFloat(formData.document_fee) || 0;
   const procFee = parseFloat(formData.processing_fee) || 0;
-  // Field Verification / Document / Processing charges are deducted upfront from
-  // the cash handed to the borrower (see cashDisbursed below), but the borrower's
-  // full repayable total still includes them on top of the principal — standard
-  // practice: charges are financed into the loan, not waived because they were
-  // collected via reduced disbursal.
-  const totalDeductions = fieldVisit + docFee + procFee;
-  const totalDue = principal + monthlyInterest;
+  const chargeInterest = Math.max(0, monthlyInterest - fieldVisit - docFee - procFee);
+  // The fee rows are only a breakdown of Charges. Charges are deducted upfront
+  // once from the principal, so they are not added again to Total Due.
+  const totalDeductions = monthlyInterest;
+  const totalDue = principal + monthlyInterest - totalDeductions;
   const cashDisbursed = Math.max(0, principal - totalDeductions);
 
   const resetModal = () => {
@@ -371,7 +368,8 @@ export default function Members({ readOnly = false }) {
         const progress = loan.due_amount > 0 ? Math.min((loan.collected_amount / loan.due_amount) * 100, 100) : 0;
         const freq = loan.repayment_frequency || 'monthly';
         const expanded = expandedId === loan.id;
-        const totalDeductions = (loan.field_visit_charge || 0) + (loan.document_fee || 0) + (loan.processing_fee || 0);
+        const totalDeductions = loan.monthly_interest_amount || 0;
+        const chargeInterest = Math.max(0, totalDeductions - (loan.field_visit_charge || 0) - (loan.document_fee || 0) - (loan.processing_fee || 0));
         const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
         return (
           <div key={loan.id} className="card card-hover borrower-card" style={{ padding: '16px', display: 'flex', gap: '16px', marginBottom: '12px', animation: `fadeUp .4s ${idx * 0.05}s ease both`, cursor: 'pointer' }}
@@ -395,11 +393,20 @@ export default function Members({ readOnly = false }) {
               </div>
               {loan.customer_phone && (
                 <div style={{ fontSize: '12px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Phone size={11} /> {loan.customer_phone}{loan.alternate_phone ? ` · Alt: ${loan.alternate_phone}` : ''}
+                  <Phone size={11} /> {loan.customer_phone}
                   <a href={`tel:${loan.customer_phone}`} onClick={e => e.stopPropagation()} title="Call borrower"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, padding: '1px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                    <PhoneCall size={10} /> Call
+                    <PhoneCall size={10} /> Primary
                   </a>
+                  {loan.alternate_phone && (
+                    <>
+                      <span>· Alt: {loan.alternate_phone}</span>
+                      <a href={`tel:${loan.alternate_phone}`} onClick={e => e.stopPropagation()} title="Call alternate number"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 2, padding: '1px 8px', borderRadius: 20, background: 'var(--brand-soft)', color: 'var(--brand-light)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                        <PhoneCall size={10} /> Alt
+                      </a>
+                    </>
+                  )}
                 </div>
               )}
               {loan.account_number && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><Hash size={11} /> A/C: {loan.account_number}</div>}
@@ -421,7 +428,7 @@ export default function Members({ readOnly = false }) {
               {expanded && (
                 <div className="animate-slideUp" style={{ marginTop: 12, padding: 12, background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
-                    {loan.alternate_phone && <div><span style={{ color: 'var(--text-2)' }}>Alt Phone:</span> {loan.alternate_phone}</div>}
+                    {loan.alternate_phone && <div><span style={{ color: 'var(--text-2)' }}>Alt Phone:</span> {loan.alternate_phone} <a href={`tel:${loan.alternate_phone}`} onClick={e => e.stopPropagation()} title="Call alternate number" style={{ color: 'var(--brand-light)', fontWeight: 700, textDecoration: 'none' }}><PhoneCall size={11} style={{ verticalAlign: 'text-bottom' }} /> Call</a></div>}
                     {loan.aadhaar_number && <div><span style={{ color: 'var(--text-2)' }}>Aadhaar:</span> {loan.aadhaar_number}</div>}
                     {loan.guarantor_name && <div><span style={{ color: 'var(--text-2)' }}>Guarantor:</span> {loan.guarantor_name}</div>}
                     {loan.guarantor_phone && <div><span style={{ color: 'var(--text-2)' }}>Guarantor Ph:</span> {loan.guarantor_phone}</div>}
@@ -429,6 +436,7 @@ export default function Members({ readOnly = false }) {
                     {loan.account_number && <div><span style={{ color: 'var(--text-2)' }}>Account No:</span> {loan.account_number}</div>}
                     <div><span style={{ color: 'var(--text-2)' }}>Loan:</span> ₹{(loan.loan_amount || 0).toLocaleString()}</div>
                     <div><span style={{ color: 'var(--text-2)' }}>Charges:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
+                    <div><span style={{ color: 'var(--text-2)' }}>Interest:</span> ₹{chargeInterest.toLocaleString()}</div>
                     <div><span style={{ color: 'var(--text-2)' }}>Field Visit:</span> ₹{(loan.field_visit_charge || 0).toLocaleString()}</div>
                     <div><span style={{ color: 'var(--text-2)' }}>Doc Fee:</span> ₹{(loan.document_fee || 0).toLocaleString()}</div>
                     <div><span style={{ color: 'var(--text-2)' }}>Processing:</span> ₹{(loan.processing_fee || 0).toLocaleString()}</div>
@@ -489,7 +497,7 @@ export default function Members({ readOnly = false }) {
               const progress = loan.due_amount > 0 ? Math.min((loan.collected_amount / loan.due_amount) * 100, 100) : 0;
               const settled = loan.pending_amount <= 0;
               const expanded = expandedId === loan.id;
-              const totalDeductions = (loan.field_visit_charge || 0) + (loan.document_fee || 0) + (loan.processing_fee || 0);
+              const totalDeductions = loan.monthly_interest_amount || 0;
               const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
               return (
                 <div key={loan.id} className="mm-card" onClick={() => setExpandedId(expanded ? null : loan.id)}>
@@ -517,7 +525,16 @@ export default function Members({ readOnly = false }) {
                           <span className="mm-detail-label">Phone:</span> {loan.customer_phone}
                           <a href={`tel:${loan.customer_phone}`} onClick={e => e.stopPropagation()}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                            <PhoneCall size={10} /> Call
+                            <PhoneCall size={10} /> Primary
+                          </a>
+                        </div>
+                      )}
+                      {loan.alternate_phone && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="mm-detail-label">Alt Phone:</span> {loan.alternate_phone}
+                          <a href={`tel:${loan.alternate_phone}`} onClick={e => e.stopPropagation()}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 8px', borderRadius: 20, background: 'var(--brand-soft)', color: 'var(--brand-light)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                            <PhoneCall size={10} /> Alt
                           </a>
                         </div>
                       )}
@@ -686,7 +703,7 @@ export default function Members({ readOnly = false }) {
               <div style={{ background: 'var(--bg)', borderRadius: 14, padding: 14, border: '1px solid var(--border)', marginBottom: 16 }}>
                 <div className="form-row-3" style={{ gap: 10, marginBottom: 12 }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">{t('fieldVerification')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>40%</span></label>
+                    <label className="form-label">{t('fieldVerification')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>31%</span></label>
                     <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('field_visit_charge')} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
@@ -694,7 +711,7 @@ export default function Members({ readOnly = false }) {
                     <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('document_fee')} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">{t('processingFee')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>30%</span></label>
+                    <label className="form-label">{t('processingFee')} <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>21%</span></label>
                     <input min="0" step="0.01" type="number" className="form-input" placeholder="Auto" {...field('processing_fee')} />
                   </div>
                 </div>
@@ -712,9 +729,10 @@ export default function Members({ readOnly = false }) {
                       <span>₹{monthlyInterest.toLocaleString()}</span>
                     </div>
                     {[
-                      { id: 'fieldVerification', label: `${t('fieldVerification')} (40%)`, value: fieldVisit },
+                      { id: 'chargeInterest', label: `${t('chargeInterest')} (18%)`, value: chargeInterest },
+                      { id: 'fieldVerification', label: `${t('fieldVerification')} (31%)`, value: fieldVisit },
                       { id: 'documentFee', label: `${t('documentFee')} (30%)`, value: docFee },
-                      { id: 'processingFee', label: `${t('processingFee')} (30%)`, value: procFee },
+                      { id: 'processingFee', label: `${t('processingFee')} (21%)`, value: procFee },
                     ].filter(r => r.value > 0).map(r => (
                       <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3, paddingLeft: 14, color: 'var(--text-3)' }}>
                         <span>{t('ofWhich')} {r.label}</span>

@@ -292,12 +292,11 @@ async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
     create_time = datetime.utcnow()
     created_at = create_time.isoformat()
 
-    # Field visit/document/processing charges are deducted upfront from the cash
-    # handed to the borrower (see cash_disbursed below), but the repayable total
-    # still includes them on top of the principal — charges are financed into
-    # the loan, not waived because they were collected via reduced disbursal.
-    total_charges = loan.field_visit_charge + loan.document_fee + loan.processing_fee
-    due_amount = loan.loan_amount + loan.monthly_interest_amount
+    # Field verification/document/processing are a breakdown of the single
+    # Charges amount. Charges are deducted upfront once, so the repayable due
+    # remains the principal amount: principal + charges - upfront charges.
+    total_charges = loan.monthly_interest_amount
+    due_amount = loan.loan_amount
     cash_disbursed = max(0.0, loan.loan_amount - total_charges)
 
     account_number = _generate_unique_account_number(db)
