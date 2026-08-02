@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   UserPlus, IndianRupee, ShieldCheck, Mail, Phone, MapPin,
-  RefreshCw, CheckCircle, Building2,
+  CheckCircle, Building2, Users, Wallet,
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
   Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store,
-  MessageSquare, Languages, Hash, ExternalLink, CheckCircle2
+  MessageSquare, Languages, Hash, ExternalLink, CheckCircle2, Search,
+  ArrowUpDown, Eye, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
@@ -145,6 +146,89 @@ function MergeModal({ loans, onClose, onMerge }) {
   );
 }
 
+const PAGE_SIZE = 8;
+
+const STATUS_TABS = [
+  { value: 'all', label: 'All' },
+  { value: 'active', label: 'Active' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'settled', label: 'Settled' },
+];
+
+function getLoanMetrics(loan) {
+  const dueAmount = loan.due_amount || 0;
+  const pendingAmount = loan.pending_amount || 0;
+  const collectedAmount = loan.collected_amount || 0;
+  const progress = dueAmount > 0 ? Math.min((collectedAmount / dueAmount) * 100, 100) : 0;
+  const isSettled = pendingAmount <= 0;
+  const dueDate = loan.closing_date ? new Date(loan.closing_date) : null;
+  const isOverdue = !isSettled && dueDate && !Number.isNaN(dueDate.getTime()) && dueDate < new Date();
+  const status = isSettled ? 'settled' : isOverdue ? 'overdue' : loan.status || 'active';
+  return { dueAmount, pendingAmount, collectedAmount, progress, status };
+}
+
+function StatusBadge({ status }) {
+  const cls = status === 'settled' ? 'badge-green' : status === 'overdue' ? 'badge-red' : status === 'active' ? 'badge-indigo' : 'badge-gray';
+  return <span className={`badge ${cls}`}>{status}</span>;
+}
+
+function MetricCard({ icon: Icon, label, value, tone = 'indigo', sub }) {
+  return (
+    <div className={`stat-card ${tone} card-hover customer-stat-card`}>
+      {React.createElement(Icon, { className: 'stat-card-icon', size: 40 })}
+      <div className="stat-card-label">{label}</div>
+      <div className="stat-card-value">{value}</div>
+      {sub && <div className="stat-card-trend">{sub}</div>}
+    </div>
+  );
+}
+
+function CustomerDetailPanel({ loan, onClose }) {
+  if (!loan) return null;
+  const metrics = getLoanMetrics(loan);
+  const totalDeductions = loan.monthly_interest_amount || 0;
+  const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
+
+  return (
+    <aside className="customer-detail-panel animate-slideUp" aria-label="Customer details">
+      <div className="customer-detail-header">
+        <div className="customer-avatar lg">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
+        <div>
+          <h3>{loan.customer_name}</h3>
+          <p>{loan.shop_name || loan.zone || 'Customer profile'}</p>
+        </div>
+        <button className="btn btn-secondary btn-icon" onClick={onClose} aria-label="Close details"><X size={16} /></button>
+      </div>
+
+      <div className="customer-detail-balance">
+        <span>Outstanding</span>
+        <strong>₹{metrics.pendingAmount.toLocaleString()}</strong>
+        <StatusBadge status={metrics.status} />
+      </div>
+
+      <div className="progress-bar">
+        <div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} />
+      </div>
+
+      <div className="customer-detail-grid">
+        <div><span>Loan</span><strong>₹{(loan.loan_amount || 0).toLocaleString()}</strong></div>
+        <div><span>Collected</span><strong>₹{metrics.collectedAmount.toLocaleString()}</strong></div>
+        <div><span>Total Due</span><strong>₹{metrics.dueAmount.toLocaleString()}</strong></div>
+        <div><span>Disbursed</span><strong>₹{cashDisbursed.toLocaleString()}</strong></div>
+      </div>
+
+      <div className="customer-detail-list">
+        {loan.customer_phone && <a href={`tel:${loan.customer_phone}`}><PhoneCall size={14} /> {loan.customer_phone}</a>}
+        {loan.alternate_phone && <a href={`tel:${loan.alternate_phone}`}><PhoneCall size={14} /> {loan.alternate_phone}</a>}
+        {loan.account_number && <div><Hash size={14} /> A/C {loan.account_number}</div>}
+        {loan.zone && <div><MapPin size={14} /> {loan.zone}, Coimbatore</div>}
+        {loan.customer_address && <div><MapPin size={14} /> {loan.customer_address}</div>}
+        {loan.guarantor_name && <div><ShieldCheck size={14} /> {loan.guarantor_name}</div>}
+      </div>
+    </aside>
+  );
+}
+
 // ── Main Component ──────────────────────────────────────────────────────────
 export default function Members({ readOnly = false }) {
   const { user } = useAuth();
@@ -166,6 +250,11 @@ export default function Members({ readOnly = false }) {
   const [loans, setLoans] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedLoanId, setSelectedLoanId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState('newest');
   const [zoneFilter, setZoneFilter] = useState('all');
   const [phoneVerified, setPhoneVerified] = useState(false);
@@ -173,6 +262,11 @@ export default function Members({ readOnly = false }) {
   const [showOtpSection, setShowOtpSection] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+
+  const updateSearch = (value) => { setSearch(value); setCurrentPage(1); };
+  const updateStatusFilter = (value) => { setStatusFilter(value); setCurrentPage(1); };
+  const updateZoneFilter = (value) => { setZoneFilter(value); setCurrentPage(1); };
+  const updateSortBy = (value) => { setSortBy(value); setCurrentPage(1); };
 
   const handleMerge = async (id1, id2) => {
     setLoading(true);
@@ -206,7 +300,10 @@ export default function Members({ readOnly = false }) {
 
   useEffect(() => {
     apiFetch('/api/loans/')
-      .then(res => res.json()).then(setLoans).catch(console.error);
+      .then(res => res.json())
+      .then(data => setLoans(Array.isArray(data) ? data : []))
+      .catch(console.error)
+      .finally(() => setDataLoading(false));
   }, []);
 
   const set = (k, v) => setFormData(f => ({ ...f, [k]: v }));
@@ -306,7 +403,17 @@ export default function Members({ readOnly = false }) {
     finally { setLoading(false); }
   };
 
-  const visibleLoans = loans.filter(l => zoneFilter === 'all' || l.zone === zoneFilter);
+  const visibleLoans = loans.filter(l => {
+    const metrics = getLoanMetrics(l);
+    const q = search.trim().toLowerCase();
+    const matchesSearch = !q || [
+      l.customer_name, l.customer_phone, l.alternate_phone, l.shop_name,
+      l.zone, l.customer_address, l.account_number,
+    ].filter(Boolean).some(v => String(v).toLowerCase().includes(q));
+    const matchesZone = zoneFilter === 'all' || l.zone === zoneFilter;
+    const matchesStatus = statusFilter === 'all' || metrics.status === statusFilter;
+    return matchesSearch && matchesZone && matchesStatus;
+  });
   const sortedLoans = [...visibleLoans].sort((a, b) => {
     if (sortBy === 'name') return a.customer_name.localeCompare(b.customer_name);
     if (sortBy === 'balance') return b.pending_amount - a.pending_amount;
@@ -314,250 +421,169 @@ export default function Members({ readOnly = false }) {
     if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
     return 0;
   });
-
-  const freqColor = { daily: 'var(--green)', weekly: 'var(--brand)', monthly: 'var(--amber)', custom: 'var(--text-2)' };
+  const totalPages = Math.max(1, Math.ceil(sortedLoans.length / PAGE_SIZE));
+  const pageLoans = sortedLoans.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const selectedLoan = sortedLoans.find(l => l.id === selectedLoanId) || pageLoans[0] || null;
+  const activeCount = loans.filter(l => getLoanMetrics(l).status === 'active').length;
+  const overdueCount = loans.filter(l => getLoanMetrics(l).status === 'overdue').length;
+  const settledCount = loans.filter(l => getLoanMetrics(l).status === 'settled').length;
+  const totalOutstanding = loans.reduce((s, l) => s + (l.pending_amount || 0), 0);
 
   return (
-    <div className="screen-container pt-4 animate-fadeUp">
-      <div className="desktop-only">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+    <div className="customer-page animate-fadeUp">
+      <div className="customer-page-header">
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('borrowersAndLoans')}</h2>
-          <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>Combined borrower profile with loan details</p>
+          <div className="page-title">{t('borrowersAndLoans')}</div>
+          <div className="page-subtitle">{loans.length} customers · {zoneFilter === 'all' ? 'All Coimbatore areas' : zoneFilter}</div>
         </div>
-        {canCreate && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            {canMerge && (
-              <button className="btn btn-secondary card-hover" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => setShowMerge(true)}>
-                <GitMerge size={18} /> {t('merge')}
-              </button>
-            )}
-            <button className="save-btn card-hover" style={{ width: 'auto', padding: '10px 16px', borderRadius: '12px' }} onClick={() => setShowModal(true)}>
-              <UserPlus size={18} style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> {t('addBorrower')}
+        <div className="customer-actions">
+          {canMerge && <button className="btn btn-secondary" onClick={() => setShowMerge(true)}><GitMerge size={16} /> {t('merge')}</button>}
+          {canCreate && <button className="btn btn-primary" onClick={() => setShowModal(true)}><UserPlus size={16} /> {t('addBorrower')}</button>}
+        </div>
+      </div>
+
+      <div className="customer-stat-grid">
+        <MetricCard icon={Users} label="Total Customers" value={loans.length.toLocaleString()} tone="indigo" sub={`${activeCount} active loans`} />
+        <MetricCard icon={Wallet} label="Outstanding" value={`₹${totalOutstanding.toLocaleString()}`} tone="amber" sub="Pending balance" />
+        <MetricCard icon={ShieldCheck} label="Settled" value={settledCount.toLocaleString()} tone="green" sub={`${overdueCount} overdue`} />
+        <MetricCard icon={MapPin} label="Areas" value={new Set(loans.map(l => l.zone).filter(Boolean)).size || 0} tone="cyan" sub="Coimbatore coverage" />
+      </div>
+
+      <div className="customer-toolbar card">
+        <div className="search-bar customer-search">
+          <Search size={16} style={{ color: 'var(--text-2)' }} />
+          <input placeholder="Search customer, phone, shop, account..." value={search} onChange={e => updateSearch(e.target.value)} />
+        </div>
+        <div className="customer-filter-group" aria-label="Status filters">
+          {STATUS_TABS.map(tab => (
+            <button key={tab.value} className={`customer-chip${statusFilter === tab.value ? ' active' : ''}`} onClick={() => updateStatusFilter(tab.value)}>
+              {tab.label}
             </button>
-          </div>
-        )}
+          ))}
+        </div>
+        <label className="customer-select">
+          <MapPin size={14} />
+          <select value={zoneFilter} onChange={e => updateZoneFilter(e.target.value)} aria-label="Area filter">
+            <option value="all">All areas</option>
+            {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
+          </select>
+        </label>
+        <label className="customer-select">
+          <ArrowUpDown size={14} />
+          <select value={sortBy} onChange={e => updateSortBy(e.target.value)} aria-label="Sort customers">
+            {SORT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+        </label>
       </div>
 
-      {/* Coimbatore area filter */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', paddingBottom: 4, alignItems: 'center' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><MapPin size={13} /> Coimbatore:</span>
-        {['all', ...ZONES].map(z => (
-          <button key={z} type="button" onClick={() => setZoneFilter(z)}
-            style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-              background: zoneFilter === z ? 'var(--brand)' : 'var(--surface)',
-              color: zoneFilter === z ? 'white' : 'var(--text-2)' }}>
-            {z === 'all' ? t('allAreas') : z}
-          </button>
-        ))}
-      </div>
+      <div className="customer-content-grid">
+        <section className="table-wrap customer-table-card" aria-label="Customer table">
+          {dataLoading ? (
+            <div className="customer-skeleton-list">
+              {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton customer-skeleton-row" />)}
+            </div>
+          ) : pageLoans.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon"><Users size={36} /></div>
+              <div className="empty-title">No customers found</div>
+              <p>Try a different search, status, or area filter.</p>
+            </div>
+          ) : (
+            <>
+              <table className="customer-table desktop-table">
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Area</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Outstanding</th>
+                    <th>Due Date</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageLoans.map((loan, idx) => {
+                    const metrics = getLoanMetrics(loan);
+                    const freq = loan.repayment_frequency || 'monthly';
+                    return (
+                      <tr key={loan.id} className={selectedLoan?.id === loan.id ? 'selected' : ''} onClick={() => setSelectedLoanId(loan.id)} style={{ animation: `fadeUp .35s ${idx * 0.04}s ease both` }}>
+                        <td>
+                          <div className="customer-cell">
+                            <div className="customer-avatar">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
+                            <div>
+                              <strong>{loan.customer_name}</strong>
+                              <span>{loan.shop_name || loan.customer_phone || 'No phone'}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>{loan.zone || 'Unassigned'}</td>
+                        <td><StatusBadge status={metrics.status} /></td>
+                        <td>
+                          <div className="customer-progress">
+                            <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
+                            <span>{Math.round(metrics.progress)}%</span>
+                          </div>
+                        </td>
+                        <td className="text-mono text-amber">₹{metrics.pendingAmount.toLocaleString()}</td>
+                        <td>{loan.closing_date || '—'} <span className="badge badge-gray">{freq}</span></td>
+                        <td>
+                          <button className="btn btn-secondary btn-icon" onClick={e => { e.stopPropagation(); setSelectedLoanId(loan.id); }} aria-label={`View ${loan.customer_name}`}>
+                            <Eye size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
 
-      {/* Sort Bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto', paddingBottom: 4 }}>
-        {SORT_OPTIONS.map(opt => (
-          <button key={opt.value} type="button" onClick={() => setSortBy(opt.value)}
-            style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-              background: sortBy === opt.value ? 'var(--brand)' : 'var(--surface)',
-              color: sortBy === opt.value ? 'white' : 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            {opt.icon && <opt.icon size={13} />}{opt.label}
-          </button>
-        ))}
-      </div>
+              <div className="mobile-customer-list">
+                {pageLoans.map(loan => {
+                  const metrics = getLoanMetrics(loan);
+                  const expanded = expandedId === loan.id;
+                  return (
+                    <article key={loan.id} className={`customer-mobile-card${expanded ? ' selected' : ''}`} onClick={() => { setExpandedId(expanded ? null : loan.id); setSelectedLoanId(loan.id); }}>
+                      <div className="customer-mobile-main">
+                        <div className="customer-avatar">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
+                        <div>
+                          <h3>{loan.customer_name}</h3>
+                          <p>{loan.shop_name || loan.zone || loan.customer_phone || 'Customer'}</p>
+                        </div>
+                        <div className="customer-mobile-amount">
+                          <strong>₹{metrics.pendingAmount.toLocaleString()}</strong>
+                          <StatusBadge status={metrics.status} />
+                        </div>
+                      </div>
+                      <div className="customer-progress">
+                        <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
+                        <span>{Math.round(metrics.progress)}%</span>
+                      </div>
+                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} />}
+                    </article>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
-      {sortedLoans.map((loan, idx) => {
-        const progress = loan.due_amount > 0 ? Math.min((loan.collected_amount / loan.due_amount) * 100, 100) : 0;
-        const freq = loan.repayment_frequency || 'monthly';
-        const expanded = expandedId === loan.id;
-        const totalDeductions = loan.monthly_interest_amount || 0;
-        const chargeInterest = Math.max(0, totalDeductions - (loan.field_visit_charge || 0) - (loan.document_fee || 0) - (loan.processing_fee || 0));
-        const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
-        return (
-          <div key={loan.id} className="card card-hover borrower-card" style={{ padding: '16px', display: 'flex', gap: '16px', marginBottom: '12px', animation: `fadeUp .4s ${idx * 0.05}s ease both`, cursor: 'pointer' }}
-            onClick={() => setExpandedId(expanded ? null : loan.id)}>
-            {loan.photo_url
-              ? <img src={loan.photo_url} alt="" style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }} />
-              : <div className="party-avatar">{loan.customer_name.charAt(0).toUpperCase()}</div>}
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: 700 }}>{loan.customer_name}</h3>
-                  {loan.shop_name && <div style={{ fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}><Store size={11} /> {loan.shop_name}</div>}
-                </div>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', padding: '2px 7px', borderRadius: '6px',
-                    background: freq === 'daily' ? 'var(--green-soft)' : 'var(--brand-soft)',
-                    color: freqColor[freq] || 'var(--brand-light)' }}>{freq}</span>
-                  <span className={loan.status === 'active' ? 'text-green' : 'text-muted'}
-                    style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>{loan.status}</span>
-                </div>
-              </div>
-              {loan.customer_phone && (
-                <div style={{ fontSize: '12px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Phone size={11} /> {loan.customer_phone}
-                  <a href={`tel:${loan.customer_phone}`} onClick={e => e.stopPropagation()} title="Call borrower"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, padding: '1px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                    <PhoneCall size={10} /> Primary
-                  </a>
-                  {loan.alternate_phone && (
-                    <>
-                      <span>· Alt: {loan.alternate_phone}</span>
-                      <a href={`tel:${loan.alternate_phone}`} onClick={e => e.stopPropagation()} title="Call alternate number"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 2, padding: '1px 8px', borderRadius: 20, background: 'var(--brand-soft)', color: 'var(--brand-light)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                        <PhoneCall size={10} /> Alt
-                      </a>
-                    </>
-                  )}
-                </div>
-              )}
-              {loan.account_number && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><Hash size={11} /> A/C: {loan.account_number}</div>}
-              {loan.zone && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {loan.zone}, Coimbatore</div>}
-              {loan.customer_address && <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {loan.customer_address.split(',')[0]}</div>}
-              {loan.repayment_amount > 0 && (
-                <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>
-                  <RefreshCw size={11} style={{ marginRight: '3px', verticalAlign: 'middle' }} />
-                  ₹{loan.repayment_amount.toLocaleString()} per {freq === 'custom' ? 'installment' : freq.replace('ly', '')}
-                </div>
-              )}
-              <div style={{ height: '6px', background: 'var(--surface-3)', borderRadius: '3px', margin: '10px 0 4px', overflow: 'hidden' }}>
-                <div style={{ width: `${progress}%`, height: '100%', background: 'var(--green)', borderRadius: '3px', transition: 'width 0.4s' }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                <span className="text-green">Paid: ₹{loan.collected_amount.toLocaleString()}</span>
-                <span className="text-warning">Due: ₹{loan.pending_amount.toLocaleString()}</span>
-              </div>
-              {expanded && (
-                <div className="animate-slideUp" style={{ marginTop: 12, padding: 12, background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
-                    {loan.alternate_phone && <div><span style={{ color: 'var(--text-2)' }}>Alt Phone:</span> {loan.alternate_phone} <a href={`tel:${loan.alternate_phone}`} onClick={e => e.stopPropagation()} title="Call alternate number" style={{ color: 'var(--brand-light)', fontWeight: 700, textDecoration: 'none' }}><PhoneCall size={11} style={{ verticalAlign: 'text-bottom' }} /> Call</a></div>}
-                    {loan.aadhaar_number && <div><span style={{ color: 'var(--text-2)' }}>Aadhaar:</span> {loan.aadhaar_number}</div>}
-                    {loan.guarantor_name && <div><span style={{ color: 'var(--text-2)' }}>Guarantor:</span> {loan.guarantor_name}</div>}
-                    {loan.guarantor_phone && <div><span style={{ color: 'var(--text-2)' }}>Guarantor Ph:</span> {loan.guarantor_phone}</div>}
-                    {loan.guarantor_address && <div style={{ gridColumn: '1/-1' }}><span style={{ color: 'var(--text-2)' }}>Guarantor Addr:</span> {loan.guarantor_address}</div>}
-                    {loan.account_number && <div><span style={{ color: 'var(--text-2)' }}>Account No:</span> {loan.account_number}</div>}
-                    <div><span style={{ color: 'var(--text-2)' }}>Loan:</span> ₹{(loan.loan_amount || 0).toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Charges:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Interest:</span> ₹{chargeInterest.toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Field Visit:</span> ₹{(loan.field_visit_charge || 0).toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Doc Fee:</span> ₹{(loan.document_fee || 0).toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Processing:</span> ₹{(loan.processing_fee || 0).toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Total Deductions:</span> ₹{totalDeductions.toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Cash Disbursed:</span> ₹{cashDisbursed.toLocaleString()}</div>
-                    <div><span style={{ color: 'var(--text-2)' }}>Total Due:</span> ₹{(loan.due_amount || 0).toLocaleString()}</div>
-                  </div>
-                </div>
-              )}
+          <div className="customer-pagination">
+            <span>{sortedLoans.length === 0 ? '0' : (currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, sortedLoans.length)} of {sortedLoans.length}</span>
+            <div>
+              <button className="btn btn-secondary btn-icon" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}><ChevronLeft size={16} /></button>
+              <button className="btn btn-secondary btn-icon" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}><ChevronRight size={16} /></button>
             </div>
           </div>
-        );
-      })}
+        </section>
 
-      {sortedLoans.length === 0 && (
-        <div style={{ textAlign: 'center', color: 'var(--text-2)', marginTop: '60px' }}>
-          <ShieldCheck size={48} style={{ opacity: 0.15, marginBottom: '16px' }} />
-          <p>No borrowers{zoneFilter !== 'all' ? ` in ${zoneFilter}, Coimbatore` : ''} yet. Click "Add Borrower + Loan" to begin.</p>
-        </div>
+        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} />
+      </div>
+
+      {canCreate && (
+        <button className="fab customer-mobile-fab" onClick={() => setShowModal(true)} title="Add Borrower + Loan">
+          <UserPlus size={22} />
+        </button>
       )}
-      </div>
-
-      {/* ── Mobile app-style borrower list (phone screens only) ── */}
-      <div className="mobile-only mobile-list-view">
-        <div className="mh-header">
-          <div>
-            <div className="mh-greeting" style={{ fontSize: 20 }}>{t('borrowers')}</div>
-            <div className="mh-sub">{sortedLoans.length} member{sortedLoans.length !== 1 ? 's' : ''} · {zoneFilter === 'all' ? 'All Coimbatore areas' : zoneFilter}</div>
-          </div>
-          {canMerge && (
-            <button className="mh-filter-btn" onClick={() => setShowMerge(true)} title="Merge borrowers">
-              <GitMerge size={18} />
-            </button>
-          )}
-        </div>
-
-        <div className="mh-pills">
-          {['all', ...ZONES].map(z => (
-            <button key={z} className={`mh-pill${zoneFilter === z ? ' active' : ''}`} onClick={() => setZoneFilter(z)}>
-              {z === 'all' ? t('allAreas') : z}
-            </button>
-          ))}
-        </div>
-
-        <div className="mh-pills">
-          {SORT_OPTIONS.map(opt => (
-            <button key={opt.value} className={`mh-pill${sortBy === opt.value ? ' active' : ''}`} onClick={() => setSortBy(opt.value)}>
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {sortedLoans.length === 0 ? (
-          <div className="mh-empty">{t('noBorrowersYet')}</div>
-        ) : (
-          <div className="mm-card-list">
-            {sortedLoans.map(loan => {
-              const progress = loan.due_amount > 0 ? Math.min((loan.collected_amount / loan.due_amount) * 100, 100) : 0;
-              const settled = loan.pending_amount <= 0;
-              const expanded = expandedId === loan.id;
-              const totalDeductions = loan.monthly_interest_amount || 0;
-              const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
-              return (
-                <div key={loan.id} className="mm-card" onClick={() => setExpandedId(expanded ? null : loan.id)}>
-                  <div className="mm-card-row">
-                    <div className="mm-photo">
-                      {loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="mm-info">
-                      <div className="mm-name">{loan.customer_name}</div>
-                      {loan.shop_name && <div className="mm-shop"><Store size={11} /> {loan.shop_name}</div>}
-                      <div className="mm-badges">
-                        {loan.zone && <span className="badge badge-indigo"><MapPin size={9} /> {loan.zone}</span>}
-                        <span className={`badge ${settled ? 'badge-green' : 'badge-amber'}`}>{Math.round(progress)}% {t('paidSuffix')}</span>
-                      </div>
-                    </div>
-                    <div className="mm-right">
-                      <div className={`mm-amount${settled ? ' settled' : ''}`}>{settled ? 'Settled' : `₹${loan.pending_amount.toLocaleString()}`}</div>
-                      <div className="mm-amount-label">{settled ? '' : 'Due'}</div>
-                    </div>
-                  </div>
-                  {expanded && (
-                    <div className="mm-detail" onClick={e => e.stopPropagation()}>
-                      {loan.customer_phone && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span className="mm-detail-label">Phone:</span> {loan.customer_phone}
-                          <a href={`tel:${loan.customer_phone}`} onClick={e => e.stopPropagation()}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                            <PhoneCall size={10} /> Primary
-                          </a>
-                        </div>
-                      )}
-                      {loan.alternate_phone && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span className="mm-detail-label">Alt Phone:</span> {loan.alternate_phone}
-                          <a href={`tel:${loan.alternate_phone}`} onClick={e => e.stopPropagation()}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 8px', borderRadius: 20, background: 'var(--brand-soft)', color: 'var(--brand-light)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                            <PhoneCall size={10} /> Alt
-                          </a>
-                        </div>
-                      )}
-                      {loan.account_number && <div><span className="mm-detail-label">Account No:</span> {loan.account_number}</div>}
-                      <div><span className="mm-detail-label">Loan:</span> ₹{(loan.loan_amount || 0).toLocaleString()}</div>
-                      <div><span className="mm-detail-label">Charges:</span> ₹{(loan.monthly_interest_amount || 0).toLocaleString()}</div>
-                      <div><span className="mm-detail-label">Cash Disbursed:</span> ₹{cashDisbursed.toLocaleString()}</div>
-                      <div><span className="mm-detail-label">Collected:</span> ₹{(loan.collected_amount || 0).toLocaleString()}</div>
-                      <div><span className="mm-detail-label">Total Due:</span> ₹{(loan.due_amount || 0).toLocaleString()}</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {canCreate && (
-          <button className="fab" style={{ bottom: 96 }} onClick={() => setShowModal(true)} title="Add Borrower + Loan">
-            <UserPlus size={22} />
-          </button>
-        )}
-      </div>
 
       {/* ── Add Borrower + Loan Modal ──────────────────────────────────────── */}
       {showModal && (
