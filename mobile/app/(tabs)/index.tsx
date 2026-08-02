@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   View,
+  Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -64,6 +65,13 @@ export default function CollectionScreen() {
       l.status === 'active' &&
       l.customer_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const openDialPad = (phone: string) => {
+    const dialNumber = phone.replace(/[^\d+]/g, '');
+    if (dialNumber) {
+      Linking.openURL(`tel:${dialNumber}`);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -142,7 +150,24 @@ export default function CollectionScreen() {
                 </View>
                 <View style={styles.loanCopy}>
                   <Text style={styles.loanName}>{loan.customer_name}</Text>
-                  <Text style={styles.loanMeta}>{loan.customer_phone || 'No phone'}</Text>
+                  <View style={styles.loanPhoneRow}>
+                    <Text style={styles.loanMeta}>{loan.customer_phone || 'No phone'}</Text>
+                    {loan.customer_phone ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Call ${loan.customer_name}`}
+                        hitSlop={8}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          openDialPad(loan.customer_phone);
+                        }}
+                        style={styles.callButton}
+                      >
+                        <MaterialIcons name="call" size={13} color={theme.colors.brand} />
+                        <Text style={styles.callButtonText}>Call</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                   <View style={styles.loanProgress}>
                     <View style={styles.progressTrack}>
                       <View
@@ -317,9 +342,29 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   loanMeta: {
-    marginTop: 3,
     color: theme.colors.textMuted,
     fontSize: 12,
+  },
+  loanPhoneRow: {
+    marginTop: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  callButton: {
+    borderRadius: 999,
+    backgroundColor: theme.colors.brandSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  callButtonText: {
+    color: theme.colors.brand,
+    fontSize: 11,
+    fontWeight: '800',
   },
   loanProgress: {
     flexDirection: 'row',

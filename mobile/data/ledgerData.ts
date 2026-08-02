@@ -253,6 +253,7 @@ export const mockLoanRecord = {
   id: 'loan-456',
   customerId: 'cust-109',
   customerName: 'பழனிசாமி டீக்கடை', // Tamil script as requested implicitly
+  customerPhone: '+91 98765 43210',
   loanAmount: 25000,
   interestDocument: 5000,
   startDate: '08-03-2026',

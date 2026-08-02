@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
   Alert,
+  Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -26,6 +27,13 @@ export default function CollectionEntryScreen() {
   // Simulated data state
   const loan = mockLoanRecord;
   const ratio = `${Math.min(loan.totalDaysPaid, loan.totalDaysPaid + loan.totalDaysNotPaid)}/${loan.totalDaysPaid + loan.totalDaysNotPaid}`;
+
+  const openDialPad = () => {
+    const dialNumber = loan.customerPhone.replace(/[^\d+]/g, '');
+    if (dialNumber) {
+      Linking.openURL(`tel:${dialNumber}`);
+    }
+  };
 
   const handleSave = () => {
     if (!amount) {
@@ -47,8 +55,20 @@ export default function CollectionEntryScreen() {
           {/* Header Card matching the image closely */}
           <View style={styles.cardInfo}>
             <View style={styles.customerRow}>
-              <Text style={styles.customerId}>1627.</Text>
-              <Text style={styles.customerName}>{loan.customerName}</Text>
+              <View style={styles.customerCopy}>
+                <View style={styles.customerNameRow}>
+                  <Text style={styles.customerId}>1627.</Text>
+                  <Text style={styles.customerName}>{loan.customerName}</Text>
+                </View>
+                <View style={styles.phoneRow}>
+                  <MaterialIcons name="phone" size={13} color={theme.colors.textMuted} />
+                  <Text style={styles.phoneText}>{loan.customerPhone}</Text>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Call ${loan.customerName}`} onPress={openDialPad} style={styles.callButton}>
+                    <MaterialIcons name="call" size={13} color={theme.colors.brand} />
+                    <Text style={styles.callButtonText}>Call</Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
             
             <View style={styles.detailsGrid}>
@@ -202,6 +222,13 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
     paddingBottom: 12,
   },
+  customerCopy: {
+    flex: 1,
+  },
+  customerNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   customerId: {
     fontSize: 18,
     fontWeight: '800',
@@ -212,6 +239,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: theme.colors.text,
     marginLeft: 4,
+  },
+  phoneRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  phoneText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  callButton: {
+    borderRadius: 999,
+    backgroundColor: theme.colors.brandSoft,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  callButtonText: {
+    color: theme.colors.brand,
+    fontSize: 11,
+    fontWeight: '800',
   },
   detailsGrid: {
     gap: 6,

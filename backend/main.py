@@ -287,88 +287,107 @@ async def get_collectors():
 
 @app.post("/api/loans/", response_model=LoanCreateResponse)
 async def create_loan(loan: LoanCreate, background_tasks: BackgroundTasks):
-    db = get_firestore_client()
-    loan_id = str(uuid4())
-    create_time = datetime.utcnow()
-    created_at = create_time.isoformat()
+    try:
+        db = get_firestore_client()
+        loan_id = str(uuid4())
+        create_time = datetime.utcnow()
+        created_at = create_time.isoformat()
 
-    # Field verification/document/processing are a breakdown of the single
-    # Charges amount. Charges are deducted upfront once, so the repayable due
-    # remains the principal amount: principal + charges - upfront charges.
-    total_charges = loan.monthly_interest_amount
-    due_amount = loan.loan_amount
-    cash_disbursed = max(0.0, loan.loan_amount - total_charges)
+        # Validate required fields
+        if not loan.customer_name:
+            raise HTTPException(status_code=400, detail="Customer name is required")
+        if not loan.customer_id:
+            raise HTTPException(status_code=400, detail="Customer ID is required")
+        if loan.loan_amount <= 0:
+            raise HTTPException(status_code=400, detail="Loan amount must be greater than 0")
+        if not loan.start_date:
+            raise HTTPException(status_code=400, detail="Start date is required")
+        if not loan.closing_date:
+            raise HTTPException(status_code=400, detail="Closing date is required")
 
-    account_number = _generate_unique_account_number(db)
+        # Field verification/document/processing are a breakdown of the single
+        # Charges amount. Charges are deducted upfront once, so the repayable due
+        # remains the principal amount: principal + charges - upfront charges.
+        total_charges = loan.monthly_interest_amount
+        due_amount = loan.loan_amount
+        cash_disbursed = max(0.0, loan.loan_amount - total_charges)
 
-    record = {
-        "id": loan_id,
-        "customer_id": loan.customer_id,
-        "customer_name": loan.customer_name,
-        "customer_email": loan.customer_email,
-        "customer_phone": loan.customer_phone,
-        "customer_address": loan.customer_address,
-        # New fields
-        "alternate_phone": loan.alternate_phone or "",
-        "shop_name": loan.shop_name or "",
-        "aadhaar_number": loan.aadhaar_number or "",
-        "photo_url": loan.photo_url or "",
-        "zone": loan.zone or "",
-        "guarantor_name": loan.guarantor_name or "",
-        "guarantor_phone": loan.guarantor_phone or "",
-        "guarantor_address": loan.guarantor_address or "",
-        "account_number": account_number,
-        "preferred_language": loan.preferred_language,
-        # Amounts
-        "loan_amount": loan.loan_amount,
-        "monthly_interest_amount": loan.monthly_interest_amount,
-        "field_visit_charge": loan.field_visit_charge,
-        "document_fee": loan.document_fee,
-        "processing_fee": loan.processing_fee,
-        "due_amount": due_amount,
-        "collected_amount": 0.0,
-        "pending_amount": due_amount,
-        "status": "active",
-        "total_days_paid": 0,
-        "total_days_not_paid": 0,
-        "repayment_frequency": loan.repayment_frequency,
-        "repayment_amount": loan.repayment_amount or 0.0,
-        "created_at": created_at,
-    }
+        account_number = _generate_unique_account_number(db)
 
-    db.collection("loans").document(loan_id).set(record)
+        record = {
+            "id": loan_id,
+            "customer_id": loan.customer_id,
+            "customer_name": loan.customer_name,
+            "customer_email": loan.customer_email,
+            "customer_phone": loan.customer_phone,
+            "customer_address": loan.customer_address,
+            # New fields
+            "alternate_phone": loan.alternate_phone or "",
+            "shop_name": loan.shop_name or "",
+            "aadhaar_number": loan.aadhaar_number or "",
+            "photo_url": loan.photo_url or "",
+            "zone": loan.zone or "",
+            "guarantor_name": loan.guarantor_name or "",
+            "guarantor_phone": loan.guarantor_phone or "",
+            "guarantor_address": loan.guarantor_address or "",
+            "account_number": account_number,
+            "preferred_language": loan.preferred_language,
+            # Amounts
+            "loan_amount": loan.loan_amount,
+            "monthly_interest_amount": loan.monthly_interest_amount,
+            "field_visit_charge": loan.field_visit_charge,
+            "document_fee": loan.document_fee,
+            "processing_fee": loan.processing_fee,
+            "due_amount": due_amount,
+            "collected_amount": 0.0,
+            "pending_amount": due_amount,
+            "status": "active",
+            "total_days_paid": 0,
+            "total_days_not_paid": 0,
+            "repayment_frequency": loan.repayment_frequency,
+            "repayment_amount": loan.repayment_amount or 0.0,
+            "start_date": loan.start_date,
+            "closing_date": loan.closing_date,
+            "created_at": created_at,
+        }
 
-    _write_audit(loan.customer_name, "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created, freq={loan.repayment_frequency}, total_due=₹{due_amount}, account={account_number}")
+        db.collection("loans").document(loan_id).set(record)
 
-    reminders = build_whatsapp_reminder_schedule(
-        transaction_id=loan_id,
-        customer_id=loan.customer_id,
-        due_date=loan.closing_date,
-        created_at=create_time,
-    )
-    append_reminders_db(reminders)
-    if reminders:
-        background_tasks.add_task(queue_whatsapp_reminders, reminders)
+        _write_audit(loan.customer_name, "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created, freq={loan.repayment_frequency}, total_due=₹{due_amount}, account={account_number}")
 
-    # Post-disbursement SMS to the borrower, in their preferred Indian language
-    sms_message = build_disbursement_sms(
-        language=loan.preferred_language,
-        name=loan.customer_name,
-        account_number=account_number,
-        loan_amount=loan.loan_amount,
-        cash_disbursed=cash_disbursed,
-        installment=loan.repayment_amount or 0.0,
-        due_date=loan.closing_date,
-    )
-    sms_url = _build_sms_url(loan.customer_phone, sms_message) if loan.customer_phone else None
-    if loan.customer_phone:
-        background_tasks.add_task(queue_disbursement_sms, loan.customer_phone, sms_message)
+        reminders = build_whatsapp_reminder_schedule(
+            transaction_id=loan_id,
+            customer_id=loan.customer_id,
+            due_date=loan.closing_date,
+            created_at=create_time,
+        )
+        append_reminders_db(reminders)
+        if reminders:
+            background_tasks.add_task(queue_whatsapp_reminders, reminders)
 
-    return LoanCreateResponse(
-        status="success",
-        data=LoanRecord(**record),
-        sms=SMSLinks(send_sms_url=sms_url, message_preview=sms_message, language=loan.preferred_language),
-    )
+        # Post-disbursement SMS to the borrower, in their preferred Indian language
+        sms_message = build_disbursement_sms(
+            language=loan.preferred_language,
+            name=loan.customer_name,
+            account_number=account_number,
+            loan_amount=loan.loan_amount,
+            cash_disbursed=cash_disbursed,
+            installment=loan.repayment_amount or 0.0,
+            due_date=loan.closing_date,
+        )
+        sms_url = _build_sms_url(loan.customer_phone, sms_message) if loan.customer_phone else None
+        if loan.customer_phone:
+            background_tasks.add_task(queue_disbursement_sms, loan.customer_phone, sms_message)
+
+        return LoanCreateResponse(
+            status="success",
+            data=LoanRecord(**record),
+            sms=SMSLinks(send_sms_url=sms_url, message_preview=sms_message, language=loan.preferred_language),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating loan: {str(e)}")
 
 
 @app.post("/api/loans/merge")

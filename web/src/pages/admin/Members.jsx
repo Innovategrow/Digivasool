@@ -399,7 +399,10 @@ export default function Members({ readOnly = false }) {
       if (!res.ok) throw new Error(data.detail || 'Failed to create');
       setLoans([data.data, ...loans]);
       setDisburseResult(data);
-    } catch (err) { alert('Error creating loan: ' + err.message); }
+    } catch (err) { 
+      console.error('Loan creation error:', err);
+      alert('Error creating loan: ' + (err.message || 'Unknown error')); 
+    }
     finally { setLoading(false); }
   };
 
