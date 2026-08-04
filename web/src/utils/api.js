@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config';
+import { demoFetch } from './demoApi';
 
 export function getAuthHeaders(role = 'admin') {
   const saved = localStorage.getItem('dk_user');
@@ -12,8 +13,20 @@ export function getAuthHeaders(role = 'admin') {
   };
 }
 
+export function isDemoMode() {
+  const saved = localStorage.getItem('dk_user');
+  if (!saved) return false;
+  try {
+    return JSON.parse(saved).demo === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function apiFetch(path, options = {}) {
+  if (isDemoMode()) {
+    return demoFetch(path, options);
+  }
   const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
-  const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
-  return res;
+  return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
 }

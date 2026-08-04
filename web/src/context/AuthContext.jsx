@@ -14,8 +14,8 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
-  const login = (role, name, phone = '') => {
-    const u = { role, name, phone };
+  const login = (role, name, phone = '', demo = false) => {
+    const u = { role, name, phone, demo };
     setUser(u);
     localStorage.setItem('dk_user', JSON.stringify(u));
   };

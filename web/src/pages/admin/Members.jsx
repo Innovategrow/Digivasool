@@ -8,7 +8,6 @@ import {
   ArrowUpDown, Eye, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
-import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { ZONES } from '../../context/AppDataContext';
@@ -39,7 +38,7 @@ function OtpVerifier({ phone, onVerified }) {
     if (!phone) return;
     setLoading(true); setError('');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/borrower/send-otp`, {
+      const res = await apiFetch('/api/auth/borrower/send-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
       });
@@ -54,7 +53,7 @@ function OtpVerifier({ phone, onVerified }) {
   const verifyOtp = async () => {
     setLoading(true); setError('');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/borrower/verify-otp`, {
+      const res = await apiFetch('/api/auth/borrower/verify-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, otp: otp.join('') }),
       });

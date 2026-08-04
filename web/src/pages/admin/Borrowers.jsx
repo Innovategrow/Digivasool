@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAppData, ZONES } from '../../context/AppDataContext';
 import { Search, Plus, X, Phone, MapPin, CreditCard, CheckCircle, Clock, XCircle, PhoneCall, Key, Shield, GitMerge, ChevronDown, ChevronUp, ShieldCheck, Wrench, Check, Store, Map, Star } from 'lucide-react';
-import { API_BASE_URL } from '../../config';
+import { apiFetch } from '../../utils/api';
 import PhotoCapture from '../../components/PhotoCapture';
 
 const KYC_CONFIG = {
@@ -40,7 +40,7 @@ function OtpVerifier({ phone, onVerified }) {
     if (!phone) return;
     setLoading(true); setError('');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/borrower/send-otp`, {
+      const res = await apiFetch('/api/auth/borrower/send-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
       });
@@ -55,7 +55,7 @@ function OtpVerifier({ phone, onVerified }) {
   const verifyOtp = async () => {
     setLoading(true); setError('');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/borrower/verify-otp`, {
+      const res = await apiFetch('/api/auth/borrower/verify-otp', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, otp: otp.join('') }),
       });

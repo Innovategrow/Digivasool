@@ -112,7 +112,7 @@ export default function Dashboard() {
         </div>
 
         <div className="mh-quick-row">
-          <button className="mh-quick-btn" onClick={() => navigate('/borrowers')}><UserPlus size={18} />{t('newLoan')}</button>
+          <button className="mh-quick-btn" onClick={() => navigate('/new-loan')}><UserPlus size={18} />{t('newLoan')}</button>
           <button className="mh-quick-btn" onClick={() => navigate('/collection')}><Banknote size={18} />{t('collect')}</button>
           <button className="mh-quick-btn" onClick={() => navigate('/reports')}><BarChart3 size={18} />{t('reports')}</button>
         </div>

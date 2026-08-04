@@ -149,7 +149,7 @@ export default function Login() {
         <Zap size={13} style={{ color: 'var(--amber)', flexShrink: 0 }} />
         <span style={{ fontWeight: 700 }}>Quick demo login:</span>
         {[{role:'admin',name:'Arjun Nair',label:'Admin'},{role:'collector',name:'Collector 1',label:'Collector'}].map(d => (
-          <button key={d.role} onClick={() => login(d.role, d.name)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '3px 10px', fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
+          <button key={d.role} onClick={() => login(d.role, d.name, '', true)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '3px 10px', fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
             {d.label}
           </button>
         ))}

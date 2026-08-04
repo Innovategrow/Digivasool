@@ -25,6 +25,7 @@ import Staff from './pages/admin/Staff';
 import Reports from './pages/admin/Reports';
 import Expenses from './pages/admin/Expenses';
 import Members from './pages/admin/Members';
+import NewLoan from './pages/admin/NewLoan';
 import CollectionEntry from './pages/admin/CollectionEntry';
 import Profile from './pages/admin/Profile';
 import Transactions from './pages/admin/Transactions';
@@ -53,7 +54,7 @@ function DesktopShell({ collectorMode = false }) {
   const location = useLocation();
 
   const pageTitleKey = {
-    '/': 'dashboard', '/borrowers': 'borrowers', '/new-loan': 'borrowers',
+    '/': 'dashboard', '/borrowers': 'borrowers', '/new-loan': 'newLoan',
     '/ledger': 'ledger', '/expenses': 'expenses', '/reports': 'reports',
     '/staff': 'staff', '/settings': 'settings',
     '/collection': 'collection', '/profile': 'profile',
@@ -117,7 +118,7 @@ function DesktopShell({ collectorMode = false }) {
               <>
                 <Route path="/"            element={<Dashboard />} />
                 <Route path="/borrowers"   element={<Members />} />
-                <Route path="/new-loan"    element={<Navigate to="/borrowers" replace />} />
+                <Route path="/new-loan"    element={<NewLoan />} />
                 <Route path="/ledger"      element={<Ledger />} />
                 <Route path="/expenses"    element={<Expenses />} />
                 <Route path="/reports"     element={<Reports />} />
