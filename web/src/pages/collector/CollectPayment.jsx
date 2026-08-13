@@ -1,55 +1,126 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
 import { apiFetch } from '../../utils/api';
-import { Search, Banknote, Wallet, ArrowLeft, CheckCircle2, MessageCircle, ExternalLink, User, MapPin, Filter, Phone, PhoneCall } from 'lucide-react';
+import {
+  ArrowLeft,
+  Banknote,
+  Bell,
+  Calendar,
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  FileText,
+  Filter,
+  Home,
+  MessageCircle,
+  MoreHorizontal,
+  Phone,
+  Plus,
+  Search,
+  Send,
+  Settings,
+  SlidersHorizontal,
+  UserRound,
+  Wallet,
+} from 'lucide-react';
+
+const money = value => `₹${Math.round(Number(value) || 0).toLocaleString('en-IN')}`;
+
+function initials(name = '') {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0])
+    .join('')
+    .toUpperCase() || 'C';
+}
+
+function timeAgo(dateValue) {
+  if (!dateValue) return 'Recently';
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return 'Recently';
+  const diff = Date.now() - date.getTime();
+  const mins = Math.max(1, Math.floor(diff / 60000));
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} days ago`;
+}
+
+function formatDate(dateValue) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return { date: 'Today', time: '' };
+  return {
+    date: date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+    time: date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+  };
+}
 
 export default function CollectPayment() {
   const { user } = useAuth();
-  const { t } = useLanguage();
-  const SORT_OPTIONS = [
-    { value: 'balance',  icon: null,   label: t('highestBalance') },
-    { value: 'name',     icon: null,   label: t('nameAZ') },
-    { value: 'location', icon: MapPin, label: t('byArea') },
-    { value: 'newest',   icon: null,   label: t('newestFirst') },
-  ];
+  const navigate = useNavigate();
   const [loans, setLoans] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [selectedLoan, setSelectedLoan] = useState(null);
+  const [activePartyType, setActivePartyType] = useState('customers');
+  const [activeDetailTab, setActiveDetailTab] = useState('report');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('balance');
+  const [showFilters, setShowFilters] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('balance');
-  const [showFilters, setShowFilters] = useState(false);
   const [successData, setSuccessData] = useState(null);
 
   useEffect(() => {
     apiFetch('/api/loans/')
       .then(r => r.json())
-      .then(data => setLoans(data.filter(l => l.status === 'active' && l.pending_amount > 0)))
+      .then(data => {
+        const rows = Array.isArray(data) ? data : [];
+        setLoans(rows.filter(l => l.status === 'active' && Number(l.pending_amount) > 0));
+      })
       .catch(console.error);
   }, []);
 
+  useEffect(() => {
+    if (!selectedLoan?.id) return;
+    apiFetch(`/api/loans/${selectedLoan.id}/payments`)
+      .then(r => r.json())
+      .then(data => setPayments(Array.isArray(data) ? data : []))
+      .catch(() => setPayments([]));
+  }, [selectedLoan?.id]);
+
   const filteredLoans = useMemo(() => {
+    if (activePartyType === 'suppliers') return [];
+    const query = searchQuery.trim().toLowerCase();
     let list = loans;
-    if (searchQuery) {
-      list = loans.filter(l =>
-        l.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (l.customer_address || '').toLowerCase().includes(searchQuery.toLowerCase())
+    if (query) {
+      list = loans.filter(loan =>
+        loan.customer_name?.toLowerCase().includes(query) ||
+        loan.customer_phone?.toLowerCase().includes(query) ||
+        loan.customer_address?.toLowerCase().includes(query) ||
+        loan.zone?.toLowerCase().includes(query)
       );
     }
     return [...list].sort((a, b) => {
-      if (sortBy === 'balance') return b.pending_amount - a.pending_amount;
-      if (sortBy === 'name') return a.customer_name.localeCompare(b.customer_name);
-      if (sortBy === 'location') return (a.zone || a.customer_address || '').localeCompare(b.zone || b.customer_address || '');
-      if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
-      return 0;
+      if (sortBy === 'name') return (a.customer_name || '').localeCompare(b.customer_name || '');
+      if (sortBy === 'recent') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      return Number(b.pending_amount || 0) - Number(a.pending_amount || 0);
     });
-  }, [loans, searchQuery, sortBy]);
+  }, [activePartyType, loans, searchQuery, sortBy]);
 
-  const handleSave = async () => {
-    if (!amount || !selectedLoan) return;
+  const totals = useMemo(() => ({
+    due: loans.reduce((sum, loan) => sum + Number(loan.due_amount || 0), 0),
+    collected: loans.reduce((sum, loan) => sum + Number(loan.collected_amount || 0), 0),
+    remaining: loans.reduce((sum, loan) => sum + Number(loan.pending_amount || 0), 0),
+  }), [loans]);
+
+  async function handleSave() {
+    if (!selectedLoan || !amount) return;
     setLoading(true);
     try {
       const res = await apiFetch(`/api/loans/${selectedLoan.id}/payments`, {
@@ -64,244 +135,238 @@ export default function CollectPayment() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Payment failed');
-      setSuccessData(data);
-      setLoans(prev => prev.map(l => l.id === data.data.id ? data.data : l).filter(l => l.pending_amount > 0));
+      setSuccessData({ ...data, amount: parseFloat(amount), customerName: selectedLoan.customer_name });
+      setSelectedLoan(data.data);
+      setLoans(prev => prev.map(loan => loan.id === data.data.id ? data.data : loan).filter(loan => Number(loan.pending_amount) > 0));
     } catch (err) {
-      alert('Error: ' + err.message);
+      alert(`Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  // ── Success Screen ──────────────────────────────────────────────────────────
+  function resetPayment(keepCustomer = false) {
+    setSuccessData(null);
+    setAmount('');
+    setNotes('');
+    if (!keepCustomer) setSelectedLoan(null);
+  }
+
   if (successData) {
-    const { data: loan, whatsapp } = successData;
     return (
-      <div className="screen-container pt-4">
-        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--positive-soft)', border: '2px solid var(--positive)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-            <CheckCircle2 size={40} style={{ color: 'var(--positive)' }} />
-          </div>
-          <h2 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '6px' }}>{t('paymentRecorded')}</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-            ₹{parseFloat(amount).toLocaleString()} from <strong>{selectedLoan.customer_name}</strong> — {t('savedSuccessfully')}.
-          </p>
+      <div className="collector-phone-page collector-success-page">
+        <div className="collector-success-check"><CheckCircle2 size={52} /></div>
+        <h1>Transaction saved</h1>
+        <div className="collector-success-amount">{money(successData.amount)}</div>
+        <p>Add another transaction for<br /><strong>{successData.customerName}</strong>?</p>
+        <div className="collector-success-actions">
+          <button type="button" className="collector-outline-action" disabled title="Disbursement is not available for collectors yet">
+            <Wallet size={18} /> YOU GAVE ₹
+          </button>
+          <button type="button" className="collector-outline-action active" onClick={() => resetPayment(true)}>
+            <Banknote size={18} /> YOU GOT ₹
+          </button>
         </div>
-
-        <div className="card" style={{ marginBottom: '16px', textAlign: 'center' }}>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('remainingBalance')}</div>
-          <div style={{ fontSize: '36px', fontWeight: 900, color: loan.pending_amount > 0 ? 'var(--warning)' : 'var(--positive)' }}>
-            ₹{Math.max(loan.pending_amount, 0).toLocaleString()}
-          </div>
-          {loan.pending_amount <= 0 && (
-            <div style={{ marginTop: '8px', color: 'var(--positive)', fontWeight: 700, fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><CheckCircle2 size={14} /> {t('loanFullyPaid')}</div>
-          )}
-        </div>
-
-        <div className="card" style={{ marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-            <MessageCircle size={18} style={{ color: '#25D366' }} />
-            <h3 style={{ fontSize: '15px', fontWeight: 700 }}>{t('sendWhatsappNotifications')}</h3>
-          </div>
-
-          <a href={whatsapp.notify_admin_url} target="_blank" rel="noopener noreferrer"
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '14px', borderRadius: '14px', marginBottom: '10px', background: '#25D366', color: 'white', textDecoration: 'none', fontWeight: 700, fontSize: '15px', boxShadow: '0 4px 16px rgba(37,211,102,0.35)' }}>
-            <MessageCircle size={20} /> {t('notifyAdminWhatsapp')} <ExternalLink size={14} style={{ opacity: 0.7 }} />
-          </a>
-
-          {whatsapp.notify_borrower_url && (
-            <a href={whatsapp.notify_borrower_url} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%', padding: '14px', borderRadius: '14px', background: 'var(--positive-soft)', color: 'var(--positive)', border: '1px solid rgba(16,185,129,0.3)', textDecoration: 'none', fontWeight: 700, fontSize: '15px' }}>
-              <MessageCircle size={20} /> {t('confirmToBorrower')} <ExternalLink size={14} style={{ opacity: 0.7 }} />
-            </a>
-          )}
-
-          <div style={{ marginTop: '14px', background: 'var(--background)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('messagePreview')}</div>
-            <pre style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-family)', margin: 0 }}>{whatsapp.message_preview}</pre>
-          </div>
-        </div>
-
-        <button className="save-btn" onClick={() => { setSuccessData(null); setSelectedLoan(null); setAmount(''); setNotes(''); }}
-          style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}>
-          {t('recordAnotherPayment')}
-        </button>
+        <button className="collector-done-btn" type="button" onClick={() => resetPayment(false)}>DONE</button>
       </div>
     );
   }
 
-  // ── Select Borrower Screen ──────────────────────────────────────────────────
-  if (!selectedLoan) {
-    return (
-      <div className="screen-container pt-4">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div>
-            <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('collectPaymentTitle')}</h2>
-            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t('asRole')} <strong>{user.name}</strong></p>
-          </div>
-          <button onClick={() => setShowFilters(!showFilters)}
-            style={{ background: showFilters ? 'var(--brand-soft)' : 'var(--surface)', border: `1px solid ${showFilters ? 'var(--brand)' : 'var(--border)'}`, color: showFilters ? 'var(--brand)' : 'var(--text)', padding: '8px 14px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
-            <Filter size={16} /> {t('sort')}
-          </button>
-        </div>
+  if (selectedLoan) {
+    const progress = Math.min((Number(selectedLoan.collected_amount || 0) / Number(selectedLoan.due_amount || 1)) * 100, 100);
+    const whatsappUrl = selectedLoan.customer_phone
+      ? `https://wa.me/91${String(selectedLoan.customer_phone).replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(`Hi ${selectedLoan.customer_name}, your remaining collection amount is ${money(selectedLoan.pending_amount)}.`)}`
+      : '';
 
-        {showFilters && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto' }}>
-            {SORT_OPTIONS.map(opt => (
-              <button key={opt.value} onClick={() => setSortBy(opt.value)}
-                style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                  background: sortBy === opt.value ? 'var(--text)' : 'var(--surface)',
-                  color: sortBy === opt.value ? 'var(--bg)' : 'var(--text-2)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {opt.icon && <opt.icon size={13} />}{opt.label}
+    return (
+      <div className="collector-phone-page">
+        <header className="collector-detail-header">
+          <button className="collector-icon-btn" type="button" onClick={() => setSelectedLoan(null)}><ArrowLeft size={21} /></button>
+          <div>
+            <h1>{selectedLoan.customer_name}</h1>
+            <button type="button">View settings</button>
+          </div>
+          {selectedLoan.customer_phone ? (
+            <a className="collector-icon-btn" href={`tel:${selectedLoan.customer_phone}`}><Phone size={20} /></a>
+          ) : (
+            <button className="collector-icon-btn" type="button"><MoreHorizontal size={20} /></button>
+          )}
+        </header>
+
+        <section className="collector-amount-card">
+          <div>
+            <span>You will get</span>
+            <strong>{money(selectedLoan.pending_amount)}</strong>
+          </div>
+          <div className="collector-progress-track"><div style={{ width: `${progress}%` }} /></div>
+          <div className="collector-reminder-row">
+            <span>Set collection reminder</span>
+            <button type="button" onClick={() => setActiveDetailTab('reminder')}>SET DATE</button>
+          </div>
+        </section>
+
+        <section className="collector-payment-entry">
+          <div className="collector-amount-input">
+            <span>₹</span>
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" />
+          </div>
+          <div className="collector-method-row">
+            {['Cash', 'GPay'].map(method => (
+              <button key={method} className={paymentMethod === method ? 'active' : ''} type="button" onClick={() => setPaymentMethod(method)}>
+                {method === 'Cash' ? <Banknote size={17} /> : <Wallet size={17} />} {method}
               </button>
             ))}
           </div>
-        )}
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />
+          <button className="collector-primary-action" type="button" disabled={loading || !amount} onClick={handleSave}>
+            <CheckCircle2 size={18} /> {loading ? 'Saving...' : `YOU GOT ${money(amount)}`}
+          </button>
+        </section>
 
-        <div style={{ position: 'relative', marginBottom: '20px' }}>
-          <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            placeholder={t('searchNameLocation')} className="form-input" style={{ paddingLeft: '40px', borderRadius: '16px' }} />
+        <div className="collector-detail-tabs">
+          {[
+            { id: 'report', icon: FileText, label: 'Report' },
+            { id: 'reminder', icon: Calendar, label: 'Reminder' },
+            { id: 'sms', icon: Send, label: 'SMS' },
+          ].map(tab => {
+            const TabIcon = tab.icon;
+            return (
+              <button key={tab.id} className={activeDetailTab === tab.id ? 'active' : ''} type="button" onClick={() => setActiveDetailTab(tab.id)}>
+                <TabIcon size={16} /> {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        {filteredLoans.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-            <User size={48} style={{ opacity: 0.15, margin: '0 auto 16px', display: 'block' }} />
-            <p>{loans.length === 0 ? t('noActiveLoansFound') : t('noBorrowersMatch')}</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {filteredLoans.map(loan => (
-              <div key={loan.id} className="card" onClick={() => setSelectedLoan(loan)}
-                style={{ padding: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', margin: 0, border: '1px solid var(--border)' }}>
-                <div className="party-avatar">{loan.customer_name.charAt(0).toUpperCase()}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: '16px' }}>{loan.customer_name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Phone size={11} /> {loan.customer_phone || t('noPhone')} · {t('dueColon')} {loan.closing_date}
-                    {loan.customer_phone && (
-                      <a href={`tel:${loan.customer_phone}`} onClick={e => e.stopPropagation()} title={t('callBorrower')}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, padding: '1px 8px', borderRadius: 20, background: 'var(--positive-soft)', color: 'var(--positive)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                        <PhoneCall size={10} /> {t('call')}
-                      </a>
-                    )}
+        {activeDetailTab === 'report' && (
+          <section className="collector-history-list">
+            {payments.length === 0 ? (
+              <div className="collector-empty">No transactions recorded yet.</div>
+            ) : payments.slice().reverse().map(payment => {
+              const when = formatDate(payment.payment_date);
+              return (
+                <div key={payment.id} className="collector-history-row">
+                  <div>
+                    <strong>{when.date}</strong>
+                    <span>{when.time || 'Payment'}</span>
                   </div>
-                  {loan.customer_address && (
-                    <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <MapPin size={10} /> {loan.customer_address.split(',')[0]}
-                    </div>
-                  )}
+                  <div>
+                    <span className="collector-got-label">YOU GOT</span>
+                    <strong>{money(payment.amount)}</strong>
+                  </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t('balance')}</div>
-                  <div className="text-warning" style={{ fontWeight: 800, fontSize: '16px' }}>₹{loan.pending_amount.toLocaleString()}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+              );
+            })}
+          </section>
+        )}
+
+        {activeDetailTab === 'reminder' && (
+          <section className="collector-action-panel">
+            <div>
+              <Clock3 size={18} />
+              <span>Next due date</span>
+              <strong>{selectedLoan.closing_date || 'Not set'}</strong>
+            </div>
+            <button type="button" onClick={() => alert('Reminder date can be set once the reminder endpoint is enabled for collectors.')}>SET DATE</button>
+          </section>
+        )}
+
+        {activeDetailTab === 'sms' && (
+          <section className="collector-action-panel">
+            <div>
+              <MessageCircle size={18} />
+              <span>Send payment reminder</span>
+              <strong>{selectedLoan.customer_phone || 'No phone number'}</strong>
+            </div>
+            {whatsappUrl ? <a href={whatsappUrl} target="_blank" rel="noreferrer">REMIND</a> : <button type="button" disabled>REMIND</button>}
+          </section>
         )}
       </div>
     );
   }
 
-  // ── Payment Form Screen ─────────────────────────────────────────────────────
-  const progress = Math.min((selectedLoan.collected_amount / selectedLoan.due_amount) * 100, 100);
-
   return (
-    <div className="screen-container pt-4">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '24px' }}>
-        <button onClick={() => setSelectedLoan(null)}
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '8px', color: 'var(--text)', cursor: 'pointer', display: 'flex' }}>
-          <ArrowLeft size={20} />
-        </button>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('capturePayment')}</h2>
+    <div className="collector-phone-page">
+      <header className="collector-home-header">
+        <div>
+          <button className="collector-name-btn" type="button">
+            {user.name || 'Collector'} <ChevronDown size={16} />
+          </button>
+          <p>DigiVasool field collections</p>
+        </div>
+        <button className="collector-profile-btn" type="button"><Bell size={18} /></button>
+      </header>
+
+      <div className="collector-party-tabs">
+        <button className={activePartyType === 'customers' ? 'active' : ''} type="button" onClick={() => setActivePartyType('customers')}>Customers</button>
+        <button className={activePartyType === 'suppliers' ? 'active' : ''} type="button" onClick={() => setActivePartyType('suppliers')}>Suppliers</button>
       </div>
 
-      {/* Borrower Summary */}
-      <div className="card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <div className="party-avatar">{selectedLoan.customer_name.charAt(0).toUpperCase()}</div>
-          <div>
-            <h3 style={{ fontSize: '18px', fontWeight: 800 }}>{selectedLoan.customer_name}</h3>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {selectedLoan.customer_phone && (
-                <>
-                  <Phone size={11} /> {selectedLoan.customer_phone}
-                  <a href={`tel:${selectedLoan.customer_phone}`} title={t('callBorrower')}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, padding: '1px 8px', borderRadius: 20, background: 'var(--positive-soft)', color: 'var(--positive)', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                    <PhoneCall size={10} /> {t('call')}
-                  </a>
-                </>
+      <section className="collector-summary-card">
+        <div><span>You will receive</span><strong>{money(totals.due)}</strong></div>
+        <div><span>Collected</span><strong>{money(totals.collected)}</strong></div>
+        <div><span>Remaining</span><strong>{money(totals.remaining)}</strong></div>
+        <button type="button" onClick={() => navigate('/collector/history')}>View Report</button>
+      </section>
+
+      <div className="collector-search-row">
+        <label>
+          <Search size={18} />
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search Customer" />
+        </label>
+        <button className={showFilters ? 'active' : ''} type="button" onClick={() => setShowFilters(v => !v)}><Filter size={19} /></button>
+      </div>
+
+      {showFilters && (
+        <div className="collector-filter-row">
+          {[
+            { id: 'balance', icon: SlidersHorizontal, label: 'Highest' },
+            { id: 'name', icon: UserRound, label: 'A-Z' },
+            { id: 'recent', icon: Clock3, label: 'Recent' },
+          ].map(option => {
+            const OptionIcon = option.icon;
+            return (
+              <button key={option.id} className={sortBy === option.id ? 'active' : ''} type="button" onClick={() => setSortBy(option.id)}>
+                <OptionIcon size={14} /> {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <section className="collector-customer-list">
+        {filteredLoans.length === 0 ? (
+          <div className="collector-empty">
+            {activePartyType === 'suppliers' ? 'No suppliers are connected to this collector account.' : 'No customers match your search.'}
+          </div>
+        ) : filteredLoans.map(loan => (
+          <article key={loan.id} className="collector-customer-row" onClick={() => setSelectedLoan(loan)}>
+            <div className="collector-avatar">{initials(loan.customer_name)}</div>
+            <div className="collector-row-main">
+              <h3>{loan.customer_name}</h3>
+              <span>{timeAgo(loan.created_at)}{loan.zone ? ` · ${loan.zone}` : ''}</span>
+            </div>
+            <div className="collector-row-side">
+              <strong>{money(loan.pending_amount)}</strong>
+              {loan.customer_phone ? (
+                <a href={`https://wa.me/91${String(loan.customer_phone).replace(/\D/g, '').slice(-10)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>REMIND</a>
+              ) : (
+                <button type="button" onClick={e => e.stopPropagation()}>REMIND</button>
               )}
             </div>
-            {selectedLoan.customer_address && (
-              <div style={{ fontSize: '11px', color: 'var(--text-2)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {selectedLoan.customer_address.split(',')[0]}</div>
-            )}
-          </div>
-        </div>
+          </article>
+        ))}
+      </section>
 
-        <div style={{ background: 'var(--background)', borderRadius: '12px', padding: '14px', marginBottom: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '8px' }}>
-            <span className="text-muted">{t('recoveryProgress')}</span>
-            <span style={{ fontWeight: 700, color: 'var(--positive)' }}>{progress.toFixed(1)}%</span>
-          </div>
-          <div style={{ height: '8px', background: 'var(--surface-raised)', borderRadius: '4px', overflow: 'hidden' }}>
-            <div style={{ width: `${progress}%`, height: '100%', background: 'var(--positive)', transition: 'width 0.5s ease' }} />
-          </div>
-        </div>
+      <button className="collector-add-customer" type="button" onClick={() => navigate('/collector/borrowers')}>
+        <Plus size={19} /> ADD CUSTOMER
+      </button>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-          {[
-            { id: 'totalDue', label: t('totalDueLabel'), value: `₹${selectedLoan.due_amount.toLocaleString()}`, cls: '' },
-            { id: 'collected', label: t('collectedLabel'), value: `₹${selectedLoan.collected_amount.toLocaleString()}`, cls: 'text-green' },
-            { id: 'pending', label: t('pendingLabel'), value: `₹${selectedLoan.pending_amount.toLocaleString()}`, cls: 'text-warning' },
-          ].map(item => (
-            <div key={item.id} style={{ background: 'var(--background)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase' }}>{item.label}</div>
-              <div className={item.cls} style={{ fontSize: '14px', fontWeight: 800 }}>{item.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Payment Form */}
-      <div className="card" style={{ padding: '24px' }}>
-        <h3 style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t('paymentEntry')}</h3>
-
-        <div style={{ position: 'relative', marginBottom: '16px' }}>
-          <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', fontSize: '22px', color: 'var(--text-muted)', fontWeight: 800 }}>₹</span>
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00"
-            style={{ width: '100%', background: 'var(--background)', border: '2px solid var(--brand-soft)', borderRadius: '16px', padding: '18px 18px 18px 44px', fontSize: '30px', fontWeight: 800, color: 'var(--text)', outline: 'none' }} />
-        </div>
-
-        <div style={{ background: 'var(--background)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <User size={16} style={{ color: 'var(--text-muted)' }} />
-          <div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>{t('collectorYou')}</div>
-            <div style={{ fontWeight: 700, fontSize: '14px' }}>{user.name}</div>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: '6px' }}>{t('notesOptional')}</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)}
-            placeholder="e.g. Partial payment, will pay rest tomorrow..." rows={2}
-            style={{ width: '100%', background: 'var(--background)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px', fontSize: '14px', color: 'var(--text)', outline: 'none', resize: 'none', fontFamily: 'var(--font-family)' }} />
-        </div>
-
-        <div className="payment-toggle" style={{ marginBottom: '20px' }}>
-          <button className={`payment-btn ${paymentMethod === 'Cash' ? 'active' : ''}`} onClick={() => setPaymentMethod('Cash')}>
-            <Banknote size={18} /> {t('cash')}
-          </button>
-          <button className={`payment-btn ${paymentMethod === 'GPay' ? 'active' : ''}`} onClick={() => setPaymentMethod('GPay')}>
-            <Wallet size={18} /> {t('gpayUpi')}
-          </button>
-        </div>
-
-        <button className="save-btn" onClick={handleSave} disabled={loading || !amount} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          <CheckCircle2 size={16} /> {loading ? t('saving') : `${t('record')} ₹${amount || '0'} ${t('payment')}`}
-        </button>
-      </div>
+      <nav className="collector-inline-nav" aria-label="Collector navigation">
+        <button className="active" type="button"><Home size={19} /><span>Customers</span></button>
+        <button type="button" onClick={() => navigate('/collector/borrowers')}><Wallet size={19} /><span>Loans/Center</span></button>
+        <button type="button" onClick={() => navigate('/collector/history')}><Settings size={19} /><span>More</span></button>
+      </nav>
     </div>
   );
 }
