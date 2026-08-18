@@ -59,6 +59,18 @@ function formatDate(dateValue) {
   };
 }
 
+function localDateInputValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function paymentDateIso(dateValue) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0).toISOString();
+}
+
 export default function CollectPayment() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -72,6 +84,7 @@ export default function CollectPayment() {
   const [showFilters, setShowFilters] = useState(false);
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [paymentDate, setPaymentDate] = useState(localDateInputValue());
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [successData, setSuccessData] = useState(null);
@@ -120,7 +133,7 @@ export default function CollectPayment() {
   }), [loans]);
 
   async function handleSave() {
-    if (!selectedLoan || !amount) return;
+    if (!selectedLoan || !amount || !paymentDate) return;
     setLoading(true);
     try {
       const res = await apiFetch(`/api/loans/${selectedLoan.id}/payments`, {
@@ -128,6 +141,7 @@ export default function CollectPayment() {
         body: JSON.stringify({
           amount: parseFloat(amount),
           payment_method: paymentMethod,
+          payment_date: paymentDateIso(paymentDate),
           collector_name: user.name,
           collector_phone: user.phone || '',
           notes: notes.trim() || null,
@@ -138,6 +152,10 @@ export default function CollectPayment() {
       setSuccessData({ ...data, amount: parseFloat(amount), customerName: selectedLoan.customer_name });
       setSelectedLoan(data.data);
       setLoans(prev => prev.map(loan => loan.id === data.data.id ? data.data : loan).filter(loan => Number(loan.pending_amount) > 0));
+      apiFetch(`/api/loans/${selectedLoan.id}/payments`)
+        .then(historyRes => historyRes.json())
+        .then(history => setPayments(Array.isArray(history) ? history : []))
+        .catch(() => {});
     } catch (err) {
       alert(`Error: ${err.message}`);
     } finally {
@@ -148,6 +166,7 @@ export default function CollectPayment() {
   function resetPayment(keepCustomer = false) {
     setSuccessData(null);
     setAmount('');
+    setPaymentDate(localDateInputValue());
     setNotes('');
     if (!keepCustomer) setSelectedLoan(null);
   }
@@ -217,8 +236,18 @@ export default function CollectPayment() {
               </button>
             ))}
           </div>
+          <label className="collector-date-input">
+            <Calendar size={17} />
+            <span>Payment date</span>
+            <input
+              type="date"
+              value={paymentDate}
+              max={localDateInputValue()}
+              onChange={e => setPaymentDate(e.target.value)}
+            />
+          </label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (optional)" rows={2} />
-          <button className="collector-primary-action" type="button" disabled={loading || !amount} onClick={handleSave}>
+          <button className="collector-primary-action" type="button" disabled={loading || !amount || !paymentDate} onClick={handleSave}>
             <CheckCircle2 size={18} /> {loading ? 'Saving...' : `YOU GOT ${money(amount)}`}
           </button>
         </section>

@@ -102,7 +102,10 @@ function saveDemoState(state) {
 
 const state = loadDemoState();
 let nextLoanId = 1003;
-let nextPaymentId = 1004;
+let nextPaymentId = state.payments.reduce((highest, payment) => {
+  const numericId = Number(String(payment.id).replace(/\D/g, '')) || 0;
+  return Math.max(highest, numericId);
+}, 1003);
 
 function makeResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -245,6 +248,22 @@ export async function demoFetch(path, options = {}) {
     return makeResponse(matching);
   }
 
+  if (pathname === '/api/collector/payments' && method === 'GET') {
+    const collectorName = url.searchParams.get('collector_name') || '';
+    const payments = state.payments
+      .filter(payment => !collectorName || payment.collector_name === collectorName)
+      .map(payment => {
+        const loan = state.loans.find(candidate => candidate.id === payment.loan_id);
+        return {
+          ...payment,
+          customer_name: loan?.customer_name || 'Unknown customer',
+          customer_phone: loan?.customer_phone || '',
+        };
+      })
+      .sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
+    return makeResponse(payments);
+  }
+
   const loanPaymentsMatch = pathname.match(/^\/api\/loans\/([^/]+)\/payments$/);
   if (loanPaymentsMatch && method === 'GET') {
     const loanId = loanPaymentsMatch[1];
@@ -263,7 +282,7 @@ export async function demoFetch(path, options = {}) {
       loan_id: loan.id,
       amount,
       payment_method: body.payment_method || 'Cash',
-      payment_date: new Date().toISOString(),
+      payment_date: body.payment_date || new Date().toISOString(),
       collector_name: body.collector_name || 'Collector 1',
       collector_phone: body.collector_phone || '+919001234568',
       notes: body.notes || 'Payment recorded',
@@ -274,6 +293,40 @@ export async function demoFetch(path, options = {}) {
     state.payments.push(payment);
     saveDemoState(state);
     return makeResponse({ status: 'success', data: loan, whatsapp: { notify_admin_url: '', notify_borrower_url: '', message_preview: '' } });
+  }
+
+  const collectorPaymentMatch = pathname.match(/^\/api\/collector\/payments\/([^/]+)$/);
+  if (collectorPaymentMatch && (method === 'PATCH' || method === 'DELETE')) {
+    const payment = state.payments.find(candidate => candidate.id === collectorPaymentMatch[1]);
+    if (!payment) return makeResponse({ detail: 'Payment not found' }, 404);
+
+    const loan = state.loans.find(candidate => candidate.id === payment.loan_id);
+    if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
+
+    if (method === 'DELETE') {
+      loan.collected_amount = Math.max(0, Number(loan.collected_amount || 0) - Number(payment.amount || 0));
+      loan.pending_amount = Math.max(0, Number(loan.due_amount || 0) - loan.collected_amount);
+      loan.status = loan.pending_amount <= 0 ? 'closed' : 'active';
+      state.payments = state.payments.filter(candidate => candidate.id !== payment.id);
+      saveDemoState(state);
+      return makeResponse({ status: 'success' });
+    }
+
+    const nextAmount = Number(body.amount);
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      return makeResponse({ detail: 'Payment amount must be greater than 0' }, 400);
+    }
+    loan.collected_amount = Math.max(0, Number(loan.collected_amount || 0) - Number(payment.amount || 0) + nextAmount);
+    loan.pending_amount = Math.max(0, Number(loan.due_amount || 0) - loan.collected_amount);
+    loan.status = loan.pending_amount <= 0 ? 'closed' : 'active';
+    Object.assign(payment, {
+      amount: nextAmount,
+      payment_method: body.payment_method || payment.payment_method,
+      payment_date: body.payment_date || payment.payment_date,
+      notes: body.notes ?? payment.notes,
+    });
+    saveDemoState(state);
+    return makeResponse({ status: 'success', data: payment });
   }
 
   if (pathname === '/api/auth/borrower/send-otp' && method === 'POST') {
