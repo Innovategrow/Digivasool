@@ -368,6 +368,9 @@ select.form-input option{background:var(--surface-2);}
 .customer-detail-grid strong{font-size:13px;font-family:var(--mono);}
 .customer-detail-list{display:grid;gap:8px;font-size:13px;color:var(--text-2);}
 .customer-detail-list a,.customer-detail-list div{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:10px;background:var(--bg);}
+.customer-delete-loan{display:grid;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
+.customer-delete-loan .btn{width:100%;justify-content:center;}
+.customer-delete-loan span{font-size:11px;color:var(--text-3);text-align:center;}
 .customer-pagination{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border);font-size:12px;font-weight:700;color:var(--text-2);}
 .customer-pagination div{display:flex;gap:8px;}
 .customer-pagination button:disabled{opacity:.45;cursor:not-allowed;}

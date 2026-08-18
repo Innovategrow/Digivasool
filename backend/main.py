@@ -437,6 +437,33 @@ async def merge_loans(body: LoanMergeRequest, user=Depends(require_admin)):
     return {"status": "success", "message": "Loans merged successfully"}
 
 
+@app.delete("/api/loans/{loan_id}")
+async def delete_loan(loan_id: str, user=Depends(require_admin)):
+    """Delete a loan and its related payment/reminder records."""
+    db = get_firestore_client()
+    loan_ref = db.collection("loans").document(loan_id)
+    loan_doc = loan_ref.get()
+    if not loan_doc.exists:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    loan = loan_doc.to_dict()
+    payment_docs = db.collection("loan_payments").where("loan_id", "==", loan_id).get()
+    for doc in payment_docs:
+        doc.reference.delete()
+
+    reminder_docs = db.collection("reminders").where("transaction_id", "==", loan_id).get()
+    for doc in reminder_docs:
+        doc.reference.delete()
+
+    loan_ref.delete()
+    _write_audit(
+        user.get("name", "admin") if isinstance(user, dict) else "admin",
+        "LOAN_DELETED",
+        f"Deleted loan {loan_id} for {loan.get('customer_name', 'unknown borrower')}",
+    )
+    return {"status": "success", "message": "Loan deleted successfully"}
+
+
 @app.get("/api/loans/", response_model=List[LoanRecord])
 async def get_loans(user=Depends(require_role("admin", "collector"))):
     db = get_firestore_client()

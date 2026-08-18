@@ -5,7 +5,7 @@ import {
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
   Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store,
   MessageSquare, Languages, Hash, ExternalLink, CheckCircle2, Search,
-  ArrowUpDown, Eye, ChevronLeft, ChevronRight
+  ArrowUpDown, Eye, ChevronLeft, ChevronRight, Trash2
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { useAuth } from '../../context/AuthContext';
@@ -182,7 +182,7 @@ function MetricCard({ icon: Icon, label, value, tone = 'indigo', sub }) {
   );
 }
 
-function CustomerDetailPanel({ loan, onClose }) {
+function CustomerDetailPanel({ loan, onClose, onDelete, canDelete }) {
   if (!loan) return null;
   const metrics = getLoanMetrics(loan);
   const totalDeductions = loan.monthly_interest_amount || 0;
@@ -224,6 +224,15 @@ function CustomerDetailPanel({ loan, onClose }) {
         {loan.customer_address && <div><MapPin size={14} /> {loan.customer_address}</div>}
         {loan.guarantor_name && <div><ShieldCheck size={14} /> {loan.guarantor_name}</div>}
       </div>
+
+      {canDelete && (
+        <div className="customer-delete-loan">
+          <button type="button" className="btn btn-danger" onClick={() => onDelete(loan)}>
+            <Trash2 size={15} /> Delete loan
+          </button>
+          <span>Use this to clear an unfinished loan record.</span>
+        </div>
+      )}
     </aside>
   );
 }
@@ -282,6 +291,30 @@ export default function Members({ readOnly = false }) {
       alert('Borrowers merged successfully!');
     } catch (err) {
       alert('Error merging borrowers: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteLoan = async (loan) => {
+    const pending = Number(loan.pending_amount || 0);
+    const warning = pending > 0
+      ? `₹${pending.toLocaleString('en-IN')} is still outstanding.`
+      : 'This loan is already fully paid.';
+    const confirmed = window.confirm(`Delete the loan for ${loan.customer_name}? ${warning} This will remove the loan and its payment history permanently.`);
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/loans/${loan.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Loan deletion failed');
+      setLoans(current => current.filter(item => item.id !== loan.id));
+      setSelectedLoanId(null);
+      setExpandedId(null);
+      alert('Loan deleted successfully.');
+    } catch (err) {
+      alert('Error deleting loan: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -561,7 +594,7 @@ export default function Members({ readOnly = false }) {
                         <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
                         <span>{Math.round(metrics.progress)}%</span>
                       </div>
-                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} />}
+                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} onDelete={handleDeleteLoan} canDelete={canCreate} />}
                     </article>
                   );
                 })}
@@ -578,7 +611,7 @@ export default function Members({ readOnly = false }) {
           </div>
         </section>
 
-        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} />
+        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} onDelete={handleDeleteLoan} canDelete={canCreate} />
       </div>
 
       {canCreate && (

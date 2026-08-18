@@ -238,6 +238,17 @@ export async function demoFetch(path, options = {}) {
     return makeResponse({ status: 'success', data: primary });
   }
 
+  const loanDeleteMatch = pathname.match(/^\/api\/loans\/([^/]+)$/);
+  if (loanDeleteMatch && method === 'DELETE') {
+    const loanId = loanDeleteMatch[1];
+    const loan = state.loans.find(candidate => candidate.id === loanId);
+    if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
+    state.loans = state.loans.filter(candidate => candidate.id !== loanId);
+    state.payments = state.payments.filter(payment => payment.loan_id !== loanId);
+    saveDemoState(state);
+    return makeResponse({ status: 'success', message: 'Loan deleted successfully' });
+  }
+
   if (pathname === '/api/loans/stats' && method === 'GET') {
     return makeResponse(computeStats());
   }
