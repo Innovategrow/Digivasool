@@ -238,15 +238,16 @@ export async function demoFetch(path, options = {}) {
     return makeResponse({ status: 'success', data: primary });
   }
 
-  const loanDeleteMatch = pathname.match(/^\/api\/loans\/([^/]+)$/);
-  if (loanDeleteMatch && method === 'DELETE') {
-    const loanId = loanDeleteMatch[1];
-    const loan = state.loans.find(candidate => candidate.id === loanId);
+  const loanCloseMatch = pathname.match(/^\/api\/loans\/([^/]+)\/close$/);
+  if (loanCloseMatch && method === 'POST') {
+    const loan = state.loans.find(candidate => candidate.id === loanCloseMatch[1]);
     if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
-    state.loans = state.loans.filter(candidate => candidate.id !== loanId);
-    state.payments = state.payments.filter(payment => payment.loan_id !== loanId);
+    if (Number(loan.pending_amount || 0) > 0) {
+      return makeResponse({ detail: 'Loan still has a pending amount' }, 400);
+    }
+    loan.status = 'closed';
     saveDemoState(state);
-    return makeResponse({ status: 'success', message: 'Loan deleted successfully' });
+    return makeResponse({ status: 'success', data: loan, message: 'Loan marked as closed' });
   }
 
   if (pathname === '/api/loans/stats' && method === 'GET') {

@@ -437,9 +437,9 @@ async def merge_loans(body: LoanMergeRequest, user=Depends(require_admin)):
     return {"status": "success", "message": "Loans merged successfully"}
 
 
-@app.delete("/api/loans/{loan_id}")
-async def delete_loan(loan_id: str, user=Depends(require_admin)):
-    """Delete a loan and its related payment/reminder records."""
+@app.post("/api/loans/{loan_id}/close")
+async def close_loan(loan_id: str, user=Depends(require_admin)):
+    """Mark a fully paid loan as closed without deleting its history."""
     db = get_firestore_client()
     loan_ref = db.collection("loans").document(loan_id)
     loan_doc = loan_ref.get()
@@ -447,21 +447,17 @@ async def delete_loan(loan_id: str, user=Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Loan not found")
 
     loan = loan_doc.to_dict()
-    payment_docs = db.collection("loan_payments").where("loan_id", "==", loan_id).get()
-    for doc in payment_docs:
-        doc.reference.delete()
+    if float(loan.get("pending_amount", 0) or 0) > 0:
+        raise HTTPException(status_code=400, detail="Loan still has a pending amount")
 
-    reminder_docs = db.collection("reminders").where("transaction_id", "==", loan_id).get()
-    for doc in reminder_docs:
-        doc.reference.delete()
-
-    loan_ref.delete()
+    loan_ref.update({"status": "closed", "pending_amount": 0})
     _write_audit(
-        user.get("name", "admin") if isinstance(user, dict) else "admin",
-        "LOAN_DELETED",
-        f"Deleted loan {loan_id} for {loan.get('customer_name', 'unknown borrower')}",
+        "admin",
+        "LOAN_CLOSED",
+        f"Marked loan {loan_id} closed for {loan.get('customer_name', 'unknown borrower')}",
     )
-    return {"status": "success", "message": "Loan deleted successfully"}
+    updated_loan = {**loan, "status": "closed", "pending_amount": 0}
+    return {"status": "success", "data": updated_loan, "message": "Loan marked as closed"}
 
 
 @app.get("/api/loans/", response_model=List[LoanRecord])
