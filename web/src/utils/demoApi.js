@@ -321,7 +321,7 @@ export async function demoFetch(path, options = {}) {
       loan.status = loan.pending_amount <= 0 ? 'closed' : 'active';
       state.payments = state.payments.filter(candidate => candidate.id !== payment.id);
       saveDemoState(state);
-      return makeResponse({ status: 'success' });
+      return makeResponse({ status: 'success', loan });
     }
 
     const nextAmount = Number(body.amount);
@@ -338,7 +338,12 @@ export async function demoFetch(path, options = {}) {
       notes: body.notes ?? payment.notes,
     });
     saveDemoState(state);
-    return makeResponse({ status: 'success', data: payment });
+    const linkedPayment = {
+      ...payment,
+      customer_name: loan.customer_name || 'Unknown customer',
+      customer_phone: loan.customer_phone || '',
+    };
+    return makeResponse({ status: 'success', data: linkedPayment, loan });
   }
 
   if (pathname === '/api/auth/borrower/send-otp' && method === 'POST') {

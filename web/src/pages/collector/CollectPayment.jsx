@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, isDemoMode } from '../../utils/api';
 import {
   ArrowLeft,
   Banknote,
@@ -9,6 +9,7 @@ import {
   Calendar,
   CheckCircle2,
   ChevronDown,
+  Check,
   Clock3,
   FileText,
   Filter,
@@ -16,13 +17,16 @@ import {
   MessageCircle,
   MoreHorizontal,
   Phone,
+  Pencil,
   Plus,
   Search,
   Send,
   Settings,
   SlidersHorizontal,
+  Trash2,
   UserRound,
   Wallet,
+  X,
 } from 'lucide-react';
 
 const money = value => `₹${Math.round(Number(value) || 0).toLocaleString('en-IN')}`;
@@ -59,7 +63,9 @@ function formatDate(dateValue) {
   };
 }
 
-function localDateInputValue(date = new Date()) {
+function localDateInputValue(dateValue = new Date()) {
+  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '';
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -88,6 +94,8 @@ export default function CollectPayment() {
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [successData, setSuccessData] = useState(null);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const demo = isDemoMode();
 
   useEffect(() => {
     apiFetch('/api/loans/')
@@ -161,6 +169,58 @@ export default function CollectPayment() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function syncUpdatedLoan(updatedLoan) {
+    if (!updatedLoan?.id) return;
+    setSelectedLoan(updatedLoan);
+    setLoans(prev => prev
+      .map(loan => loan.id === updatedLoan.id ? updatedLoan : loan)
+      .filter(loan => loan.status === 'active' && Number(loan.pending_amount) > 0));
+  }
+
+  function startEditingPayment(payment) {
+    setEditingPayment({
+      ...payment,
+      amount: String(payment.amount || ''),
+      payment_date: localDateInputValue(payment.payment_date),
+      payment_method: payment.payment_method || 'Cash',
+      notes: payment.notes || '',
+    });
+  }
+
+  async function savePaymentEdit() {
+    if (!editingPayment || !editingPayment.amount || !editingPayment.payment_date) return;
+    const response = await apiFetch(`/api/collector/payments/${editingPayment.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        amount: Number(editingPayment.amount),
+        payment_method: editingPayment.payment_method,
+        payment_date: paymentDateIso(editingPayment.payment_date),
+        notes: editingPayment.notes || '',
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      alert(data.detail || 'Could not update transaction');
+      return;
+    }
+    setPayments(current => current.map(payment => payment.id === data.data.id ? { ...payment, ...data.data } : payment));
+    syncUpdatedLoan(data.loan);
+    setEditingPayment(null);
+  }
+
+  async function deletePayment(payment) {
+    if (!window.confirm(`Delete ${money(payment.amount)} from this customer report?`)) return;
+    const response = await apiFetch(`/api/collector/payments/${payment.id}`, { method: 'DELETE' });
+    const data = await response.json();
+    if (!response.ok) {
+      alert(data.detail || 'Could not delete transaction');
+      return;
+    }
+    setPayments(current => current.filter(item => item.id !== payment.id));
+    syncUpdatedLoan(data.loan);
+    if (editingPayment?.id === payment.id) setEditingPayment(null);
   }
 
   function resetPayment(keepCustomer = false) {
@@ -269,6 +329,21 @@ export default function CollectPayment() {
 
         {activeDetailTab === 'report' && (
           <section className="collector-history-list">
+            {editingPayment && (
+              <div className="collector-inline-edit">
+                <div className="collector-inline-edit-head">
+                  <strong>Edit transaction</strong>
+                  <button type="button" title="Cancel editing" onClick={() => setEditingPayment(null)}><X size={16} /></button>
+                </div>
+                <div className="collector-inline-edit-grid">
+                  <label>Amount<input type="number" min="1" value={editingPayment.amount} onChange={e => setEditingPayment({ ...editingPayment, amount: e.target.value })} /></label>
+                  <label>Date<input type="date" max={localDateInputValue()} value={editingPayment.payment_date} onChange={e => setEditingPayment({ ...editingPayment, payment_date: e.target.value })} /></label>
+                  <label>Method<select value={editingPayment.payment_method} onChange={e => setEditingPayment({ ...editingPayment, payment_method: e.target.value })}><option>Cash</option><option>GPay</option></select></label>
+                  <label>Notes<input value={editingPayment.notes} onChange={e => setEditingPayment({ ...editingPayment, notes: e.target.value })} /></label>
+                </div>
+                <button className="collector-inline-save" type="button" onClick={savePaymentEdit}><Check size={15} /> SAVE</button>
+              </div>
+            )}
             {payments.length === 0 ? (
               <div className="collector-empty">No transactions recorded yet.</div>
             ) : payments.slice().reverse().map(payment => {
@@ -282,6 +357,12 @@ export default function CollectPayment() {
                   <div>
                     <span className="collector-got-label">YOU GOT</span>
                     <strong>{money(payment.amount)}</strong>
+                    {demo && (
+                      <div className="collector-row-actions">
+                        <button type="button" title="Edit transaction" onClick={() => startEditingPayment(payment)}><Pencil size={13} /></button>
+                        <button type="button" title="Delete transaction" onClick={() => deletePayment(payment)}><Trash2 size={13} /></button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
