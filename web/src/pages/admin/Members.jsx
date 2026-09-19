@@ -5,7 +5,7 @@ import {
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
   Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store,
   MessageSquare, Languages, Hash, ExternalLink, CheckCircle2, Search,
-  ArrowUpDown, Eye, ChevronLeft, ChevronRight, Trash2
+  ArrowUpDown, Eye, ChevronLeft, ChevronRight, Trash2, Pencil
 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
@@ -261,7 +261,7 @@ function PaymentHistorySection({ loanId }) {
   );
 }
 
-function CustomerDetailPanel({ loan, onClose, onCloseLoan, onDeleteLoan, canClose }) {
+function CustomerDetailPanel({ loan, onClose, onCloseLoan, onDeleteLoan, onEdit, canClose }) {
   if (!loan) return null;
   const metrics = getLoanMetrics(loan);
   const totalDeductions = loan.monthly_interest_amount || 0;
@@ -321,6 +321,9 @@ function CustomerDetailPanel({ loan, onClose, onCloseLoan, onDeleteLoan, canClos
               <span>Payment is complete. The loan history will remain saved.</span>
             </>
           )}
+          <button type="button" className="btn btn-secondary" onClick={() => onEdit(loan)}>
+            <Pencil size={15} /> Edit Borrower
+          </button>
           <button type="button" className="btn btn-danger" onClick={() => onDeleteLoan(loan)}>
             <Trash2 size={15} /> Delete Borrower
           </button>
@@ -328,6 +331,154 @@ function CustomerDetailPanel({ loan, onClose, onCloseLoan, onDeleteLoan, canClos
         </div>
       )}
     </aside>
+  );
+}
+
+// ── Edit Borrower Modal ─────────────────────────────────────────────────────
+function EditBorrowerModal({ loan, onClose, onSave }) {
+  const { t } = useLanguage();
+  const [form, setForm] = useState({
+    name: loan.customer_name || '',
+    email: loan.customer_email || '',
+    phone: loan.customer_phone || '',
+    alternate_phone: loan.alternate_phone || '',
+    zone: loan.zone || '',
+    address: loan.customer_address || '',
+    shop_name: loan.shop_name || '',
+    aadhaar_number: loan.aadhaar_number || '',
+    guarantor_name: loan.guarantor_name || '',
+    guarantor_phone: loan.guarantor_phone || '',
+    guarantor_address: loan.guarantor_address || '',
+  });
+  const [photoPreview, setPhotoPreview] = useState(loan.photo_url || null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const field = (key) => ({ value: form[key], onChange: e => set(key, e.target.value) });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.phone.trim()) { setError('Full name and primary mobile are required.'); return; }
+    setSaving(true); setError('');
+    try {
+      await onSave({
+        customer_name: form.name,
+        customer_email: form.email,
+        customer_phone: form.phone,
+        customer_address: form.address,
+        alternate_phone: form.alternate_phone,
+        zone: form.zone,
+        shop_name: form.shop_name,
+        aadhaar_number: form.aadhaar_number,
+        guarantor_name: form.guarantor_name,
+        guarantor_phone: form.guarantor_phone,
+        guarantor_address: form.guarantor_address,
+        photo_url: photoPreview || '',
+      });
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to update borrower');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="borrower-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto' }} onClick={onClose}>
+      <div className="card borrower-modal-card" onClick={e => e.stopPropagation()} style={{ animation: 'slideUp 0.3s ease' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <div>
+            <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Edit Borrower</h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>Update {loan.customer_name}'s details</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', display: 'flex' }}><X size={22} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 20 }}>
+            <PhotoCapture value={photoPreview} onChange={setPhotoPreview} label={t('addPhotoUploadCamera')} />
+          </div>
+
+          <SectionLabel>{t('personalDetails')}</SectionLabel>
+
+          <div className="form-group">
+            <label className="form-label">{t('fullName')}</label>
+            <IconInput icon={<User size={16} />}><input required type="text" className="form-input" {...field('name')} /></IconInput>
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('shopBusinessName')}</label>
+            <IconInput icon={<Building2 size={16} />}><input type="text" className="form-input" {...field('shop_name')} /></IconInput>
+          </div>
+
+          <div className="form-row" style={{ gap: '12px' }}>
+            <div className="form-group">
+              <label className="form-label">{t('primaryMobile')}</label>
+              <IconInput icon={<Phone size={16} />}><input required type="tel" className="form-input" {...field('phone')} /></IconInput>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('alternateMobile')}</label>
+              <IconInput icon={<PhoneCall size={16} />}><input type="tel" className="form-input" {...field('alternate_phone')} /></IconInput>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t('areaInCoimbatore')}</label>
+            <IconInput icon={<MapPin size={16} />}>
+              <input type="text" list="zones-datalist-edit" className="form-input" placeholder="Select an area or type a new one…" {...field('zone')} />
+            </IconInput>
+            <datalist id="zones-datalist-edit">
+              {ZONES.map(z => <option key={z} value={z} />)}
+            </datalist>
+          </div>
+
+          <div className="form-row" style={{ gap: '12px' }}>
+            <div className="form-group">
+              <label className="form-label">{t('email')}</label>
+              <IconInput icon={<Mail size={16} />}><input type="email" className="form-input" {...field('email')} /></IconInput>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('aadhaarNumber')}</label>
+              <IconInput icon={<Key size={16} />}>
+                <input type="text" className="form-input" placeholder="XXXX XXXX XXXX" maxLength={14} {...field('aadhaar_number')} />
+              </IconInput>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t('address')}</label>
+            <IconInput icon={<MapPin size={16} />} top>
+              <textarea rows={2} className="form-input" style={{ resize: 'none' }} placeholder="House no., Street, City, State" {...field('address')} />
+            </IconInput>
+          </div>
+
+          <SectionLabel>{t('guarantorDetails')}</SectionLabel>
+
+          <div className="form-row" style={{ gap: '12px' }}>
+            <div className="form-group">
+              <label className="form-label">{t('guarantorName')}</label>
+              <IconInput icon={<User size={16} />}><input type="text" className="form-input" {...field('guarantor_name')} /></IconInput>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t('guarantorPhone')}</label>
+              <IconInput icon={<Phone size={16} />}><input type="tel" className="form-input" {...field('guarantor_phone')} /></IconInput>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t('guarantorAddress')}</label>
+            <IconInput icon={<MapPin size={16} />} top>
+              <textarea rows={2} className="form-input" style={{ resize: 'none' }} placeholder="Guarantor's address" {...field('guarantor_address')} />
+            </IconInput>
+          </div>
+
+          {error && <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+
+          <button type="submit" className="save-btn" disabled={saving} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <Check size={16} /> {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -364,6 +515,7 @@ export default function Members({ readOnly = false }) {
   const [showOtpSection, setShowOtpSection] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [editingLoan, setEditingLoan] = useState(null);
 
   const updateSearch = (value) => { setSearch(value); setCurrentPage(1); };
   const updateStatusFilter = (value) => { setStatusFilter(value); setCurrentPage(1); };
@@ -410,6 +562,16 @@ export default function Members({ readOnly = false }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUpdateLoan = async (loanId, updates) => {
+    const res = await apiFetch(`/api/loans/${loanId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Update failed');
+    setLoans(current => current.map(item => item.id === loanId ? data : item));
   };
 
   const handleCloseLoan = async (loan) => {
@@ -709,7 +871,7 @@ export default function Members({ readOnly = false }) {
                         <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
                         <span>{Math.round(metrics.progress)}%</span>
                       </div>
-                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} canClose={canCreate} />}
+                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} onEdit={setEditingLoan} canClose={canCreate} />}
                     </article>
                   );
                 })}
@@ -726,7 +888,7 @@ export default function Members({ readOnly = false }) {
           </div>
         </section>
 
-        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} canClose={canCreate} />
+        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} onEdit={setEditingLoan} canClose={canCreate} />
       </div>
 
       {canCreate && (
@@ -999,6 +1161,14 @@ export default function Members({ readOnly = false }) {
       )}
 
       {showMerge && <MergeModal loans={loans} onClose={() => setShowMerge(false)} onMerge={handleMerge} />}
+
+      {editingLoan && (
+        <EditBorrowerModal
+          loan={editingLoan}
+          onClose={() => setEditingLoan(null)}
+          onSave={updates => handleUpdateLoan(editingLoan.id, updates)}
+        />
+      )}
 
       <style>{`
         @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }

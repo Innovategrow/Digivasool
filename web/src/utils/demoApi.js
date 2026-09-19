@@ -367,6 +367,25 @@ export async function demoFetch(path, options = {}) {
   }
 
   const loanIdMatch = pathname.match(/^\/api\/loans\/([^/]+)$/);
+  if (loanIdMatch && method === 'PATCH') {
+    const loan = state.loans.find(candidate => candidate.id === loanIdMatch[1]);
+    if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
+    if (loan.status === 'deleted') return makeResponse({ detail: 'Cannot edit a borrower in the recycle bin' }, 400);
+    if ('customer_name' in body && !String(body.customer_name || '').trim()) {
+      return makeResponse({ detail: 'Customer name cannot be empty' }, 400);
+    }
+    const EDITABLE_FIELDS = [
+      'customer_name', 'customer_email', 'customer_phone', 'customer_address',
+      'alternate_phone', 'shop_name', 'aadhaar_number', 'photo_url', 'zone',
+      'guarantor_name', 'guarantor_phone', 'guarantor_address',
+    ];
+    EDITABLE_FIELDS.forEach(field => {
+      if (field in body) loan[field] = body[field];
+    });
+    saveDemoState(state);
+    return makeResponse(loan);
+  }
+
   if (loanIdMatch && method === 'DELETE') {
     const loan = state.loans.find(candidate => candidate.id === loanIdMatch[1]);
     if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);

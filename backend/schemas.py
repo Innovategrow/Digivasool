@@ -233,3 +233,19 @@ class BorrowerOTPVerify(BaseModel):
 class LoanMergeRequest(BaseModel):
     primary_loan_id: str
     secondary_loan_id: str
+
+
+class LoanUpdate(BaseModel):
+    """Editable borrower profile fields. All optional — only fields the admin changed are sent."""
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_address: Optional[str] = None
+    alternate_phone: Optional[str] = None
+    shop_name: Optional[str] = None
+    aadhaar_number: Optional[str] = None
+    photo_url: Optional[str] = None
+    zone: Optional[str] = None
+    guarantor_name: Optional[str] = None
+    guarantor_phone: Optional[str] = None
+    guarantor_address: Optional[str] = None

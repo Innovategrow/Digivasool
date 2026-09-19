@@ -37,6 +37,7 @@ from schemas import (
     LoanPaymentWithBorrower,
     LoanStatsResponse,
     LoanRecord,
+    LoanUpdate,
     OTPRequest,
     OTPVerify,
     PaymentResponse,
@@ -523,6 +524,39 @@ async def close_loan(loan_id: str, user=Depends(require_admin)):
     )
     updated_loan = {**loan, "status": "closed", "pending_amount": 0}
     return {"status": "success", "data": updated_loan, "message": "Loan marked as closed"}
+
+
+@app.patch("/api/loans/{loan_id}", response_model=LoanRecord)
+async def update_loan(loan_id: str, updates: LoanUpdate, user=Depends(require_admin)):
+    """Edit a borrower's profile details (name, phone, address, guarantor, etc.)."""
+    db = get_firestore_client()
+    loan_ref = db.collection("loans").document(loan_id)
+    loan_doc = loan_ref.get()
+    if not loan_doc.exists:
+        raise HTTPException(status_code=404, detail="Loan not found")
+
+    loan = loan_doc.to_dict()
+    if loan.get("status") == "deleted":
+        raise HTTPException(status_code=400, detail="Cannot edit a borrower in the recycle bin")
+
+    update_data = updates.dict(exclude_unset=True)
+    if "customer_name" in update_data and not (update_data["customer_name"] or "").strip():
+        raise HTTPException(status_code=400, detail="Customer name cannot be empty")
+
+    if not update_data:
+        return LoanRecord(**loan)
+
+    loan_ref.update(update_data)
+    _write_audit(
+        "admin",
+        "LOAN_UPDATED",
+        f"Updated borrower details for {loan.get('customer_name', 'unknown borrower')} (loan {loan_id})",
+    )
+    updated_loan = {**loan, **update_data}
+    updated_loan.setdefault("repayment_frequency", "monthly")
+    updated_loan.setdefault("repayment_amount", 0.0)
+    updated_loan.setdefault("total_days_not_paid", 0)
+    return LoanRecord(**updated_loan)
 
 
 @app.delete("/api/loans/{loan_id}")
