@@ -9,13 +9,18 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const saved = localStorage.getItem('dk_user');
     if (saved) {
-      try { setUser(JSON.parse(saved)); } catch {}
+      try {
+        const parsed = JSON.parse(saved);
+        // Sessions from before token-based login can't call the API any more
+        if (parsed.demo || parsed.token) setUser(parsed);
+        else localStorage.removeItem('dk_user');
+      } catch { /* ignore a corrupted saved session */ }
     }
     setLoading(false);
   }, []);
 
-  const login = (role, name, phone = '', demo = false) => {
-    const u = { role, name, phone, demo };
+  const login = (role, name, phone = '', demo = false, token = '') => {
+    const u = { role, name, phone, demo, token };
     setUser(u);
     localStorage.setItem('dk_user', JSON.stringify(u));
   };

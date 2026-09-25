@@ -132,13 +132,13 @@ export default function MyLoan() {
   }, [user.name]);
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <p style={{ color: 'var(--text-muted)' }}>Loading your details...</p>
     </div>
   );
 
   if (error || loans.length === 0) return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
       <AlertTriangle size={48} style={{ color: 'var(--warning)', marginBottom: '16px' }} />
       <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>{error || 'No loan found for your account.'}</p>
       <button onClick={logout} className="save-btn" style={{ marginTop: '24px', maxWidth: '200px' }}>Sign Out</button>
@@ -148,7 +148,7 @@ export default function MyLoan() {
   const profile = loans[0]; // borrower info is shared across their loans
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--background)', paddingBottom: '40px' }}>
+    <div style={{ minHeight: '100%', background: 'var(--background)', paddingBottom: '40px' }}>
       {/* Header */}
       <div style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.10), rgba(139,92,246,0.06))', borderBottom: '1px solid var(--border)', padding: '24px 20px' }}>
         <div style={{ maxWidth: '500px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -1,7 +1,7 @@
 const DEMO_API_STORAGE_KEY = 'dk_demo_data_v1';
+// Demo mode runs entirely in the browser with sample data — placeholder numbers only.
 const DEMO_ADMINS = [
-  { name: 'Rahul', phone: '+919344645181' },
-  { name: 'Vijayakumar', phone: '+918610620533' },
+  { name: 'Rahul', phone: '+919000000001' },
 ];
 const ALLOWED_ADMIN_PHONES = DEMO_ADMINS.map(a => a.phone);
 const normalizePhone = raw => (raw || '').replace(/\s|-/g, '').replace(/^\+/, '');
@@ -35,6 +35,12 @@ function buildPaymentWhatsAppLinks(loan, payment, isPaidDay) {
     notify_admin_urls: DEMO_ADMINS.map(a => ({ name: a.name, phone: a.phone, url: buildWhatsAppUrl(a.phone, adminMsg) })),
     message_preview: adminMsg,
   };
+}
+
+function daysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().split('T')[0];
 }
 
 const initialState = {
@@ -119,6 +125,19 @@ const initialState = {
   ],
   adminAccessRequests: [],
   approvedAdminPhones: [],
+  expenses: [
+    { id: 'e1', category: 'Staff Salary', amount: 35000, date: daysAgo(30), description: 'Monthly salaries' },
+    { id: 'e2', category: 'Fuel', amount: 3500, date: daysAgo(15), description: 'Field collection fuel' },
+    { id: 'e3', category: 'Printing', amount: 1200, date: daysAgo(7), description: 'Receipt books & forms' },
+  ],
+  capital: [
+    { id: 'c1', amount: 500000, date: daysAgo(120), note: 'Initial capital' },
+  ],
+  staff: [
+    { id: 'cfg-admin-0', name: 'Rahul', role: 'admin', phone: '+919000000001', email: '', target: 0, source: 'config' },
+    { id: 'cfg-collector-0', name: 'Collector 1', role: 'collector', phone: '+919001234568', email: '', target: 60000, source: 'config' },
+    { id: 'cfg-collector-1', name: 'Collector 2', role: 'collector', phone: '+919001234569', email: '', target: 50000, source: 'config' },
+  ],
 };
 
 function loadDemoState() {
@@ -148,7 +167,10 @@ function saveDemoState(state) {
 }
 
 const state = loadDemoState();
-let nextLoanId = 1003;
+let nextLoanId = state.loans.reduce((highest, loan) => {
+  const numericId = Number(String(loan.id).replace(/\D/g, '')) || 0;
+  return Math.max(highest, numericId);
+}, 1003);
 let nextPaymentId = state.payments.reduce((highest, payment) => {
   const numericId = Number(String(payment.id).replace(/\D/g, '')) || 0;
   return Math.max(highest, numericId);
@@ -253,6 +275,19 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function samePhone(a, b) {
+  const clean = v => { const d = String(v || '').replace(/\D/g, ''); return d.length === 12 && d.startsWith('91') ? d.slice(2) : d; };
+  return Boolean(clean(a)) && clean(a) === clean(b);
+}
+
+function findBorrowerLoan(phone) {
+  return state.loans.find(l => !['deleted', 'merged'].includes(l.status) && (samePhone(l.customer_phone, phone) || samePhone(l.alternate_phone, phone)));
+}
+
+function currentDemoUser() {
+  try { return JSON.parse(localStorage.getItem('dk_user') || 'null'); } catch { return null; }
+}
+
 export async function demoFetch(path, options = {}) {
   const url = matchPath(path);
   const pathname = url.pathname;
@@ -277,11 +312,30 @@ export async function demoFetch(path, options = {}) {
   const body = normalizeBody(options);
 
   if (pathname === '/api/collectors/' && method === 'GET') {
-    return makeResponse(state.collectors);
+    return makeResponse(state.collectors.map(c => ({ name: c.name })));
+  }
+
+  if (pathname === '/api/admin/audit-log' && method === 'GET') {
+    return makeResponse(state.payments.slice(-10).reverse().map(p => ({
+      actor: p.collector_name || 'Collector', action: 'PAYMENT_RECORDED',
+      detail: `₹${p.amount} collected`, created_at: p.payment_date,
+    })));
+  }
+  if (pathname === '/api/expenses/' && method === 'GET') return makeResponse(state.expenses);
+  if (pathname === '/api/capital/' && method === 'GET') return makeResponse(state.capital);
+  if (pathname === '/api/staff/' && method === 'GET') return makeResponse(state.staff);
+  if (['/api/expenses/', '/api/capital/', '/api/staff/'].includes(pathname) && method === 'POST') {
+    const key = pathname.split('/')[2];
+    if (key !== 'staff' && !(Number(body.amount) > 0)) return makeResponse({ detail: 'Amount must be greater than 0' }, 422);
+    if (key === 'staff' && String(body.name || '').trim().length < 2) return makeResponse({ detail: 'Name must be at least 2 characters' }, 422);
+    const row = { ...body, id: `${key}-${Date.now()}`, created_at: new Date().toISOString(), created_by: 'Demo', ...(key === 'staff' ? { source: 'app' } : {}) };
+    state[key] = key === 'staff' ? [...state[key], row] : [row, ...state[key]];
+    saveDemoState(state);
+    return makeResponse(row);
   }
 
   if (pathname === '/api/loans/' && method === 'GET') {
-    return makeResponse(state.loans.filter(l => l.status !== 'deleted').slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+    return makeResponse(state.loans.filter(l => !['deleted', 'merged'].includes(l.status)).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
   }
 
   if (pathname === '/api/loans/deleted' && method === 'GET') {
@@ -316,7 +370,8 @@ export async function demoFetch(path, options = {}) {
     primary.pending_amount += Number(secondary.pending_amount) || 0;
     primary.total_days_paid += Number(secondary.total_days_paid) || 0;
     primary.total_days_not_paid += Number(secondary.total_days_not_paid) || 0;
-    state.loans = state.loans.filter(l => l.id !== secondary_loan_id);
+    state.payments.forEach(p => { if (p.loan_id === secondary_loan_id) { p.loan_id = primary_loan_id; p.merged_from_loan_id = secondary_loan_id; } });
+    Object.assign(secondary, { previous_status: secondary.status, status: 'merged', merged_into: primary_loan_id, is_deleted: true, deleted_at: new Date().toISOString() });
     saveDemoState(state);
     return makeResponse({ status: 'success', data: primary });
   }
@@ -328,7 +383,9 @@ export async function demoFetch(path, options = {}) {
     if (loan.status !== 'deleted') return makeResponse({ detail: 'Loan is not in the recycle bin' }, 400);
     loan.status = loan.previous_status || 'active';
     loan.previous_status = null;
+    loan.is_deleted = false;
     loan.deleted_at = null;
+    loan.deleted_by = null;
     saveDemoState(state);
     return makeResponse(loan);
   }
@@ -338,8 +395,10 @@ export async function demoFetch(path, options = {}) {
     const loan = state.loans.find(candidate => candidate.id === loanPermanentDeleteMatch[1]);
     if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
     if (loan.status !== 'deleted') return makeResponse({ detail: 'Only loans in the recycle bin can be permanently deleted' }, 400);
+    if (state.payments.some(payment => payment.loan_id === loan.id)) {
+      return makeResponse({ detail: 'This borrower has payment history, so it cannot be erased. It stays safely archived in the Recycle Bin.' }, 409);
+    }
     state.loans = state.loans.filter(candidate => candidate.id !== loan.id);
-    state.payments = state.payments.filter(payment => payment.loan_id !== loan.id);
     saveDemoState(state);
     return makeResponse({ status: 'success', message: 'Loan permanently deleted' });
   }
@@ -361,9 +420,12 @@ export async function demoFetch(path, options = {}) {
   }
 
   if (pathname.startsWith('/api/loans/by-customer') && method === 'GET') {
-    const name = url.searchParams.get('name') || '';
-    const matching = state.loans.filter(l => l.customer_name.toLowerCase().includes(name.toLowerCase()));
-    return makeResponse(matching);
+    const me = currentDemoUser();
+    const active = state.loans.filter(l => !['deleted', 'merged'].includes(l.status));
+    const matching = me?.role === 'borrower'
+      ? active.filter(l => samePhone(l.customer_phone, me.phone) || samePhone(l.alternate_phone, me.phone))
+      : active.filter(l => l.customer_name.toLowerCase().includes((url.searchParams.get('name') || '').toLowerCase()));
+    return matching.length ? makeResponse(matching) : makeResponse({ detail: 'No loans found' }, 404);
   }
 
   const loanIdMatch = pathname.match(/^\/api\/loans\/([^/]+)$/);
@@ -371,17 +433,19 @@ export async function demoFetch(path, options = {}) {
     const loan = state.loans.find(candidate => candidate.id === loanIdMatch[1]);
     if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
     if (loan.status === 'deleted') return makeResponse({ detail: 'Cannot edit a borrower in the recycle bin' }, 400);
-    if ('customer_name' in body && !String(body.customer_name || '').trim()) {
-      return makeResponse({ detail: 'Customer name cannot be empty' }, 400);
+    if ('customer_name' in body && String(body.customer_name || '').trim().length < 2) {
+      return makeResponse({ detail: 'Full name must be at least 2 characters' }, 422);
     }
     const EDITABLE_FIELDS = [
       'customer_name', 'customer_email', 'customer_phone', 'customer_address',
       'alternate_phone', 'shop_name', 'aadhaar_number', 'photo_url', 'zone',
-      'guarantor_name', 'guarantor_phone', 'guarantor_address',
+      'guarantor_name', 'guarantor_phone', 'guarantor_address', 'preferred_language',
     ];
     EDITABLE_FIELDS.forEach(field => {
-      if (field in body) loan[field] = body[field];
+      if (field in body) loan[field] = typeof body[field] === 'string' ? body[field].trim() : body[field];
     });
+    loan.updated_at = new Date().toISOString();
+    loan.updated_by = currentDemoUser()?.name || 'Demo';
     saveDemoState(state);
     return makeResponse(loan);
   }
@@ -389,10 +453,12 @@ export async function demoFetch(path, options = {}) {
   if (loanIdMatch && method === 'DELETE') {
     const loan = state.loans.find(candidate => candidate.id === loanIdMatch[1]);
     if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
-    if (loan.status === 'deleted') return makeResponse({ detail: 'Loan is already in the recycle bin' }, 400);
+    if (loan.status === 'deleted') return makeResponse({ detail: 'Borrower is already deleted' }, 400);
     loan.previous_status = loan.status;
     loan.status = 'deleted';
+    loan.is_deleted = true;
     loan.deleted_at = new Date().toISOString();
+    loan.deleted_by = currentDemoUser()?.name || 'Demo';
     saveDemoState(state);
     return makeResponse({ status: 'success', message: 'Loan moved to recycle bin' });
   }
@@ -424,6 +490,9 @@ export async function demoFetch(path, options = {}) {
     const loanId = loanPaymentsMatch[1];
     const loan = state.loans.find(l => l.id === loanId);
     if (!loan) return makeResponse({ detail: 'Loan not found' }, 404);
+    if (['deleted', 'merged'].includes(loan.status)) return makeResponse({ detail: 'This borrower has been deleted. Payments cannot be recorded.' }, 400);
+    const idemKey = (options.headers || {})['Idempotency-Key'];
+    if (idemKey && state.idempotency?.[idemKey]) return makeResponse(state.idempotency[idemKey]);
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount < 0) return makeResponse({ detail: 'Payment amount must be 0 or greater' }, 400);
     const isPaidDay = amount > 0;
@@ -445,7 +514,12 @@ export async function demoFetch(path, options = {}) {
     state.payments.push(payment);
     saveDemoState(state);
     const whatsapp = buildPaymentWhatsAppLinks(loan, payment, isPaidDay);
-    return makeResponse({ status: 'success', data: loan, whatsapp, payment });
+    const result = { status: 'success', data: loan, whatsapp, payment };
+    if (idemKey) {
+      state.idempotency = { ...(state.idempotency || {}), [idemKey]: result };
+      saveDemoState(state);
+    }
+    return makeResponse(result);
   }
 
   const collectorPaymentMatch = pathname.match(/^\/api\/collector\/payments\/([^/]+)$/);
@@ -510,6 +584,9 @@ export async function demoFetch(path, options = {}) {
   };
 
   if (pathname === '/api/auth/request-otp' && method === 'POST') {
+    if (body.role === 'borrower' && !findBorrowerLoan(body.contact)) {
+      return makeResponse({ detail: 'No loan account found for this mobile number.' }, 404);
+    }
     if (body.role === 'admin' && !isAllowedAdminPhone(body.contact)) {
       if (!body.admin_name || !body.admin_name.trim()) {
         return makeResponse({ detail: 'Please enter your name so an admin can review your request.' }, 400);
@@ -535,7 +612,12 @@ export async function demoFetch(path, options = {}) {
     if (body.role === 'admin' && !isAllowedAdminPhone(body.contact)) {
       return makeResponse({ detail: 'This number is not yet approved for admin access.' }, 403);
     }
-    return makeResponse({ status: 'success', role: body.role || 'admin', name: body.admin_name || body.collector_name || 'Demo User', phone: body.contact });
+    if (body.role === 'borrower') {
+      const loan = findBorrowerLoan(body.contact);
+      if (!loan) return makeResponse({ detail: 'No loan account found for this mobile number.' }, 404);
+      return makeResponse({ role: 'borrower', name: loan.customer_name, phone: body.contact, token: 'demo' });
+    }
+    return makeResponse({ status: 'success', role: body.role || 'admin', name: body.admin_name || body.collector_name || 'Demo User', phone: body.contact, token: 'demo' });
   }
 
   if (pathname === '/api/admin/access-requests' && method === 'GET') {

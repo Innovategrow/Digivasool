@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppData, ZONES } from '../../context/AppDataContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2, BarChart3, TrendingUp, Wallet, Layers, MapPin, Target, Calendar, CalendarDays } from 'lucide-react';
@@ -10,7 +10,8 @@ import {
 const CHART_COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#0891b2', '#8b5cf6', '#db2777'];
 
 export default function Reports() {
-  const { state, derived } = useAppData();
+  const { state, derived, actions } = useAppData();
+  useEffect(() => { actions.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { t } = useLanguage();
   const [reportType, setReportType] = useState('analytics');
   const [toast, setToast] = useState('');
@@ -144,7 +145,7 @@ export default function Reports() {
           <div className="page-title">{t('financialReports')}</div>
           <div className="page-subtitle">{t('analyticsExportCenter')}</div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="page-header-actions">
           <button className="btn btn-secondary" onClick={() => handleExport('Excel')}><Download size={16} />{t('excel')}</button>
           <button className="btn btn-primary" onClick={() => handleExport('PDF')}><FileText size={16} />{t('pdfReport')}</button>
         </div>
@@ -314,12 +315,12 @@ export default function Reports() {
                   const notPaid = Math.max(d.target - d.amount, 0);
                   return (
                     <tr key={i}>
-                      <td style={{ fontSize: 13 }}>{d.date}</td>
-                      <td style={{ fontWeight: 600 }}>{d.day}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{d.amount.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>₹{d.target.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)', color: notPaid > 0 ? 'var(--red)' : 'var(--text-2)' }}>₹{notPaid.toLocaleString()}</td>
-                      <td><span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span></td>
+                      <td data-label={t('dateLabel')} style={{ fontSize: 13 }}>{d.date}</td>
+                      <td data-label={t('tableDay')} style={{ fontWeight: 600 }}>{d.day}</td>
+                      <td data-label={t('collectedLabel')} style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{d.amount.toLocaleString()}</td>
+                      <td data-label={t('tableTarget')} style={{ fontFamily: 'var(--mono)' }}>₹{d.target.toLocaleString()}</td>
+                      <td data-label="Not Paid" style={{ fontFamily: 'var(--mono)', color: notPaid > 0 ? 'var(--red)' : 'var(--text-2)' }}>₹{notPaid.toLocaleString()}</td>
+                      <td data-label={t('tableAchievement')}><span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span></td>
                     </tr>
                   );
                 })}
@@ -349,13 +350,13 @@ export default function Reports() {
                   const notPaid = Math.max(l.total - l.collectedAmount, 0);
                   return (
                     <tr key={l.id}>
-                      <td style={{ fontWeight: 700 }}>{l.borrowerName}</td>
-                      <td><span className="badge badge-indigo" style={{ textTransform: 'capitalize' }}>{l.type.replace('_',' ')}</span></td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>₹{l.principal.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>₹{l.total.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>₹{l.collectedAmount.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)', color: notPaid > 0 ? 'var(--red)' : 'var(--text-2)' }}>₹{notPaid.toLocaleString()}</td>
-                      <td><span className={`badge ${l.status==='active'?'badge-green':l.status==='closed'?'badge-gray':'badge-red'}`}>{l.status}</span></td>
+                      <td data-label={t('tableBorrower')} style={{ fontWeight: 700 }}>{l.borrowerName}</td>
+                      <td data-label={t('tableType')}><span className="badge badge-indigo" style={{ textTransform: 'capitalize' }}>{l.type.replace('_',' ')}</span></td>
+                      <td data-label={t('tablePrincipal')} style={{ fontFamily: 'var(--mono)' }}>₹{l.principal.toLocaleString()}</td>
+                      <td data-label={t('tableTotalDue')} style={{ fontFamily: 'var(--mono)' }}>₹{l.total.toLocaleString()}</td>
+                      <td data-label={t('collectedLabel')} style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>₹{l.collectedAmount.toLocaleString()}</td>
+                      <td data-label="Not Paid" style={{ fontFamily: 'var(--mono)', color: notPaid > 0 ? 'var(--red)' : 'var(--text-2)' }}>₹{notPaid.toLocaleString()}</td>
+                      <td data-label={t('tableStatus')}><span className={`badge ${l.status==='active'?'badge-green':l.status==='closed'?'badge-gray':'badge-red'}`}>{l.status}</span></td>
                     </tr>
                   );
                 })}
@@ -379,12 +380,12 @@ export default function Reports() {
                     const days = Math.round((new Date() - new Date(i.dueDate)) / 86400000);
                     return (
                       <tr key={i.id} className="ledger-row-overdue">
-                        <td style={{ fontWeight: 700 }}>{i.borrowerName}</td>
-                        <td style={{ fontSize: 13 }}>{i.phone}</td>
-                        <td style={{ fontSize: 13 }}>{i.dueDate}</td>
-                        <td style={{ fontWeight: 700, color: 'var(--red)', fontFamily: 'var(--mono)' }}>₹{i.amount.toLocaleString()}</td>
-                        <td><span className={`badge ${days > 7 ? 'badge-red' : 'badge-amber'}`}>{days} {t('daysSuffix')}</span></td>
-                        <td style={{ textTransform: 'capitalize', fontSize: 13 }}>{i.type.replace('_',' ')}</td>
+                        <td data-label={t('tableBorrower')} style={{ fontWeight: 700 }}>{i.borrowerName}</td>
+                        <td data-label={t('tablePhone')} style={{ fontSize: 13 }}>{i.phone}</td>
+                        <td data-label={t('tableDueDate')} style={{ fontSize: 13 }}>{i.dueDate}</td>
+                        <td data-label={t('tableAmountDue')} style={{ fontWeight: 700, color: 'var(--red)', fontFamily: 'var(--mono)' }}>₹{i.amount.toLocaleString()}</td>
+                        <td data-label={t('tableDaysOverdue')}><span className={`badge ${days > 7 ? 'badge-red' : 'badge-amber'}`}>{days} {t('daysSuffix')}</span></td>
+                        <td data-label={t('tableType')} style={{ textTransform: 'capitalize', fontSize: 13 }}>{i.type.replace('_',' ')}</td>
                       </tr>
                     );
                   })}
@@ -441,14 +442,14 @@ export default function Reports() {
                   const pct = row.target > 0 ? Math.round((row.collected / row.target) * 100) : 0;
                   return (
                     <tr key={row.key}>
-                      <td style={{ fontWeight: 700 }}>{row.label}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{row.collected.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.target.toLocaleString()}</td>
-                      <td>{row.target > 0 ? <span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span> : '—'}</td>
-                      <td style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>₹{row.expenses.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)', color: row.net >= 0 ? 'var(--green)' : 'var(--red)' }}>₹{row.net.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>{row.newLoans}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.disbursed.toLocaleString()}</td>
+                      <td data-label="Week" style={{ fontWeight: 700 }}>{row.label}</td>
+                      <td data-label={t('collectedLabel')} style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{row.collected.toLocaleString()}</td>
+                      <td data-label={t('tableTarget')} style={{ fontFamily: 'var(--mono)' }}>₹{row.target.toLocaleString()}</td>
+                      <td data-label={t('tableAchievement')}>{row.target > 0 ? <span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span> : '—'}</td>
+                      <td data-label="Expenses" style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>₹{row.expenses.toLocaleString()}</td>
+                      <td data-label="Net Profit" style={{ fontFamily: 'var(--mono)', color: row.net >= 0 ? 'var(--green)' : 'var(--red)' }}>₹{row.net.toLocaleString()}</td>
+                      <td data-label="New Loans" style={{ fontFamily: 'var(--mono)' }}>{row.newLoans}</td>
+                      <td data-label="Disbursed" style={{ fontFamily: 'var(--mono)' }}>₹{row.disbursed.toLocaleString()}</td>
                     </tr>
                   );
                 })}
@@ -504,14 +505,14 @@ export default function Reports() {
                   const pct = row.target > 0 ? Math.round((row.collected / row.target) * 100) : 0;
                   return (
                     <tr key={row.key}>
-                      <td style={{ fontWeight: 700 }}>{row.label}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{row.collected.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.target.toLocaleString()}</td>
-                      <td>{row.target > 0 ? <span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span> : '—'}</td>
-                      <td style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>₹{row.expenses.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)', color: row.net >= 0 ? 'var(--green)' : 'var(--red)' }}>₹{row.net.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>{row.newLoans}</td>
-                      <td style={{ fontFamily: 'var(--mono)' }}>₹{row.disbursed.toLocaleString()}</td>
+                      <td data-label="Month" style={{ fontWeight: 700 }}>{row.label}</td>
+                      <td data-label={t('collectedLabel')} style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{row.collected.toLocaleString()}</td>
+                      <td data-label={t('tableTarget')} style={{ fontFamily: 'var(--mono)' }}>₹{row.target.toLocaleString()}</td>
+                      <td data-label={t('tableAchievement')}>{row.target > 0 ? <span className={`badge ${pct >= 100 ? 'badge-green' : pct >= 75 ? 'badge-amber' : 'badge-red'}`}>{pct}%</span> : '—'}</td>
+                      <td data-label="Expenses" style={{ fontFamily: 'var(--mono)', color: 'var(--red)' }}>₹{row.expenses.toLocaleString()}</td>
+                      <td data-label="Net Profit" style={{ fontFamily: 'var(--mono)', color: row.net >= 0 ? 'var(--green)' : 'var(--red)' }}>₹{row.net.toLocaleString()}</td>
+                      <td data-label="New Loans" style={{ fontFamily: 'var(--mono)' }}>{row.newLoans}</td>
+                      <td data-label="Disbursed" style={{ fontFamily: 'var(--mono)' }}>₹{row.disbursed.toLocaleString()}</td>
                     </tr>
                   );
                 })}

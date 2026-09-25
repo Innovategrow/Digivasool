@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
+import { useToast } from '../../components/Toast';
+import { newIdempotencyKey } from '../../utils/api';
 import { useLanguage } from '../../context/LanguageContext';
 import { CheckCircle, Clock, AlertTriangle, DollarSign, X, Calendar, CalendarDays, Landmark, ClipboardList } from 'lucide-react';
 
@@ -8,7 +10,24 @@ function PayModal({ installment, onClose, onPay }) {
   const [amount, setAmount] = useState(installment.amount);
   const [penalty, setPenalty] = useState(0);
   const [mode, setMode] = useState('full');
+  const [method, setMethod] = useState('Cash');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const keyRef = useRef(newIdempotencyKey());
   const total = Number(amount) + Number(penalty);
+
+  async function confirm() {
+    if (saving) return;
+    if (!(total >= 0) || Number.isNaN(total)) { setError('Enter a valid amount.'); return; }
+    setSaving(true); setError('');
+    try {
+      await onPay(installment, total, Number(penalty), method, keyRef.current);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.');
+      setSaving(false);
+    }
+  }
   const MODE_LABELS = { full: t('modeFull'), partial: t('modePartial'), advance: t('modeAdvance') };
 
   return (
@@ -49,8 +68,16 @@ function PayModal({ installment, onClose, onPay }) {
           <div style={{ fontSize: 24, fontWeight: 900, color: 'var(--green)' }}>₹{total.toLocaleString()}</div>
         </div>
 
-        <button className="btn btn-success w-full" style={{ fontSize: 15 }} onClick={() => { onPay(installment.id, Number(amount), Number(penalty)); onClose(); }}>
-          <CheckCircle size={16} /> {t('confirmPayment')}
+        <div className="collector-method-row">
+          {['Cash', 'GPay'].map(m => (
+            <button key={m} type="button" className={method === m ? 'active' : ''} onClick={() => setMethod(m)}>{m}</button>
+          ))}
+        </div>
+
+        {error && <div className="form-alert" role="alert">{error}</div>}
+
+        <button className="btn btn-success w-full" style={{ fontSize: 15 }} disabled={saving} onClick={confirm}>
+          <CheckCircle size={16} /> {saving ? 'Saving...' : t('confirmPayment')}
         </button>
       </div>
     </div>
@@ -58,16 +85,17 @@ function PayModal({ installment, onClose, onPay }) {
 }
 
 export default function Ledger() {
-  const { state, dispatch } = useAppData();
+  const { state, actions } = useAppData();
+  const { showToast } = useToast();
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState('all');
   const [staffFilter, setStaffFilter] = useState('all');
   const [paying, setPaying] = useState(null);
-  const [toast, setToast] = useState('');
+
+  useEffect(() => { actions.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const today = new Date().toISOString().split('T')[0];
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
   const filtered = state.installments.filter(i => {
     const tabMatch = activeTab === 'all' ? (i.dueDate === today || i.status === 'overdue') : i.type === activeTab && (i.dueDate === today || i.status === 'overdue');
@@ -81,9 +109,15 @@ export default function Ledger() {
 
   const staffList = ['all', ...new Set(state.installments.map(i => i.staff))];
 
-  function handlePay(installmentId, amount, penalty) {
-    dispatch({ type: 'ADD_PAYMENT', payload: { installmentId, amount, penalty } });
-    showToast(`Payment of ₹${(amount + penalty).toLocaleString()} recorded!`);
+  async function handlePay(installment, amount, penalty, method, idempotencyKey) {
+    await actions.recordPayment({
+      loanId: installment.loanId,
+      amount,
+      method,
+      notes: penalty > 0 ? `Includes late fee ₹${penalty.toLocaleString()}` : 'Recorded from ledger',
+      idempotencyKey,
+    });
+    showToast(`Payment of ₹${amount.toLocaleString()} recorded`);
   }
 
   const TAB_CONFIG = [
@@ -102,17 +136,14 @@ export default function Ledger() {
 
   return (
     <div style={{ animation: 'fadeUp .4s ease' }}>
-      {toast && (
-        <div className="toast" style={{ borderLeft: '3px solid var(--green)' }}><CheckCircle size={16} style={{ color: 'var(--green)' }} />{toast}</div>
-      )}
 
       <div className="page-header">
         <div>
           <div className="page-title">{t('ledgerPageTitle')}</div>
           <div className="page-subtitle">{today} · {filtered.length} {t('entriesSuffix')}</div>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <select className="form-input" style={{ width: 160, padding: '8px 12px' }} value={staffFilter} onChange={e => setStaffFilter(e.target.value)}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', width: '100%' }}>
+          <select className="form-input" style={{ width: '100%' }} value={staffFilter} onChange={e => setStaffFilter(e.target.value)}>
             {staffList.map(s => <option key={s} value={s}>{s === 'all' ? t('allStaff') : s}</option>)}
           </select>
         </div>
@@ -142,7 +173,7 @@ export default function Ledger() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      <div className="chip-row" style={{ marginBottom: 16 }}>
         {TAB_CONFIG.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className="btn btn-secondary btn-sm"
             style={{ background: activeTab === tab.id ? 'var(--brand-soft)' : undefined, color: activeTab === tab.id ? 'var(--brand-light)' : undefined, borderColor: activeTab === tab.id ? 'var(--brand)' : undefined }}>
@@ -174,16 +205,16 @@ export default function Ledger() {
               const rowCls = inst.status === 'paid' ? 'ledger-row-paid' : inst.status === 'partial' ? 'ledger-row-partial' : inst.status === 'overdue' ? 'ledger-row-overdue' : '';
               return (
                 <tr key={inst.id} className={rowCls}>
-                  <td style={{ fontWeight: 700 }}>{inst.borrowerName}</td>
-                  <td style={{ color: 'var(--text-2)', fontSize: 13 }}>{inst.phone}</td>
-                  <td><span className="badge badge-indigo" style={{ textTransform: 'capitalize' }}>{inst.type.replace('_', ' ')}</span></td>
-                  <td style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>₹{inst.amount.toLocaleString()}</td>
-                  <td style={{ fontWeight: 700, color: inst.paidAmount > 0 ? 'var(--green)' : 'var(--text-2)', fontFamily: 'var(--mono)' }}>
+                  <td data-label={t('tableBorrower')} style={{ fontWeight: 700 }}>{inst.borrowerName}</td>
+                  <td data-label={t('tablePhone')} style={{ color: 'var(--text-2)', fontSize: 13 }}>{inst.phone}</td>
+                  <td data-label={t('tableType')}><span className="badge badge-indigo" style={{ textTransform: 'capitalize' }}>{inst.type.replace('_', ' ')}</span></td>
+                  <td data-label={t('tableDueAmount')} style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>₹{inst.amount.toLocaleString()}</td>
+                  <td data-label={t('tablePaid')} style={{ fontWeight: 700, color: inst.paidAmount > 0 ? 'var(--green)' : 'var(--text-2)', fontFamily: 'var(--mono)' }}>
                     {inst.paidAmount > 0 ? `₹${inst.paidAmount.toLocaleString()}` : '—'}
                   </td>
-                  <td><span className={`badge ${sc.cls}`}>{sc.icon} {sc.label}</span></td>
-                  <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{inst.staff}</td>
-                  <td>
+                  <td data-label={t('tableStatus')}><span className={`badge ${sc.cls}`}>{sc.icon} {sc.label}</span></td>
+                  <td data-label={t('tableStaff')} style={{ fontSize: 12, color: 'var(--text-2)' }}>{inst.staff}</td>
+                  <td data-label={t('tableAction')}>
                     {inst.status !== 'paid' && (
                       <button className="btn btn-success btn-sm" onClick={() => setPaying(inst)}>
                         <DollarSign size={13} /> {t('collect')}

@@ -1,8 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, Wallet, Banknote, Search, Filter, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, newIdempotencyKey, readError } from '../../utils/api';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../components/Toast';
 
 export default function CollectionEntry() {
   const navigate = useNavigate();
@@ -21,12 +23,17 @@ export default function CollectionEntry() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('balance');
   const [showFilters, setShowFilters] = useState(false);
+  const { user } = useAuth();
+  const { showToast } = useToast();
+  const paymentKeyRef = useRef(null);
+  // Changing the entry makes it a new payment; retrying the same entry reuses its key
+  useEffect(() => { paymentKeyRef.current = null; }, [selectedLoan?.id, amount, paymentMethod]);
 
   useEffect(() => {
     apiFetch('/api/loans/')
-      .then(res => res.json())
-      .then(data => setLoans(data))
-      .catch(err => console.error(err));
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => setLoans(Array.isArray(data) ? data : []))
+      .catch(() => showToast('Could not load borrowers. Check your connection.', 'error'));
   }, []);
 
   const processedLoans = useMemo(() => {
@@ -46,22 +53,29 @@ export default function CollectionEntry() {
     });
   }, [loans, searchQuery, sortBy]);
 
-  const handleSave = () => {
-    if (!amount || !selectedLoan) return;
+  const handleSave = async () => {
+    if (loading || !amount || !selectedLoan) return;
+    if (!paymentKeyRef.current) paymentKeyRef.current = newIdempotencyKey();
     setLoading(true);
-    apiFetch(`/api/loans/${selectedLoan.id}/payments`, {
-      method: 'POST',
-      body: JSON.stringify({ amount: parseFloat(amount), payment_method: paymentMethod }),
-    })
-      .then(res => res.json())
-      .then(data => {
-        const updated = data.data || data;
-        setSelectedLoan(updated);
-        setAmount('');
-        setLoans(loans.map(l => l.id === updated.id ? updated : l));
-        alert(`Successfully recorded ₹${amount} payment!`);
-      })
-      .finally(() => setLoading(false));
+    try {
+      const res = await apiFetch(`/api/loans/${selectedLoan.id}/payments`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': paymentKeyRef.current },
+        body: JSON.stringify({ amount: parseFloat(amount), payment_method: paymentMethod, collector_name: user?.name }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json();
+      const updated = { ...selectedLoan, ...(data.data || {}) };
+      paymentKeyRef.current = null;
+      setSelectedLoan(updated);
+      setLoans(current => current.map(l => l.id === updated.id ? updated : l));
+      showToast(`Payment of ₹${Number(amount).toLocaleString('en-IN')} recorded`);
+      setAmount('');
+    } catch (err) {
+      showToast(err.message || 'Something went wrong. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!selectedLoan) {

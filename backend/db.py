@@ -1,413 +1,345 @@
 """
-In-memory database layer.
-Replaces the Firebase implementation for local testing without credentials.
+Persistent storage layer.
+
+Two interchangeable backends expose the same small Firestore-style API that
+main.py uses (collection -> document -> get/set/update/delete, where/limit/add):
+
+* Firestore - used when DB_BACKEND=firestore, or when DB_BACKEND is unset and
+  FIREBASE_SERVICE_ACCOUNT_PATH points at an existing service-account file.
+* SQLite    - the default. One file (DB_PATH) that survives restarts without
+  any cloud setup.
+
+Nothing here keeps business data only in process memory.
 """
 
+import json
 import os
-from typing import Dict, Any, List, Optional
+import sqlite3
+import threading
 from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-class MockDocument:
-    def __init__(self, collection_name: str, doc_id: str):
-        self.collection_name = collection_name
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Serialises read-modify-write sequences (payment totals, account numbers,
+# idempotency checks) inside one server process.
+db_lock = threading.RLock()
+
+
+# ── SQLite document store ────────────────────────────────────────────────────
+
+class _Snapshot:
+    def __init__(self, ref: "_DocRef", data: Optional[Dict[str, Any]]):
+        self.reference = ref
+        self.id = ref.id
+        self._data = data
+
+    @property
+    def exists(self) -> bool:
+        return self._data is not None
+
+    def to_dict(self) -> Optional[Dict[str, Any]]:
+        return dict(self._data) if self._data is not None else None
+
+
+class _DocRef:
+    def __init__(self, store: "SQLiteStore", collection: str, doc_id: str):
+        self._store = store
+        self.collection_name = collection
         self.id = doc_id
 
-    @property
-    def exists(self):
-        if self.collection_name == "loans":
-            return any(l["id"] == self.id for l in _loans)
-        elif self.collection_name == "loan_payments":
-            return any(p["id"] == self.id for p in _loan_payments)
-        elif self.collection_name == "reminders":
-            return any(r.get("id") == self.id for r in _reminders)
-        elif self.collection_name == "transactions":
-            return any(t["id"] == self.id for t in _transactions)
-        return False
+    def get(self) -> _Snapshot:
+        return _Snapshot(self, self._store._read(self.collection_name, self.id))
 
-    def get(self):
-        return self
+    def set(self, data: Dict[str, Any], merge: bool = False):
+        if merge:
+            current = self._store._read(self.collection_name, self.id) or {}
+            current.update(data)
+            data = current
+        self._store._write(self.collection_name, self.id, data)
 
-    def to_dict(self):
-        if self.collection_name == "loans":
-            for l in _loans:
-                if l["id"] == self.id:
-                    return l
-        elif self.collection_name == "loan_payments":
-            for p in _loan_payments:
-                if p["id"] == self.id:
-                    return p
-        elif self.collection_name == "reminders":
-            for r in _reminders:
-                if r.get("id") == self.id:
-                    return r
-        elif self.collection_name == "transactions":
-            for t in _transactions:
-                if t["id"] == self.id:
-                    return t
-        return None
-
-    def set(self, data: dict):
-        data["id"] = self.id
-        if self.collection_name == "loans":
-            for i, l in enumerate(_loans):
-                if l["id"] == self.id:
-                    _loans[i] = data
-                    return
-            _loans.append(data)
-        elif self.collection_name == "loan_payments":
-            for i, p in enumerate(_loan_payments):
-                if p["id"] == self.id:
-                    _loan_payments[i] = data
-                    return
-            _loan_payments.append(data)
-        elif self.collection_name == "reminders":
-            for i, r in enumerate(_reminders):
-                if r["id"] == self.id:
-                    _reminders[i] = data
-                    return
-            _reminders.append(data)
-        elif self.collection_name == "transactions":
-            for i, t in enumerate(_transactions):
-                if t["id"] == self.id:
-                    _transactions[i] = data
-                    return
-            _transactions.append(data)
-
-    def update(self, data: dict):
-        if self.collection_name == "loans":
-            for l in _loans:
-                if l["id"] == self.id:
-                    l.update(data)
-                    return
-        elif self.collection_name == "loan_payments":
-            for p in _loan_payments:
-                if p["id"] == self.id:
-                    p.update(data)
-                    return
-        elif self.collection_name == "reminders":
-            for r in _reminders:
-                if r.get("id") == self.id:
-                    r.update(data)
-                    return
-        elif self.collection_name == "transactions":
-            for t in _transactions:
-                if t["id"] == self.id:
-                    t.update(data)
-                    return
+    def update(self, data: Dict[str, Any]):
+        with self._store.lock:
+            current = self._store._read(self.collection_name, self.id)
+            if current is None:
+                raise KeyError(f"{self.collection_name}/{self.id} does not exist")
+            current.update(data)
+            self._store._write(self.collection_name, self.id, current)
 
     def delete(self):
-        if self.collection_name == "loans":
-            global _loans
-            _loans = [l for l in _loans if l["id"] != self.id]
-        elif self.collection_name == "loan_payments":
-            global _loan_payments
-            _loan_payments = [p for p in _loan_payments if p["id"] != self.id]
-        elif self.collection_name == "reminders":
-            global _reminders
-            _reminders = [r for r in _reminders if r.get("id") != self.id]
-        elif self.collection_name == "transactions":
-            global _transactions
-            _transactions = [t for t in _transactions if t["id"] != self.id]
+        self._store._delete(self.collection_name, self.id)
 
-    @property
-    def reference(self):
-        return self
 
-class MockQuery:
-    def __init__(self, collection_name: str, filters: list = None):
-        self.collection_name = collection_name
-        self.filters = filters or []
-        self._limit = None
+class _Query:
+    def __init__(self, store: "SQLiteStore", collection: str, filters=None, limit=None):
+        self._store = store
+        self._collection = collection
+        self._filters = list(filters or [])
+        self._limit = limit
 
-    def where(self, field: str, op: str, value: Any):
-        self.filters.append((field, op, value))
-        return self
+    def where(self, field: str, op: str, value: Any) -> "_Query":
+        return _Query(self._store, self._collection, self._filters + [(field, op, value)], self._limit)
 
-    def limit(self, n: int):
-        self._limit = n
-        return self
+    def limit(self, n: int) -> "_Query":
+        return _Query(self._store, self._collection, self._filters, n)
 
-    def get(self):
-        items = []
-        if self.collection_name == "loans":
-            items = _loans
-        elif self.collection_name == "loan_payments":
-            items = _loan_payments
-        elif self.collection_name == "reminders":
-            items = _reminders
-        elif self.collection_name == "transactions":
-            items = _transactions
+    def get(self) -> List[_Snapshot]:
+        rows = self._store._scan(self._collection)
+        results = []
+        for doc_id, data in rows:
+            if all(_matches(data.get(f), op, v) for f, op, v in self._filters):
+                results.append(_Snapshot(_DocRef(self._store, self._collection, doc_id), data))
+                if self._limit is not None and len(results) >= self._limit:
+                    break
+        return results
 
-        filtered_items = []
-        for item in items:
-            match = True
-            for field, op, val in self.filters:
-                item_val = item.get(field)
-                if op == "==":
-                    if item_val != val:
-                        match = False
-                        break
-                elif op == "in":
-                    if item_val not in val:
-                        match = False
-                        break
-            if match:
-                filtered_items.append(item)
+    # Firestore-compatible alias
+    stream = get
 
-        if self._limit is not None:
-            filtered_items = filtered_items[:self._limit]
 
-        return [MockDocument(self.collection_name, item.get("id")) for item in filtered_items]
+def _matches(actual: Any, op: str, expected: Any) -> bool:
+    if op == "==":
+        return actual == expected
+    if op == "!=":
+        return actual != expected
+    if op == "in":
+        return actual in expected
+    raise ValueError(f"Unsupported query operator: {op}")
 
-class MockCollection:
-    def __init__(self, name: str):
-        self.name = name
 
-    def document(self, doc_id: str):
-        return MockDocument(self.name, doc_id)
+class _Collection(_Query):
+    def __init__(self, store: "SQLiteStore", name: str):
+        super().__init__(store, name)
 
-    def add(self, data: dict):
-        doc_id = str(uuid4())
-        doc = MockDocument(self.name, doc_id)
-        doc.set(data)
-        return doc
+    def document(self, doc_id: Optional[str] = None) -> _DocRef:
+        return _DocRef(self._store, self._collection, doc_id or str(uuid4()))
 
-    def where(self, field: str, op: str, value: Any):
-        return MockQuery(self.name, [(field, op, value)])
+    def add(self, data: Dict[str, Any]):
+        ref = self.document()
+        ref.set(data)
+        return None, ref
 
-    def limit(self, n: int):
-        return MockQuery(self.name, []).limit(n)
 
-    def get(self):
-        return MockQuery(self.name, []).get()
+class SQLiteStore:
+    def __init__(self, path: str):
+        folder = os.path.dirname(path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        self.path = path
+        self.lock = threading.RLock()
+        self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS documents ("
+            " collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,"
+            " PRIMARY KEY (collection, id))"
+        )
 
-class MockFirestore:
-    def collection(self, name: str):
-        return MockCollection(name)
+    def collection(self, name: str) -> _Collection:
+        return _Collection(self, name)
 
-# ── In-Memory Store ──────────────────────────────────────────────────────────
+    def _read(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            row = self._conn.execute(
+                "SELECT data FROM documents WHERE collection=? AND id=?", (collection, doc_id)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
 
-_transactions = []
-_reminders = []
-_loan_payments = []
-_loans = []
+    def _write(self, collection: str, doc_id: str, data: Dict[str, Any]):
+        payload = json.dumps(data, default=str)
+        with self.lock:
+            self._conn.execute(
+                "INSERT INTO documents (collection, id, data) VALUES (?, ?, ?) "
+                "ON CONFLICT(collection, id) DO UPDATE SET data=excluded.data",
+                (collection, doc_id, payload),
+            )
+
+    def _delete(self, collection: str, doc_id: str):
+        with self.lock:
+            self._conn.execute("DELETE FROM documents WHERE collection=? AND id=?", (collection, doc_id))
+
+    def _scan(self, collection: str):
+        with self.lock:
+            rows = self._conn.execute(
+                "SELECT id, data FROM documents WHERE collection=? ORDER BY rowid", (collection,)
+            ).fetchall()
+        return [(doc_id, json.loads(data)) for doc_id, data in rows]
+
+
+# ── Backend selection ────────────────────────────────────────────────────────
+
+_db = None
+_backend_name = None
+
+
+def _service_account_path() -> str:
+    path = os.environ.get("FIREBASE_SERVICE_ACCOUNT_PATH", "firebase-service-account.json")
+    return path if os.path.isabs(path) else os.path.join(BACKEND_DIR, path)
+
+
+def _connect():
+    global _db, _backend_name
+    choice = (os.environ.get("DB_BACKEND") or "").strip().lower()
+    sa_path = _service_account_path()
+    if choice == "firestore" or (not choice and os.path.exists(sa_path)):
+        import firebase_admin
+        from firebase_admin import credentials, firestore
+
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(sa_path))
+        _db = firestore.client()
+        _backend_name = "firestore"
+        print("Storage: Firebase Firestore")
+    else:
+        path = os.environ.get("DB_PATH", "data/digivasool.db")
+        if not os.path.isabs(path):
+            path = os.path.join(BACKEND_DIR, path)
+        _db = SQLiteStore(path)
+        _backend_name = "sqlite"
+        print(f"Storage: SQLite ({path})")
+
+
+def get_firestore_client():
+    """Return the active document store (Firestore client or SQLite store)."""
+    if _db is None:
+        with db_lock:
+            if _db is None:
+                _connect()
+    return _db
+
+
+def get_backend_name() -> str:
+    get_firestore_client()
+    return _backend_name
+
+
+def get_db_connection():
+    return get_firestore_client()
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    return (os.environ.get(name, str(default)).strip().lower() in {"1", "true", "yes", "on"})
+
 
 def init_db():
-    """Called on app startup — initialises the mock database."""
-    seed_db()
+    """Called on app startup — connects storage and optionally seeds demo data."""
+    db = get_firestore_client()
+    if _env_flag("SEED_DEMO_DATA") and len(db.collection("loans").limit(1).get()) == 0:
+        seed_db()
+
+
+# ── Demo seed (only when SEED_DEMO_DATA=true and the store is empty) ────────
 
 def seed_db():
-    """Seed the in-memory store with demo transactions and reminders."""
-    global _transactions, _reminders, _loans, _loan_payments
-
-    # Don't re-seed if data already exists
-    if _transactions or _loans:
-        return
-
+    db = get_firestore_client()
     from services.reminders import build_whatsapp_reminder_schedule
 
-    # Demo seed transactions
-    _transactions = [
-        {
-            "id": "tx-1001",
-            "customer_id": "cust-001",
-            "customer_name": "Ramesh Traders",
-            "customer_phone": "+919999000111",
-            "type": "GAVE",
-            "amount": 8200.0,
-            "outstanding_amount": 8200.0,
-            "interest_rate_monthly": 2.5,
-            "due_date": "2026-04-10",
-            "notes": "Seed inventory on weekly credit",
-            "created_at": "2026-03-01T10:00:00",
-        },
-        {
-            "id": "tx-1002",
-            "customer_id": "cust-002",
-            "customer_name": "Priya Textiles",
-            "customer_phone": "+919999000222",
-            "type": "GAVE",
-            "amount": 4600.0,
-            "outstanding_amount": 3100.0,
-            "interest_rate_monthly": 1.75,
-            "due_date": "2026-04-05",
-            "notes": "Festival stock top-up",
-            "created_at": "2026-03-05T14:30:00",
-        },
-        {
-            "id": "tx-1003",
-            "customer_id": "cust-003",
-            "customer_name": "Karan Electronics",
-            "customer_phone": "+919999000333",
-            "type": "GOT",
-            "amount": 1500.0,
-            "outstanding_amount": 0.0,
-            "interest_rate_monthly": None,
-            "due_date": None,
-            "notes": "Partial repayment received",
-            "created_at": "2026-03-08T16:45:00",
-        },
+    transactions = [
+        {"id": "tx-1001", "customer_id": "cust-001", "customer_name": "Ramesh Traders", "customer_phone": "+919999000111",
+         "type": "GAVE", "amount": 8200.0, "outstanding_amount": 8200.0, "interest_rate_monthly": 2.5,
+         "due_date": "2026-04-10", "notes": "Seed inventory on weekly credit", "created_at": "2026-03-01T10:00:00"},
+        {"id": "tx-1002", "customer_id": "cust-002", "customer_name": "Priya Textiles", "customer_phone": "+919999000222",
+         "type": "GAVE", "amount": 4600.0, "outstanding_amount": 3100.0, "interest_rate_monthly": 1.75,
+         "due_date": "2026-04-05", "notes": "Festival stock top-up", "created_at": "2026-03-05T14:30:00"},
+        {"id": "tx-1003", "customer_id": "cust-003", "customer_name": "Karan Electronics", "customer_phone": "+919999000333",
+         "type": "GOT", "amount": 1500.0, "outstanding_amount": 0.0, "interest_rate_monthly": None,
+         "due_date": None, "notes": "Partial repayment received", "created_at": "2026-03-08T16:45:00"},
     ]
-
-    # Build reminders for GAVE transactions
-    for tx in _transactions:
+    for tx in transactions:
+        db.collection("transactions").document(tx["id"]).set(tx)
         if tx["type"] == "GAVE":
-            rems = build_whatsapp_reminder_schedule(
-                transaction_id=tx["id"],
-                customer_id=tx["customer_id"],
-                due_date=tx["due_date"],
-            )
-            _reminders.extend(rems)
+            append_reminders_db(build_whatsapp_reminder_schedule(
+                transaction_id=tx["id"], customer_id=tx["customer_id"], due_date=tx["due_date"]))
 
-    _loans = [
-        {
-            "id": "l-1001",
-            "customer_id": "cust-001",
-            "customer_name": "Rajan Kumar",
-            "customer_email": "rajan@gmail.com",
-            "customer_phone": "9876543210",
-            "customer_address": "12 3rd Street, Gandhipuram, Coimbatore",
-            "zone": "Gandhipuram",
-            "alternate_phone": "9876543211",
-            "shop_name": "Rajan Stores",
-            "aadhaar_number": "123456789012",
-            "photo_url": "",
-            "guarantor_name": "Suresh K",
-            "guarantor_phone": "9876543212",
-            "guarantor_address": "14 Gandhi Nagar, Chennai",
-            "loan_amount": 50000.0,
-            "monthly_interest_amount": 2000.0,
-            "field_visit_charge": 500.0,
-            "document_fee": 200.0,
-            "processing_fee": 300.0,
-            "due_amount": 53000.0,
-            "collected_amount": 15000.0,
-            "pending_amount": 38000.0,
-            "status": "active",
-            "total_days_paid": 3,
-            "total_days_not_paid": 0,
-            "repayment_frequency": "daily",
-            "repayment_amount": 500.0,
-            "start_date": "2026-05-01",
-            "closing_date": "2026-08-15",
-            "created_at": "2026-05-01T10:00:00"
-        },
-        {
-            "id": "l-1002",
-            "customer_id": "cust-002",
-            "customer_name": "Meena Devi",
-            "customer_email": "meena@gmail.com",
-            "customer_phone": "8765432109",
-            "customer_address": "45 Cross Cut Rd, Gandhipuram, Coimbatore",
-            "zone": "Gandhipuram",
-            "alternate_phone": "",
-            "shop_name": "",
-            "aadhaar_number": "987654321098",
-            "photo_url": "",
-            "guarantor_name": "Ramesh M",
-            "guarantor_phone": "8765432108",
-            "guarantor_address": "46 Anna Street, Coimbatore",
-            "loan_amount": 20000.0,
-            "monthly_interest_amount": 1000.0,
-            "field_visit_charge": 200.0,
-            "document_fee": 100.0,
-            "processing_fee": 200.0,
-            "due_amount": 21500.0,
-            "collected_amount": 21500.0,
-            "pending_amount": 0.0,
-            "status": "closed",
-            "total_days_paid": 5,
-            "total_days_not_paid": 0,
-            "repayment_frequency": "weekly",
-            "repayment_amount": 4300.0,
-            "created_at": "2026-05-10T10:00:00"
-        }
+    loans = [
+        {"id": "l-1001", "customer_id": "cust-001", "customer_name": "Rajan Kumar", "customer_email": "rajan@gmail.com",
+         "customer_phone": "9876543210", "customer_address": "12 3rd Street, Gandhipuram, Coimbatore", "zone": "Gandhipuram",
+         "alternate_phone": "9876543211", "shop_name": "Rajan Stores", "aadhaar_number": "123456789012", "photo_url": "",
+         "guarantor_name": "Suresh K", "guarantor_phone": "9876543212", "guarantor_address": "14 Gandhi Nagar, Chennai",
+         "account_number": "101", "preferred_language": "en",
+         "loan_amount": 50000.0, "monthly_interest_amount": 2000.0, "field_visit_charge": 500.0, "document_fee": 200.0,
+         "processing_fee": 300.0, "due_amount": 53000.0, "collected_amount": 15000.0, "pending_amount": 38000.0,
+         "status": "active", "total_days_paid": 2, "total_days_not_paid": 0, "repayment_frequency": "daily",
+         "repayment_amount": 500.0, "start_date": "2026-05-01", "closing_date": "2026-12-15",
+         "created_at": "2026-05-01T10:00:00", "created_by": "seed"},
+        {"id": "l-1002", "customer_id": "cust-002", "customer_name": "Meena Devi", "customer_email": "meena@gmail.com",
+         "customer_phone": "8765432109", "customer_address": "45 Cross Cut Rd, Gandhipuram, Coimbatore", "zone": "Gandhipuram",
+         "alternate_phone": "", "shop_name": "", "aadhaar_number": "987654321098", "photo_url": "",
+         "guarantor_name": "Ramesh M", "guarantor_phone": "8765432108", "guarantor_address": "46 Anna Street, Coimbatore",
+         "account_number": "102", "preferred_language": "ta",
+         "loan_amount": 21500.0, "monthly_interest_amount": 1000.0, "field_visit_charge": 200.0, "document_fee": 100.0,
+         "processing_fee": 200.0, "due_amount": 21500.0, "collected_amount": 21500.0, "pending_amount": 0.0,
+         "status": "closed", "total_days_paid": 1, "total_days_not_paid": 0, "repayment_frequency": "weekly",
+         "repayment_amount": 4300.0, "start_date": "2026-05-10", "closing_date": "2026-07-10",
+         "created_at": "2026-05-10T10:00:00", "created_by": "seed"},
     ]
+    for loan in loans:
+        db.collection("loans").document(loan["id"]).set(loan)
 
-    _loan_payments = [
-        {
-            "id": "p-1001",
-            "loan_id": "l-1001",
-            "amount": 5000.0,
-            "payment_method": "Cash",
-            "payment_date": "2026-05-05T12:00:00",
-            "collector_name": "Collector 1",
-            "collector_phone": "9001234568",
-            "notes": "First payment"
-        },
-        {
-            "id": "p-1002",
-            "loan_id": "l-1001",
-            "amount": 10000.0,
-            "payment_method": "GPay",
-            "payment_date": "2026-05-12T14:30:00",
-            "collector_name": "Collector 1",
-            "collector_phone": "9001234568",
-            "notes": "Second payment"
-        },
-        {
-            "id": "p-1003",
-            "loan_id": "l-1002",
-            "amount": 21500.0,
-            "payment_method": "GPay",
-            "payment_date": "2026-05-15T15:00:00",
-            "collector_name": "Collector 2",
-            "collector_phone": "9001234569",
-            "notes": "Full loan closure payment"
-        }
+    payments = [
+        {"id": "p-1001", "loan_id": "l-1001", "amount": 5000.0, "payment_method": "Cash", "payment_date": "2026-05-05T12:00:00",
+         "collector_name": "Collector 1", "collector_phone": "", "notes": "First payment"},
+        {"id": "p-1002", "loan_id": "l-1001", "amount": 10000.0, "payment_method": "GPay", "payment_date": "2026-05-12T14:30:00",
+         "collector_name": "Collector 1", "collector_phone": "", "notes": "Second payment"},
+        {"id": "p-1003", "loan_id": "l-1002", "amount": 21500.0, "payment_method": "GPay", "payment_date": "2026-05-15T15:00:00",
+         "collector_name": "Collector 2", "collector_phone": "", "notes": "Full loan closure payment"},
     ]
+    for p in payments:
+        db.collection("loan_payments").document(p["id"]).set(p)
 
-    print("Seeded in-memory store with demo data")
+    print("Seeded storage with demo data (SEED_DEMO_DATA=true)")
 
 
 # ── Transaction Helpers ──────────────────────────────────────────────────────
 
 def append_transaction_db(record: Dict[str, Any]):
-    if "id" not in record:
-        record["id"] = f"tx-{len(_transactions) + 1004}"
-    _transactions.append(record)
+    db = get_firestore_client()
+    record.setdefault("id", str(uuid4()))
+    db.collection("transactions").document(record["id"]).set(record)
 
 
 def append_reminders_db(reminders: List[Dict[str, Any]]):
+    db = get_firestore_client()
     for r in reminders:
         r.setdefault("id", str(uuid4()))
-    _reminders.extend(reminders)
+        db.collection("reminders").document(r["id"]).set(r)
 
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
 def get_dashboard_summary_db() -> Dict[str, Any]:
-    gave_txs = [tx for tx in _transactions if tx["type"] == "GAVE"]
-    got_txs = [tx for tx in _transactions if tx["type"] == "GOT"]
+    db = get_firestore_client()
+    txs = [d.to_dict() for d in db.collection("transactions").get()]
+    gave = [t for t in txs if t.get("type") == "GAVE"]
+    got = [t for t in txs if t.get("type") == "GOT"]
 
-    you_will_give = sum(tx.get("outstanding_amount", 0) for tx in gave_txs)
-    you_will_get = sum(tx.get("amount", 0) for tx in got_txs)
-    active_lending_count = len(gave_txs)
-
-    # Today's collections (mock logic)
     today_str = date.today().isoformat()
     today_collected = 0.0
     collector_totals: Dict[str, float] = {}
-
-    for p in _loan_payments:
-        pd_str = p.get("payment_date", "")
-        if pd_str and pd_str.startswith(today_str):
-            today_collected += p.get("amount", 0)
+    for doc in db.collection("loan_payments").get():
+        p = doc.to_dict()
+        if (p.get("payment_date") or "").startswith(today_str):
+            today_collected += p.get("amount", 0) or 0
         cn = p.get("collector_name")
         if cn:
-            collector_totals[cn] = collector_totals.get(cn, 0) + p.get("amount", 0)
+            collector_totals[cn] = collector_totals.get(cn, 0) + (p.get("amount", 0) or 0)
 
-    collector_breakdown = [{"name": k, "total": v} for k, v in sorted(collector_totals.items(), key=lambda x: -x[1])]
+    active_loans = sum(1 for d in db.collection("loans").get() if d.to_dict().get("status") == "active")
 
     from services.reminders import WHATSAPP_REMINDER_DAY_OFFSETS
     return {
-        "you_will_give": round(you_will_give, 2),
-        "you_will_get": round(you_will_get, 2),
-        "active_lending_count": active_lending_count,
-        "active_loans": len(_loans),
+        "you_will_give": round(sum(t.get("outstanding_amount", 0) or 0 for t in gave), 2),
+        "you_will_get": round(sum(t.get("amount", 0) or 0 for t in got), 2),
+        "active_lending_count": len(gave),
+        "active_loans": active_loans,
         "today_collected": round(today_collected, 2),
-        "collector_breakdown": collector_breakdown,
+        "collector_breakdown": [{"name": k, "total": v} for k, v in sorted(collector_totals.items(), key=lambda x: -x[1])],
         "reminder_day_offsets": list(WHATSAPP_REMINDER_DAY_OFFSETS),
     }
 
@@ -415,13 +347,12 @@ def get_dashboard_summary_db() -> Dict[str, Any]:
 # ── Admin Lendings ───────────────────────────────────────────────────────────
 
 def get_admin_lendings_db() -> List[Dict[str, Any]]:
-    gave_txs = [tx for tx in _transactions if tx["type"] == "GAVE"]
+    db = get_firestore_client()
     lendings = []
-
-    for tx in gave_txs:
-        tx_id = tx.get("id")
-        reminders = [r for r in _reminders if r.get("transaction_id") == tx_id]
-
+    for doc in db.collection("transactions").where("type", "==", "GAVE").get():
+        tx = doc.to_dict()
+        tx_id = tx.get("id", doc.id)
+        reminders = [r.to_dict() for r in db.collection("reminders").where("transaction_id", "==", tx_id).get()]
         lendings.append({
             "transaction_id": tx_id,
             "customer_id": tx.get("customer_id"),
@@ -434,40 +365,63 @@ def get_admin_lendings_db() -> List[Dict[str, Any]]:
             "notes": tx.get("notes"),
             "reminder_schedule": reminders,
         })
-
     return lendings
 
 
 # ── Loan Payments ────────────────────────────────────────────────────────────
 
 def get_loan_payments_db(loan_id: str) -> List[Dict[str, Any]]:
-    payments = [p for p in _loan_payments if p.get("loan_id") == loan_id]
-    return sorted(payments, key=lambda x: x.get("payment_date", ""), reverse=True)
+    db = get_firestore_client()
+    rows = []
+    for doc in db.collection("loan_payments").where("loan_id", "==", loan_id).get():
+        p = doc.to_dict()
+        p.setdefault("id", doc.id)
+        rows.append(p)
+    return sorted(rows, key=lambda x: x.get("payment_date", ""), reverse=True)
 
 
-def get_collector_payments_db(collector_name: str) -> List[Dict[str, Any]]:
-    payments = [p for p in _loan_payments if p.get("collector_name") == collector_name]
-    
-    # Mock join with loans
-    for p in payments:
-        loan_id = p.get("loan_id")
-        loan = next((l for l in _loans if l.get("id") == loan_id), None)
+def get_collector_payments_db(collector_name: Optional[str]) -> List[Dict[str, Any]]:
+    """Payments logged by one collector (or all payments when collector_name is None), newest first."""
+    db = get_firestore_client()
+    query = db.collection("loan_payments")
+    if collector_name:
+        query = query.where("collector_name", "==", collector_name)
+    loans = {d.id: d.to_dict() for d in db.collection("loans").get()}
+    rows = []
+    for doc in query.get():
+        p = doc.to_dict()
+        p.setdefault("id", doc.id)
+        loan = loans.get(p.get("loan_id"))
         if loan:
             p["customer_name"] = loan.get("customer_name")
             p["customer_phone"] = loan.get("customer_phone")
+        rows.append(p)
+    return sorted(rows, key=lambda x: x.get("payment_date", ""), reverse=True)
 
-    return sorted(payments, key=lambda x: x.get("payment_date", ""), reverse=True)
 
 # ── Admin Access Requests ─────────────────────────────────────────────────────
-# Anyone whose phone isn't in ADMIN_USERS must be approved by an existing admin
-# before they can log in. Approvals persist for the life of this server process.
-
-_admin_access_requests: List[Dict[str, Any]] = []
-_approved_admin_phones: set = set()
-
+# Anyone whose phone isn't a configured admin must be approved by an existing
+# admin before they can log in. Requests and approvals are persisted.
 
 def _normalize_phone(raw: str) -> str:
-    return (raw or "").replace(" ", "").replace("-", "").lstrip("+").lower()
+    digits = "".join(ch for ch in (raw or "") if ch.isdigit())
+    # Treat "+91 98765 43210", "919876543210" and "9876543210" as the same number
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    return digits
+
+
+normalize_phone = _normalize_phone
+
+
+def _access_requests() -> List[Dict[str, Any]]:
+    db = get_firestore_client()
+    rows = []
+    for d in db.collection("admin_access_requests").get():
+        r = d.to_dict()
+        r.setdefault("id", d.id)
+        rows.append(r)
+    return sorted(rows, key=lambda r: r.get("requested_at", ""))
 
 
 def is_admin_phone_allowed_db(phone: str, admin_users: List[Dict[str, Any]]) -> bool:
@@ -475,7 +429,9 @@ def is_admin_phone_allowed_db(phone: str, admin_users: List[Dict[str, Any]]) -> 
     if not normalized:
         return False
     allowed = {_normalize_phone(a.get("phone", "")) for a in admin_users if a.get("phone")}
-    return normalized in allowed or normalized in _approved_admin_phones
+    if normalized in allowed:
+        return True
+    return any(r["status"] == "approved" and _normalize_phone(r["phone"]) == normalized for r in _access_requests())
 
 
 def get_admin_display_name_db(phone: str, admin_users: List[Dict[str, Any]]) -> Optional[str]:
@@ -483,7 +439,7 @@ def get_admin_display_name_db(phone: str, admin_users: List[Dict[str, Any]]) -> 
     for a in admin_users:
         if _normalize_phone(a.get("phone", "")) == normalized:
             return a["name"]
-    for r in reversed(_admin_access_requests):
+    for r in reversed(_access_requests()):
         if r["status"] == "approved" and _normalize_phone(r["phone"]) == normalized:
             return r["name"]
     return None
@@ -491,7 +447,7 @@ def get_admin_display_name_db(phone: str, admin_users: List[Dict[str, Any]]) -> 
 
 def create_admin_access_request_db(name: str, phone: str) -> Dict[str, Any]:
     normalized = _normalize_phone(phone)
-    for r in _admin_access_requests:
+    for r in _access_requests():
         if r["status"] == "pending" and _normalize_phone(r["phone"]) == normalized:
             return r
     record = {
@@ -501,31 +457,41 @@ def create_admin_access_request_db(name: str, phone: str) -> Dict[str, Any]:
         "status": "pending",
         "requested_at": datetime.utcnow().isoformat(),
     }
-    _admin_access_requests.append(record)
+    get_firestore_client().collection("admin_access_requests").document(record["id"]).set(record)
     return record
 
 
 def get_pending_admin_access_requests_db() -> List[Dict[str, Any]]:
-    return [r for r in _admin_access_requests if r["status"] == "pending"]
+    return [r for r in _access_requests() if r["status"] == "pending"]
 
 
-def resolve_admin_access_request_db(request_id: str, approve: bool) -> Optional[Dict[str, Any]]:
-    for r in _admin_access_requests:
-        if r["id"] == request_id:
-            if r["status"] == "pending":
-                r["status"] = "approved" if approve else "denied"
-                if approve:
-                    _approved_admin_phones.add(_normalize_phone(r["phone"]))
-            return r
-    return None
+def resolve_admin_access_request_db(request_id: str, approve: bool, resolved_by: str = "") -> Optional[Dict[str, Any]]:
+    ref = get_firestore_client().collection("admin_access_requests").document(request_id)
+    snap = ref.get()
+    if not snap.exists:
+        return None
+    record = snap.to_dict()
+    if record.get("status") == "pending":
+        record.update({
+            "status": "approved" if approve else "denied",
+            "resolved_at": datetime.utcnow().isoformat(),
+            "resolved_by": resolved_by,
+        })
+        ref.set(record)
+    return record
 
 
-# ── Compatibility Aliases ─────────────────────────────────────────────────────
+# ── Idempotency (duplicate-submit protection) ────────────────────────────────
 
-def get_db_connection():
-    """Dummy connection for backward compatibility."""
-    return None
+def get_idempotent_response(scope: str, key: str) -> Optional[Dict[str, Any]]:
+    snap = get_firestore_client().collection("idempotency_keys").document(f"{scope}:{key}").get()
+    return snap.to_dict().get("response") if snap.exists else None
 
-def get_firestore_client():
-    """Return the MockFirestore client."""
-    return MockFirestore()
+
+def save_idempotent_response(scope: str, key: str, response: Dict[str, Any]):
+    get_firestore_client().collection("idempotency_keys").document(f"{scope}:{key}").set({
+        "scope": scope,
+        "key": key,
+        "response": response,
+        "created_at": datetime.utcnow().isoformat(),
+    })

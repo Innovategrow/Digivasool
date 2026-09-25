@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { useAuth } from '../../context/AuthContext';
-import { apiFetch, isDemoMode } from '../../utils/api';
+import { apiFetch, isDemoMode, newIdempotencyKey, readError } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
 import {
   ArrowLeft,
@@ -17,7 +17,6 @@ import {
   Download,
   FileText,
   Filter,
-  Home,
   Image as ImageIcon,
   MessageCircle,
   MoreHorizontal,
@@ -26,7 +25,6 @@ import {
   Plus,
   Search,
   Send,
-  Settings,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -144,6 +142,9 @@ export default function CollectPayment() {
   const proofFileInput = useRef(null);
   const proofInputRefs = useRef({});
   const demo = isDemoMode();
+  const paymentKeyRef = useRef(null);
+  // A changed entry is a new payment; an unchanged retry keeps its key
+  useEffect(() => { paymentKeyRef.current = null; }, [selectedLoan?.id, amount, paymentMethod, paymentDate]);
 
   async function uploadProof(paymentId, file) {
     if (!paymentId || !file) return;
@@ -207,11 +208,14 @@ export default function CollectPayment() {
   }), [loans]);
 
   async function handleSave() {
-    if (!selectedLoan || !amount || !paymentDate) return;
+    if (loading || !selectedLoan || amount === '' || !paymentDate) return;
+    // Same key for every retry of this entry, so a slow network or double tap can't record it twice
+    if (!paymentKeyRef.current) paymentKeyRef.current = newIdempotencyKey();
     setLoading(true);
     try {
       const res = await apiFetch(`/api/loans/${selectedLoan.id}/payments`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': paymentKeyRef.current },
         body: JSON.stringify({
           amount: parseFloat(amount),
           payment_method: paymentMethod,
@@ -221,8 +225,9 @@ export default function CollectPayment() {
           notes: notes.trim() || null,
         }),
       });
+      if (!res.ok) throw new Error(await readError(res, 'Payment could not be saved. Please try again.'));
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Payment failed');
+      paymentKeyRef.current = null;
       setSuccessData({
         ...data,
         amount: parseFloat(amount),
@@ -724,11 +729,6 @@ export default function CollectPayment() {
         <Plus size={19} /> ADD CUSTOMER
       </button>
 
-      <nav className="collector-inline-nav" aria-label="Collector navigation">
-        <button className="active" type="button"><Home size={19} /><span>Customers</span></button>
-        <button type="button" onClick={() => navigate('/collector/borrowers')}><Wallet size={19} /><span>Loans/Center</span></button>
-        <button type="button" onClick={() => navigate('/collector/history')}><Settings size={19} /><span>More</span></button>
-      </nav>
     </div>
   );
 }

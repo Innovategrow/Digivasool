@@ -1,5 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
+import { useToast } from '../../components/Toast';
+
+// Runs an async save, keeping the modal open (with the error shown) if it fails.
+function useSave(onAdd, onClose) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const save = async (payload) => {
+    if (saving) return;
+    setSaving(true); setError('');
+    try { await onAdd(payload); onClose(); }
+    catch (err) { setError(err.message || 'Something went wrong. Please try again.'); setSaving(false); }
+  };
+  return { saving, error, save };
+}
 import { useLanguage } from '../../context/LanguageContext';
 import { Plus, X, TrendingDown, TrendingUp, Briefcase, Inbox, Send } from 'lucide-react';
 
@@ -10,6 +24,7 @@ function AddExpenseModal({ onClose, onAdd }) {
   const { t } = useLanguage();
   const [form, setForm] = useState({ category: 'Staff Salary', amount: '', date: new Date().toISOString().split('T')[0], description: '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const { saving, error, save } = useSave(onAdd, onClose);
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -37,8 +52,9 @@ function AddExpenseModal({ onClose, onAdd }) {
           <label className="form-label">{t('descriptionLabel')}</label>
           <input className="form-input" value={form.description} onChange={e => set('description', e.target.value)} placeholder="Brief description..." />
         </div>
-        <button className="btn btn-primary w-full" onClick={() => { if (form.amount) { onAdd({ ...form, amount: Number(form.amount) }); onClose(); } }}>
-          <TrendingDown size={16} /> {t('logExpense')}
+        {error && <div className="form-alert" role="alert">{error}</div>}
+        <button className="btn btn-primary w-full" disabled={saving || !(Number(form.amount) > 0)} onClick={() => save({ ...form, amount: Number(form.amount) })}>
+          <TrendingDown size={16} /> {saving ? 'Saving...' : t('logExpense')}
         </button>
       </div>
     </div>
@@ -49,6 +65,7 @@ function AddCapitalModal({ onClose, onAdd }) {
   const { t } = useLanguage();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const { saving, error, save } = useSave(onAdd, onClose);
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -64,8 +81,9 @@ function AddCapitalModal({ onClose, onAdd }) {
           <label className="form-label">{t('noteLabel')}</label>
           <input className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Capital round description" />
         </div>
-        <button className="btn btn-success w-full" onClick={() => { if (amount) { onAdd({ amount: Number(amount), note, date: new Date().toISOString().split('T')[0] }); onClose(); } }}>
-          <TrendingUp size={16} /> {t('logInvestment')}
+        {error && <div className="form-alert" role="alert">{error}</div>}
+        <button className="btn btn-success w-full" disabled={saving || !(Number(amount) > 0)} onClick={() => save({ amount: Number(amount), note, date: new Date().toISOString().split('T')[0] })}>
+          <TrendingUp size={16} /> {saving ? 'Saving...' : t('logInvestment')}
         </button>
       </div>
     </div>
@@ -73,7 +91,9 @@ function AddCapitalModal({ onClose, onAdd }) {
 }
 
 export default function Expenses() {
-  const { state, dispatch, derived } = useAppData();
+  const { state, actions, derived } = useAppData();
+  const { showToast } = useToast();
+  useEffect(() => { actions.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { t } = useLanguage();
   const [showExpense, setShowExpense] = useState(false);
   const [showCapital, setShowCapital] = useState(false);
@@ -88,7 +108,7 @@ export default function Expenses() {
           <div className="page-title">{t('expensesAndCapital')}</div>
           <div className="page-subtitle">{t('businessFinancialHealth')}</div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="page-header-actions">
           <button className="btn btn-secondary" onClick={() => setShowCapital(true)}><TrendingUp size={16} />{t('logInvestment')}</button>
           <button className="btn btn-primary" onClick={() => setShowExpense(true)}><TrendingDown size={16} />{t('addExpense')}</button>
         </div>
@@ -110,7 +130,7 @@ export default function Expenses() {
       </div>
 
       {/* Tabs: Expenses / Capital */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div className="chip-row" style={{ marginBottom: 16 }}>
         {[{ id: 'expenses', icon: Send, label: t('expenses') }, { id: 'capital', icon: Briefcase, label: t('capitalInvestments') }].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className="btn btn-secondary btn-sm"
             style={{ background: activeTab === tab.id ? 'var(--brand-soft)' : undefined, color: activeTab === tab.id ? 'var(--brand-light)' : undefined, borderColor: activeTab === tab.id ? 'var(--brand)' : undefined }}>
@@ -128,10 +148,10 @@ export default function Expenses() {
             <tbody>
               {state.expenses.map(e => (
                 <tr key={e.id}>
-                  <td style={{ fontSize: 13 }}>{e.date}</td>
-                  <td><span className="badge" style={{ background: `${CAT_COLORS[e.category]}22`, color: CAT_COLORS[e.category] }}>{e.category}</span></td>
-                  <td style={{ fontWeight: 700, color: 'var(--red)', fontFamily: 'var(--mono)' }}>₹{e.amount.toLocaleString()}</td>
-                  <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{e.description}</td>
+                  <td data-label={t('dateLabel')} style={{ fontSize: 13 }}>{e.date}</td>
+                  <td data-label={t('category')}><span className="badge" style={{ background: `${CAT_COLORS[e.category]}22`, color: CAT_COLORS[e.category] }}>{e.category}</span></td>
+                  <td data-label={t('amountRs')} style={{ fontWeight: 700, color: 'var(--red)', fontFamily: 'var(--mono)' }}>₹{e.amount.toLocaleString()}</td>
+                  <td data-label={t('descriptionLabel')} style={{ fontSize: 13, color: 'var(--text-2)' }}>{e.description}</td>
                 </tr>
               ))}
             </tbody>
@@ -148,9 +168,9 @@ export default function Expenses() {
             <tbody>
               {state.capital.map(c => (
                 <tr key={c.id}>
-                  <td style={{ fontSize: 13 }}>{c.date}</td>
-                  <td style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{c.amount.toLocaleString()}</td>
-                  <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{c.note}</td>
+                  <td data-label={t('dateLabel')} style={{ fontSize: 13 }}>{c.date}</td>
+                  <td data-label={t('amountRs')} style={{ fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--mono)' }}>₹{c.amount.toLocaleString()}</td>
+                  <td data-label={t('noteLabel')} style={{ fontSize: 13, color: 'var(--text-2)' }}>{c.note}</td>
                 </tr>
               ))}
             </tbody>
@@ -158,8 +178,8 @@ export default function Expenses() {
         </div>
       )}
 
-      {showExpense && <AddExpenseModal onClose={() => setShowExpense(false)} onAdd={p => dispatch({ type: 'ADD_EXPENSE', payload: p })} />}
-      {showCapital && <AddCapitalModal onClose={() => setShowCapital(false)} onAdd={p => dispatch({ type: 'ADD_CAPITAL', payload: p })} />}
+      {showExpense && <AddExpenseModal onClose={() => setShowExpense(false)} onAdd={async p => { await actions.addExpense(p); showToast('Expense saved'); }} />}
+      {showCapital && <AddCapitalModal onClose={() => setShowCapital(false)} onAdd={async p => { await actions.addCapital(p); showToast('Investment saved'); }} />}
     </div>
   );
 }

@@ -1,25 +1,35 @@
 import { API_BASE_URL } from '../config';
 import { demoFetch } from './demoApi';
 
-export function getAuthHeaders(role = 'admin') {
-  const saved = localStorage.getItem('dk_user');
-  let userRole = role;
-  if (saved) {
-    try { userRole = JSON.parse(saved).role || role; } catch {}
-  }
-  return {
-    'Content-Type': 'application/json',
-    'X-User-Role': userRole,
-  };
+function savedUser() {
+  try { return JSON.parse(localStorage.getItem('dk_user') || 'null'); } catch { return null; }
+}
+
+export function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = savedUser()?.token;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
 }
 
 export function isDemoMode() {
-  const saved = localStorage.getItem('dk_user');
-  if (!saved) return false;
+  return savedUser()?.demo === true;
+}
+
+// A fresh key per user action; resend the SAME key when retrying that action so the
+// server can recognise duplicates (slow network, double taps).
+export function newIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+// Read the error message out of an API response without throwing on non-JSON bodies.
+export async function readError(res, fallback = 'Something went wrong. Please try again.') {
   try {
-    return JSON.parse(saved).demo === true;
+    const data = await res.json();
+    return typeof data?.detail === 'string' ? data.detail : fallback;
   } catch {
-    return false;
+    return fallback;
   }
 }
 
@@ -30,5 +40,11 @@ export async function apiFetch(path, options = {}) {
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
   if (isFormData) delete headers['Content-Type']; // let the browser set the multipart boundary
-  return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
+    // Session missing or expired — send the user back to the login screen.
+    localStorage.removeItem('dk_user');
+    if (!window.location.pathname.startsWith('/login')) window.location.assign('/login');
+  }
+  return res;
 }

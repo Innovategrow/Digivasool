@@ -14,7 +14,7 @@ const STORAGE_KEY = 'digivasool_language';
 // UI string dictionary. Falls back to English for any key missing in a language.
 const TRANSLATIONS = {
   en: {
-    appName: 'VasoolPro', appTagline: 'Micro Finance System',
+    appName: 'DigiVasool', appTagline: 'Micro Finance System',
     navMain: 'Main', navFinance: 'Finance', navSystem: 'System', navCollector: 'Collector',
     dashboard: 'Dashboard', borrowers: 'Borrowers', collection: 'Collection', ledger: 'Ledger',
     expenses: 'Expenses', reports: 'Reports', staff: 'Staff', settings: 'Settings', recycleBin: 'Recycle Bin',
@@ -138,7 +138,7 @@ const TRANSLATIONS = {
     sendSmsToBorrower: 'Send SMS to Borrower',
   },
   hi: {
-    appName: 'वासूलप्रो', appTagline: 'माइक्रो फाइनेंस सिस्टम',
+    appName: 'DigiVasool', appTagline: 'माइक्रो फाइनेंस सिस्टम',
     navMain: 'मुख्य', navFinance: 'वित्त', navSystem: 'सिस्टम', navCollector: 'कलेक्टर',
     dashboard: 'डैशबोर्ड', borrowers: 'उधारकर्ता', collection: 'वसूली', ledger: 'खाता-बही',
     expenses: 'खर्च', reports: 'रिपोर्ट', staff: 'स्टाफ', settings: 'सेटिंग्स',
@@ -251,7 +251,7 @@ const TRANSLATIONS = {
     sendSmsToBorrower: 'उधारकर्ता को एसएमएस भेजें',
   },
   ta: {
-    appName: 'வசூல்ப்ரோ', appTagline: 'மைக்ரோ ஃபைனான்ஸ் சிஸ்டம்',
+    appName: 'DigiVasool', appTagline: 'மைக்ரோ ஃபைனான்ஸ் சிஸ்டம்',
     navMain: 'முதன்மை', navFinance: 'நிதி', navSystem: 'கணினி', navCollector: 'கலெக்டர்',
     dashboard: 'டாஷ்போர்டு', borrowers: 'கடன் வாங்குபவர்கள்', collection: 'வசூல்', ledger: 'கணக்கு புத்தகம்',
     expenses: 'செலவுகள்', reports: 'அறிக்கைகள்', staff: 'ஊழியர்', settings: 'அமைப்புகள்',
@@ -364,7 +364,7 @@ const TRANSLATIONS = {
     sendSmsToBorrower: 'கடன் வாங்குபவருக்கு SMS அனுப்பு',
   },
   te: {
-    appName: 'వసూల్‌ప్రో', appTagline: 'మైక్రో ఫైనాన్స్ సిస్టమ్',
+    appName: 'DigiVasool', appTagline: 'మైక్రో ఫైనాన్స్ సిస్టమ్',
     navMain: 'ప్రధాన', navFinance: 'ఆర్థిక', navSystem: 'సిస్టమ్', navCollector: 'కలెక్టర్',
     dashboard: 'డాష్‌బోర్డ్', borrowers: 'రుణగ్రహీతలు', collection: 'వసూలు', ledger: 'లెడ్జర్',
     expenses: 'ఖర్చులు', reports: 'నివేదికలు', staff: 'సిబ్బంది', settings: 'సెట్టింగ్‌లు',
@@ -477,7 +477,7 @@ const TRANSLATIONS = {
     sendSmsToBorrower: 'రుణగ్రహీతకు SMS పంపండి',
   },
   kn: {
-    appName: 'ವಸೂಲ್‌ಪ್ರೊ', appTagline: 'ಮೈಕ್ರೋ ಫೈನಾನ್ಸ್ ಸಿಸ್ಟಮ್',
+    appName: 'DigiVasool', appTagline: 'ಮೈಕ್ರೋ ಫೈನಾನ್ಸ್ ಸಿಸ್ಟಮ್',
     navMain: 'ಮುಖ್ಯ', navFinance: 'ಹಣಕಾಸು', navSystem: 'ಸಿಸ್ಟಮ್', navCollector: 'ಕಲೆಕ್ಟರ್',
     dashboard: 'ಡ್ಯಾಶ್‌ಬೋರ್ಡ್', borrowers: 'ಸಾಲಗಾರರು', collection: 'ವಸೂಲಿ', ledger: 'ಲೆಡ್ಜರ್',
     expenses: 'ಖರ್ಚುಗಳು', reports: 'ವರದಿಗಳು', staff: 'ಸಿಬ್ಬಂದಿ', settings: 'ಸೆಟ್ಟಿಂಗ್‌ಗಳು',
@@ -590,7 +590,7 @@ const TRANSLATIONS = {
     sendSmsToBorrower: 'ಸಾಲಗಾರರಿಗೆ SMS ಕಳುಹಿಸಿ',
   },
   ml: {
-    appName: 'വസൂൽപ്രോ', appTagline: 'മൈക്രോ ഫിനാൻസ് സിസ്റ്റം',
+    appName: 'DigiVasool', appTagline: 'മൈക്രോ ഫിനാൻസ് സിസ്റ്റം',
     navMain: 'പ്രധാനം', navFinance: 'ധനകാര്യം', navSystem: 'സിസ്റ്റം', navCollector: 'കളക്ടർ',
     dashboard: 'ഡാഷ്ബോർഡ്', borrowers: 'വായ്പക്കാർ', collection: 'പിരിവ്', ledger: 'ലെഡ്ജർ',
     expenses: 'ചെലവുകൾ', reports: 'റിപ്പോർട്ടുകൾ', staff: 'ജീവനക്കാർ', settings: 'ക്രമീകരണങ്ങൾ',

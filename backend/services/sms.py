@@ -84,3 +84,8 @@ def build_disbursement_sms(
 def queue_disbursement_sms(phone: str, message: str) -> None:
     """Placeholder for a real SMS gateway (Twilio / MSG91 / Fast2SMS) integration."""
     print("Queued disbursement SMS ->", phone, ":", message)
+
+
+def send_otp_sms(phone: str, otp: str) -> None:
+    """Deliver a login OTP. Plug a real SMS gateway in here before disabling OTP_DEV_MODE."""
+    print(f"Login OTP for {phone}: {otp}")

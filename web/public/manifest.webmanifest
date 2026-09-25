@@ -1,0 +1,14 @@
+{
+  "name": "DigiVasool",
+  "short_name": "DigiVasool",
+  "description": "Loan collection and borrower management",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f8fb",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,7 +1,7 @@
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { TrendingUp, AlertTriangle, Wallet, Target, ArrowRight, CheckCircle2, Clock, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3, Search, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, Target, ArrowRight, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3, Search, SlidersHorizontal } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
@@ -47,13 +47,15 @@ function RecoveryRing({ percent }) {
 }
 
 export default function Dashboard() {
-  const { derived, state } = useAppData();
+  const { derived, state, actions } = useAppData();
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { todayCollected, overdueCount } = derived;
   const [apiStats, setApiStats] = useState(null);
   const [mobileFilter, setMobileFilter] = useState('due');
+
+  useEffect(() => { actions.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     apiFetch('/api/loans/stats')
@@ -80,7 +82,6 @@ export default function Dashboard() {
 
   return (
     <div className="animate-fadeUp">
-      {/* ── Mobile app-style home (phone screens only) ── */}
       <div className="mobile-home">
         <div className="mh-header">
           <div>
@@ -112,9 +113,26 @@ export default function Dashboard() {
         </div>
 
         <div className="mh-quick-row">
-          <button className="mh-quick-btn" onClick={() => navigate('/new-loan')}><UserPlus size={18} />{t('newLoan')}</button>
+          <button className="mh-quick-btn" onClick={() => navigate('/borrowers?add=1')}><UserPlus size={18} />{t('newLoan')}</button>
           <button className="mh-quick-btn" onClick={() => navigate('/collection')}><Banknote size={18} />{t('collect')}</button>
           <button className="mh-quick-btn" onClick={() => navigate('/reports')}><BarChart3 size={18} />{t('reports')}</button>
+        </div>
+
+        <div className="stat-grid">
+          {[
+            { id: 'activeBorrowers', label: t('activeBorrowers'), value: activeCount, color: 'var(--brand-light)', icon: ClipboardList },
+            { id: 'totalOutstanding', label: t('totalOutstanding'), value: outstanding, prefix: '₹', color: 'var(--amber)', icon: Hourglass },
+            { id: 'totalCollected', label: t('totalCollected'), value: totalCollected, prefix: '₹', color: 'var(--green)', icon: Inbox },
+            { id: 'dueToday', label: t('dueToday'), value: todayPending, suffix: ` / ${todayPaid + todayPending}`, color: 'var(--cyan)', icon: IndianRupee },
+          ].map(s => (
+            <div key={s.id} className="stat-tile">
+              <div className="stat-tile-label"><s.icon size={14} /> {s.label}</div>
+              <div className="stat-tile-value" style={{ color: s.color }}><AnimatedNumber value={s.value} prefix={s.prefix || ''} suffix={s.suffix || ''} /></div>
+              {s.id === 'activeBorrowers' && overdueCount > 0 && (
+                <div className="stat-tile-note"><AlertTriangle size={11} /> {overdueCount} overdue</div>
+              )}
+            </div>
+          ))}
         </div>
 
         <div className="mh-pills">
@@ -169,150 +187,40 @@ export default function Dashboard() {
             )}
           </>
         )}
-      </div>
 
-      {/* ── Desktop dashboard (tablet/desktop screens) ── */}
-      <div className="desktop-only">
-      {/* Stat cards */}
-      <div className="stat-grid">
-        {[
-          { id: 'todaysCollection', label: t('todaysCollection'), value: todayCollected, prefix: '₹', color: 'green', icon: IndianRupee },
-          { id: 'activeBorrowers', label: t('activeBorrowers'), value: activeCount, color: 'indigo', icon: ClipboardList },
-          { id: 'totalOutstanding', label: t('totalOutstanding'), value: outstanding, prefix: '₹', color: 'amber', icon: Hourglass },
-          { id: 'totalCollected', label: t('totalCollected'), value: totalCollected, prefix: '₹', color: 'cyan', icon: Inbox },
-        ].map((s, i) => (
-          <div key={s.id} className={`stat-card ${s.color} card-hover`} style={{ animationDelay: `${i * 0.08}s`, animation: 'popIn .45s ease both' }}>
-            <div className="stat-card-label">{s.label}</div>
-            <div className="stat-card-value" style={{ color: s.color === 'green' ? 'var(--green)' : s.color === 'indigo' ? 'var(--brand-light)' : s.color === 'amber' ? 'var(--amber)' : 'var(--cyan)' }}>
-              <AnimatedNumber value={s.value} prefix={s.prefix || ''} />
-            </div>
-            {s.id === 'activeBorrowers' && overdueCount > 0 && (
-              <div className="stat-card-trend" style={{ color: 'var(--red)' }}>
-                <AlertTriangle size={12} /> {overdueCount} overdue
-              </div>
-            )}
-            <div className="stat-card-icon"><s.icon size={36} /></div>
-          </div>
-        ))}
-      </div>
-
-      {/* Recovery + Today progress + Quick actions */}
-      <div className="grid-cols-3" style={{ gap: 16, marginBottom: 16 }}>
-        <div className="chart-card card-hover animate-fadeUp-1" style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div className="section-card recovery-card">
           <RecoveryRing percent={recoveryRate} />
           <div>
-            <div className="chart-title" style={{ marginBottom: 8 }}><Activity size={16} style={{ color: 'var(--brand-light)' }} />Portfolio Recovery</div>
-            <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6 }}>
-              Collected <strong style={{ color: 'var(--green)' }}>₹{totalCollected.toLocaleString()}</strong><br />
-              Outstanding <strong style={{ color: 'var(--amber)' }}>₹{outstanding.toLocaleString()}</strong>
+            <div className="section-card-title"><Activity size={15} /> Portfolio Recovery</div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>
+              Collected <strong style={{ color: 'var(--green)' }}>₹{totalCollected.toLocaleString('en-IN')}</strong><br />
+              Outstanding <strong style={{ color: 'var(--amber)' }}>₹{outstanding.toLocaleString('en-IN')}</strong>
             </div>
           </div>
         </div>
 
-        <div className="chart-card card-hover animate-fadeUp-2">
-          <div className="chart-title"><Wallet size={16} style={{ color: 'var(--green)' }} />Today's Ledger</div>
-          <div style={{ fontSize: 30, fontWeight: 900, color: 'var(--green)', fontFamily: 'var(--mono)', marginBottom: 6 }}>
-            ₹{todayCollected.toLocaleString()}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8 }}>of ₹{expectedToday.toLocaleString()} expected today</div>
-          <div className="progress-bar" style={{ marginBottom: 12 }}>
-            <div className="progress-fill" style={{ width: `${Math.min(todayProgress, 100)}%`, background: 'var(--green)' }} />
-          </div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={{ flex: 1, background: 'var(--green-soft)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--green)' }}>{todayPaid}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-2)' }}>Paid</div>
-            </div>
-            <div style={{ flex: 1, background: 'var(--amber-soft)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--amber)' }}>{todayPending}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-2)' }}>Pending</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="chart-card card-hover animate-fadeUp-3">
-          <div className="chart-title"><Target size={16} style={{ color: 'var(--brand-light)' }} />Quick Actions</div>
-          <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button className="btn btn-primary w-full" onClick={() => navigate('/borrowers')}>
-              <UserPlus size={16} /> New Borrower + Loan
-            </button>
-            <button className="btn btn-secondary w-full" onClick={() => navigate('/collection')}>
-              <Banknote size={16} /> Record Collection
-            </button>
-            <button className="btn btn-secondary w-full" onClick={() => navigate('/reports')}>
-              <BarChart3 size={16} /> View Reports
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Due Today + Overdue + Staff */}
-      <div className="grid-cols-3" style={{ gap: 16 }}>
-        <div className="chart-card card-hover animate-fadeUp-1">
-          <div className="chart-title" style={{ justifyContent: 'space-between' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={16} style={{ color: 'var(--amber)' }} />{t('dueToday')}</span>
-            {dueToday.length > 0 && <span className="badge badge-amber">{dueToday.length}</span>}
-          </div>
-          {dueToday.length === 0 ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--green)', fontSize: 13 }}>
-              <CheckCircle2 size={16} /> All today's dues collected!
-            </div>
-          ) : (
-            <div className="stagger">
-              {dueToday.slice(0, 5).map(i => (
-                <div key={i.id} onClick={() => navigate('/collection')} className="card-hover"
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 10, background: 'var(--surface-2)', marginBottom: 8, cursor: 'pointer' }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{i.borrowerName}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{i.phone}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontWeight: 800, fontSize: 13, fontFamily: 'var(--mono)', color: 'var(--amber)' }}>₹{i.amount.toLocaleString()}</span>
-                    <ArrowRight size={14} style={{ color: 'var(--text-3)' }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="chart-card card-hover animate-fadeUp-2">
-          <div className="chart-title"><AlertTriangle size={16} style={{ color: 'var(--red)' }} />{t('overdueAlerts')}</div>
-          {overdueItems.length === 0 ? (
-            <div style={{ color: 'var(--text-2)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} style={{ color: 'var(--green)' }} /> No overdue accounts</div>
-          ) : (
-            <div className="stagger">
-              {overdueItems.slice(0, 5).map(i => (
-                <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{i.borrowerName}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-2)' }}>Due: {i.dueDate}</div>
-                  </div>
-                  <span className="badge badge-red">₹{i.amount.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="chart-card card-hover animate-fadeUp-3">
-          <div className="chart-title"><Target size={16} style={{ color: 'var(--brand-light)' }} />Staff Performance</div>
+        <div className="section-card">
+          <div className="section-card-title"><Target size={15} /> Staff Performance · this month</div>
+          {state.staff.filter(s => s.role === 'collector').length === 0 && <div className="muted-note">No collectors yet.</div>}
           {state.staff.filter(s => s.role === 'collector').map(s => {
-            const pct = Math.round((s.collected / s.target) * 100);
+            const pct = s.target > 0 ? Math.round((s.collected / s.target) * 100) : null;
             return (
               <div key={s.id} style={{ marginBottom: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6, gap: 8 }}>
                   <span style={{ fontWeight: 600 }}>{s.name}</span>
-                  <span style={{ color: pct >= 80 ? 'var(--green)' : 'var(--amber)', fontWeight: 700 }}>{pct}%</span>
+                  <span style={{ color: pct === null || pct >= 80 ? 'var(--green)' : 'var(--amber)', fontWeight: 700 }}>
+                    ₹{s.collected.toLocaleString('en-IN')}{pct !== null ? ` · ${pct}%` : ''}
+                  </span>
                 </div>
-                <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${Math.min(pct, 100)}%`, background: pct >= 80 ? 'var(--green)' : pct >= 60 ? 'var(--amber)' : 'var(--red)' }} />
-                </div>
+                {pct !== null && (
+                  <div className="progress-bar">
+                    <div className="progress-fill" style={{ width: `${Math.min(pct, 100)}%`, background: pct >= 80 ? 'var(--green)' : pct >= 60 ? 'var(--amber)' : 'var(--red)' }} />
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
-      </div>
       </div>
     </div>
   );

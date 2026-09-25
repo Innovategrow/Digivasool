@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench, Languages, Clock3, User } from 'lucide-react';
+import { ShieldCheck, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench, Languages, Clock3, User, Wallet } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
@@ -22,8 +22,8 @@ export default function Login() {
   // Load collectors from backend
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/collectors/`)
-      .then(r => r.json())
-      .then(data => setCollectors(data))
+      .then(r => (r.ok ? r.json() : []))
+      .then(data => setCollectors(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
 
@@ -49,7 +49,7 @@ export default function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Failed to send OTP');
       if (data.status === 'pending_approval') {
         setStep('pending');
@@ -78,9 +78,9 @@ export default function Login() {
           collector_name: role === 'collector' ? collectorName : undefined,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Invalid OTP');
-      login(data.role, data.name, data.phone || '');
+      login(data.role, data.name, data.phone || contact.trim(), false, data.token);
     } catch (err) {
       setError(err.message);
       setOtp(['', '', '', '', '', '']);
@@ -129,13 +129,19 @@ export default function Login() {
       border: '#f59e0b',
       soft: 'rgba(245,158,11,0.12)',
     },
+    {
+      id: 'borrower',
+      label: "I'm a Borrower",
+      desc: 'See my loan, balance & payments',
+      icon: <Wallet size={22} color="white" />,
+      bg: 'var(--green)',
+      border: 'var(--green)',
+      soft: 'var(--green-soft)',
+    },
   ];
 
   return (
-    <div style={{
-      minHeight: '100vh', background: 'var(--bg)', display: 'flex',
-      flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px',
-    }}>
+    <div className="app-scroll"><div className="login-screen">
       {/* Language Switcher */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, padding: '6px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
         <Languages size={14} style={{ color: 'var(--text-2)' }} />
@@ -149,8 +155,8 @@ export default function Login() {
       <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '6px 14px', marginBottom: 24, fontSize: 12, color: 'var(--text-2)', fontWeight: 500, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Zap size={13} style={{ color: 'var(--amber)', flexShrink: 0 }} />
         <span style={{ fontWeight: 700 }}>Quick demo login:</span>
-        {[{role:'admin',name:'Rahul',label:'Admin'},{role:'collector',name:'Collector 1',label:'Collector'}].map(d => (
-          <button key={d.role} onClick={() => login(d.role, d.name, '', true)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '3px 10px', fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>
+        {[{role:'admin',name:'Rahul',label:'Admin'},{role:'collector',name:'Collector 1',label:'Collector'},{role:'borrower',name:'Rajan Kumar',phone:'9876543210',label:'Borrower'}].map(d => (
+          <button key={d.role} onClick={() => login(d.role, d.name, d.phone || '', true)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 8, padding: '6px 12px', minHeight: 32, fontWeight: 600, cursor: 'pointer', fontSize: 12 }}>
             {d.label}
           </button>
         ))}
@@ -169,7 +175,7 @@ export default function Login() {
           fontSize: '28px', fontWeight: 900, letterSpacing: '-0.5px',
           background: 'linear-gradient(to right, var(--text) 40%, var(--brand))',
           WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-        }}>DigitKhata Pro</h1>
+        }}>{t('appName')}</h1>
         <p style={{ color: 'var(--text-2)', marginTop: '6px', fontSize: '14px' }}>Secure money lending tracker</p>
       </div>
 
@@ -190,7 +196,7 @@ export default function Login() {
         ))}
       </div>
 
-      <div className="card" style={{ width: '100%', maxWidth: '420px', padding: '32px' }}>
+      <div className="card login-card">
 
         {/* ── STEP 1: Choose Role ── */}
         {step === 'choose' && (
@@ -233,8 +239,8 @@ export default function Login() {
             </button>
 
             <h2 style={{ fontSize: '20px', fontWeight: 800, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {role === 'admin' ? <Lock size={18} /> : <HardHat size={18} />}
-              {role === 'admin' ? 'Admin Login' : 'Collector Login'}
+              {role === 'admin' ? <Lock size={18} /> : role === 'collector' ? <HardHat size={18} /> : <Wallet size={18} />}
+              {role === 'admin' ? 'Admin Login' : role === 'collector' ? 'Collector Login' : 'Borrower Login'}
             </h2>
             <p style={{ color: 'var(--text-2)', fontSize: '14px', marginBottom: '24px' }}>
               We'll send an OTP to verify your identity.
@@ -280,6 +286,11 @@ export default function Login() {
                   Enter the phone number registered with your collector account.
                 </p>
               )}
+              {role === 'borrower' && (
+                <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '6px' }}>
+                  Use the mobile number you gave when your loan was created.
+                </p>
+              )}
             </div>
 
             {error && <div style={{ color: 'var(--red)', background: 'var(--red-soft)', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
@@ -309,19 +320,18 @@ export default function Login() {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginBottom: '24px' }} onPaste={handleOtpPaste}>
+            <div className="otp-row" onPaste={handleOtpPaste}>
               {otp.map((digit, i) => (
                 <input
                   key={i} id={`otp-box-${i}`}
                   ref={el => otpRefs.current[i] = el}
-                  type="tel" maxLength={1} value={digit}
+                  type="tel" inputMode="numeric" autoComplete={i === 0 ? 'one-time-code' : 'off'} maxLength={1} value={digit}
                   onChange={e => handleOtpChange(e.target.value, i)}
                   onKeyDown={e => handleOtpKey(e, i)}
                   style={{
-                    width: '48px', height: '56px', textAlign: 'center', fontSize: '24px', fontWeight: 800,
                     background: digit ? 'var(--brand-soft)' : 'var(--bg)',
                     border: `2px solid ${digit ? 'var(--brand)' : 'var(--border)'}`,
-                    borderRadius: '14px', color: 'var(--text)', outline: 'none', transition: 'all 0.15s',
+                    color: 'var(--text)',
                   }}
                 />
               ))}
@@ -361,10 +371,10 @@ export default function Login() {
       </div>
 
       <p style={{ color: 'var(--text-2)', fontSize: '12px', marginTop: '24px', textAlign: 'center' }}>
-        DigitKhata Pro · Private & Secure · LAN Only
+        {t('appName')} · Private & Secure
       </p>
 
       <style>{`select option { background: #ffffff; color: #111827; }`}</style>
-    </div>
+    </div></div>
   );
 }

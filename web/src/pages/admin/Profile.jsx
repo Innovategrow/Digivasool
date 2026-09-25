@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { User, Mail, ShieldCheck, LogOut, Clock, Smartphone, MapPin, Building, FileText, Upload, CheckCircle2 } from 'lucide-react';
-import { API_BASE_URL } from '../../config';
+import { apiFetch } from '../../utils/api';
 
 export default function Profile() {
   const { user, logout } = useAuth();
@@ -13,19 +13,23 @@ export default function Profile() {
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    // Mock admin data
+    // The signed-in user's own details
     setProfileData({
       customer_name: user.name,
-      customer_email: 'admin@digitalkhata.com',
-      customer_phone: '+91 99999 88888',
-      customer_address: '123 Finance Tower, Bangalore, KA',
+      customer_email: '',
+      customer_phone: user.phone || '',
+      customer_address: '',
     });
     setLoading(false);
 
-    setAuditLogs([
-      { id: 1, action: 'LOGIN', detail: `Logged in from LAN device`, time: new Date().toISOString() },
-      { id: 2, action: 'SYSTEM', detail: 'App updated to v2.5', time: new Date(Date.now() - 86400000).toISOString() },
-    ]);
+    if (user.role !== 'admin') return;
+    apiFetch('/api/admin/audit-log?limit=100')
+      .then(r => (r.ok ? r.json() : []))
+      .then(rows => setAuditLogs((Array.isArray(rows) ? rows : [])
+        .filter(r => r.actor === user.name)
+        .slice(0, 10)
+        .map((r, i) => ({ id: i, action: r.action, detail: r.detail, time: r.created_at }))))
+      .catch(() => setAuditLogs([]));
   }, [user]);
 
   const handleFileUpload = async (e) => {
@@ -36,12 +40,9 @@ export default function Profile() {
     formData.append('file', file);
     
     try {
-      const saved = localStorage.getItem('dk_user');
-      const role = (() => { try { return JSON.parse(saved)?.role; } catch { return null; } })() || 'admin';
-      const res = await fetch(`${API_BASE_URL}/api/loans/upload-proof?loan_id=${profileData.id}`, {
+      const res = await apiFetch(`/api/loans/upload-proof?loan_id=${encodeURIComponent(profileData.id)}`, {
         method: 'POST',
         body: formData,
-        headers: { 'X-User-Role': role },
       });
       if (res.ok) alert('Proof document uploaded successfully!');
     } catch (err) {
@@ -80,7 +81,7 @@ export default function Profile() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '20px' }}>
         {/* Contact Info */}
         <div>
           <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>{t('contactInformation')}</h3>

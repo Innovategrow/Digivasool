@@ -1,18 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   UserPlus, IndianRupee, ShieldCheck, Mail, Phone, MapPin,
   CheckCircle, Building2, Users, Wallet,
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
-  Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench, Store,
+  Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench,
   MessageSquare, Languages, Hash, ExternalLink, CheckCircle2, Search,
-  ArrowUpDown, Eye, ChevronLeft, ChevronRight, Trash2, Pencil
+  ArrowUpDown, Eye, Trash2, Pencil, MoreVertical, ArrowLeft, History, Store,
 } from 'lucide-react';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, newIdempotencyKey, readError } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { ZONES } from '../../context/AppDataContext';
 import PhotoCapture from '../../components/PhotoCapture';
+import BottomSheet from '../../components/BottomSheet';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import { useToast } from '../../components/Toast';
 
 function resolveProofUrl(url) {
   if (!url) return '';
@@ -29,6 +33,18 @@ const SMS_LANGUAGES = [
   { value: 'kn', label: 'Kannada ಕನ್ನಡ' },
   { value: 'ml', label: 'Malayalam മലയാളം' },
 ];
+
+const money = value => `₹${Math.round(Number(value) || 0).toLocaleString('en-IN')}`;
+const digitsOnly = value => String(value || '').replace(/\D/g, '');
+const samePhone = (a, b) => {
+  const clean = v => { const d = digitsOnly(v); return d.length === 12 && d.startsWith('91') ? d.slice(2) : d; };
+  return Boolean(clean(a)) && clean(a) === clean(b);
+};
+const formatDate = value => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
 // ── OTP Verifier sub-component ─────────────────────────────────────────────
 function OtpVerifier({ phone, onVerified }) {
@@ -152,7 +168,8 @@ function MergeModal({ loans, onClose, onMerge }) {
   );
 }
 
-const PAGE_SIZE = 8;
+
+const PAGE_SIZE = 20;
 
 const STATUS_TABS = [
   { value: 'all', label: 'All' },
@@ -178,16 +195,6 @@ function StatusBadge({ status }) {
   return <span className={`badge ${cls}`}>{status}</span>;
 }
 
-function MetricCard({ icon: Icon, label, value, tone = 'indigo', sub }) {
-  return (
-    <div className={`stat-card ${tone} card-hover customer-stat-card`}>
-      {React.createElement(Icon, { className: 'stat-card-icon', size: 40 })}
-      <div className="stat-card-label">{label}</div>
-      <div className="stat-card-value">{value}</div>
-      {sub && <div className="stat-card-trend">{sub}</div>}
-    </div>
-  );
-}
 
 function PaymentHistorySection({ loanId }) {
   const [payments, setPayments] = useState([]);
@@ -212,7 +219,14 @@ function PaymentHistorySection({ loanId }) {
       </div>
     );
   }
-  if (payments.length === 0) return null;
+  if (payments.length === 0) {
+    return (
+      <div className="customer-payment-history">
+        <SectionLabel>Payment History</SectionLabel>
+        <div className="muted-note">No payments recorded yet.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="customer-payment-history">
@@ -261,231 +275,342 @@ function PaymentHistorySection({ loanId }) {
   );
 }
 
-function CustomerDetailPanel({ loan, onClose, onCloseLoan, onDeleteLoan, onEdit, canClose }) {
-  if (!loan) return null;
+
+// ── Borrower list card ──────────────────────────────────────────────────────
+function BorrowerCard({ loan, onOpen, onMenu }) {
   const metrics = getLoanMetrics(loan);
-  const totalDeductions = loan.monthly_interest_amount || 0;
-  const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - totalDeductions);
-
   return (
-    <aside className="customer-detail-panel animate-slideUp" aria-label="Customer details">
-      <div className="customer-detail-header">
-        <div className="customer-avatar lg">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
-        <div>
-          <h3>{loan.customer_name}</h3>
-          <p>{loan.shop_name || loan.zone || 'Customer profile'}</p>
+    <article className="borrower-row" onClick={() => onOpen(loan)}>
+      <div className="customer-avatar">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
+      <div className="borrower-row-main">
+        <h3>{loan.customer_name}</h3>
+        <p>{[loan.customer_phone, loan.zone].filter(Boolean).join(' · ') || 'No phone'}</p>
+        <div className="borrower-row-amount">
+          <span>Outstanding</span>
+          <strong className={metrics.pendingAmount <= 0 ? 'settled' : ''}>{money(metrics.pendingAmount)}</strong>
+          <StatusBadge status={metrics.status} />
         </div>
-        <button className="btn btn-secondary btn-icon" onClick={onClose} aria-label="Close details"><X size={16} /></button>
-      </div>
-
-      <div className="customer-detail-balance">
-        <span>Outstanding</span>
-        <strong>₹{metrics.pendingAmount.toLocaleString()}</strong>
-        <StatusBadge status={metrics.status} />
-      </div>
-
-      <div className="progress-bar">
-        <div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} />
-      </div>
-
-      <div className="customer-detail-grid">
-        <div><span>Loan</span><strong>₹{(loan.loan_amount || 0).toLocaleString()}</strong></div>
-        <div><span>Collected</span><strong>₹{metrics.collectedAmount.toLocaleString()}</strong></div>
-        <div><span>Total Due</span><strong>₹{metrics.dueAmount.toLocaleString()}</strong></div>
-        <div><span>Disbursed</span><strong>₹{cashDisbursed.toLocaleString()}</strong></div>
-      </div>
-
-      <div className="customer-detail-list">
-        {loan.customer_phone && <a href={`tel:${loan.customer_phone}`}><PhoneCall size={14} /> {loan.customer_phone}</a>}
-        {loan.alternate_phone && <a href={`tel:${loan.alternate_phone}`}><PhoneCall size={14} /> {loan.alternate_phone}</a>}
-        {loan.account_number && <div><Hash size={14} /> A/C {loan.account_number}</div>}
-        {loan.zone && <div><MapPin size={14} /> {loan.zone}, Coimbatore</div>}
-        {loan.customer_address && <div><MapPin size={14} /> {loan.customer_address}</div>}
-        {loan.guarantor_name && <div><ShieldCheck size={14} /> {loan.guarantor_name}</div>}
-      </div>
-
-      <PaymentHistorySection key={loan.id} loanId={loan.id} />
-
-      {canClose && (
-        <div className="customer-close-loan">
-          {metrics.pendingAmount <= 0 && (
-            <>
-              <button
-                type="button"
-                className={`btn ${loan.status === 'closed' ? 'btn-secondary' : 'btn-success'}`}
-                disabled={loan.status === 'closed'}
-                onClick={() => onCloseLoan(loan)}
-              >
-                <CheckCircle2 size={15} /> {loan.status === 'closed' ? 'Loan closed' : 'Mark loan as closed'}
-              </button>
-              <span>Payment is complete. The loan history will remain saved.</span>
-            </>
-          )}
-          <button type="button" className="btn btn-secondary" onClick={() => onEdit(loan)}>
-            <Pencil size={15} /> Edit Borrower
-          </button>
-          <button type="button" className="btn btn-danger" onClick={() => onDeleteLoan(loan)}>
-            <Trash2 size={15} /> Delete Borrower
-          </button>
-          <span>Moves this borrower to the Recycle Bin. You can restore it later.</span>
+        <div className="customer-progress">
+          <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
+          <span>{Math.round(metrics.progress)}%</span>
         </div>
+      </div>
+      {onMenu && (
+        <button type="button" className="icon-btn row-menu-btn" aria-label={`Actions for ${loan.customer_name}`}
+          onClick={e => { e.stopPropagation(); onMenu(loan); }}>
+          <MoreVertical size={20} />
+        </button>
       )}
-    </aside>
+    </article>
   );
 }
 
-// ── Edit Borrower Modal ─────────────────────────────────────────────────────
-function EditBorrowerModal({ loan, onClose, onSave }) {
-  const { t } = useLanguage();
-  const [form, setForm] = useState({
-    name: loan.customer_name || '',
-    email: loan.customer_email || '',
-    phone: loan.customer_phone || '',
-    alternate_phone: loan.alternate_phone || '',
-    zone: loan.zone || '',
-    address: loan.customer_address || '',
-    shop_name: loan.shop_name || '',
-    aadhaar_number: loan.aadhaar_number || '',
-    guarantor_name: loan.guarantor_name || '',
-    guarantor_phone: loan.guarantor_phone || '',
-    guarantor_address: loan.guarantor_address || '',
-  });
-  const [photoPreview, setPhotoPreview] = useState(loan.photo_url || null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const field = (key) => ({ value: form[key], onChange: e => set(key, e.target.value) });
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.name.trim() || !form.phone.trim()) { setError('Full name and primary mobile are required.'); return; }
-    setSaving(true); setError('');
-    try {
-      await onSave({
-        customer_name: form.name,
-        customer_email: form.email,
-        customer_phone: form.phone,
-        customer_address: form.address,
-        alternate_phone: form.alternate_phone,
-        zone: form.zone,
-        shop_name: form.shop_name,
-        aadhaar_number: form.aadhaar_number,
-        guarantor_name: form.guarantor_name,
-        guarantor_phone: form.guarantor_phone,
-        guarantor_address: form.guarantor_address,
-        photo_url: photoPreview || '',
-      });
-      onClose();
-    } catch (err) {
-      setError(err.message || 'Failed to update borrower');
-    } finally {
-      setSaving(false);
-    }
-  };
+// ── Borrower details screen ─────────────────────────────────────────────────
+function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDelete, onCloseLoan, onOpenLoan }) {
+  const metrics = getLoanMetrics(loan);
+  const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - (loan.monthly_interest_amount || 0));
+  const activeLoans = relatedLoans.filter(l => getLoanMetrics(l).pendingAmount > 0 && l.status !== 'closed');
 
   return (
-    <div className="borrower-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto' }} onClick={onClose}>
-      <div className="card borrower-modal-card" onClick={e => e.stopPropagation()} style={{ animation: 'slideUp 0.3s ease' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div>
-            <h3 style={{ fontSize: '18px', fontWeight: 800 }}>Edit Borrower</h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>Update {loan.customer_name}'s details</p>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', display: 'flex' }}><X size={22} /></button>
+    <div className="screen animate-fadeUp">
+      <div className="screen-header">
+        <button type="button" className="icon-btn" onClick={onBack} aria-label="Back to borrowers"><ArrowLeft size={20} /></button>
+        <div className="screen-header-title">Borrower Details</div>
+      </div>
+
+      <section className="detail-hero">
+        <div className="customer-avatar lg">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
+        <div style={{ minWidth: 0 }}>
+          <h2>{loan.customer_name}</h2>
+          <p>{loan.shop_name || loan.zone || 'Borrower'}</p>
+          {loan.account_number && <span className="badge badge-gray"><Hash size={11} /> A/C {loan.account_number}</span>}
         </div>
+      </section>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 20 }}>
-            <PhotoCapture value={photoPreview} onChange={setPhotoPreview} label={t('addPhotoUploadCamera')} />
+      <section className="customer-detail-balance">
+        <div>
+          <span>Outstanding</span>
+          <strong>{money(metrics.pendingAmount)}</strong>
+        </div>
+        <StatusBadge status={metrics.status} />
+      </section>
+      <div className="progress-bar" style={{ marginBottom: 14 }}>
+        <div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} />
+      </div>
+
+      {canManage && (
+        <div className="detail-actions">
+          <button type="button" className="btn btn-secondary" onClick={() => onEdit(loan)}><Pencil size={16} /> Edit</button>
+          <button type="button" className="btn btn-danger-soft" onClick={() => onDelete(loan)}><Trash2 size={16} /> Delete</button>
+        </div>
+      )}
+
+      <div className="section-card">
+        <div className="section-card-title">Borrower Information</div>
+        <dl className="info-list">
+          <InfoRow icon={Phone} label="Primary mobile" value={loan.customer_phone} href={loan.customer_phone && `tel:${loan.customer_phone}`} />
+          <InfoRow icon={PhoneCall} label="Alternate mobile" value={loan.alternate_phone} href={loan.alternate_phone && `tel:${loan.alternate_phone}`} />
+          <InfoRow icon={Mail} label="Email" value={loan.customer_email} />
+          <InfoRow icon={Store} label="Shop / business" value={loan.shop_name} />
+          <InfoRow icon={MapPin} label="Area" value={loan.zone} />
+          <InfoRow icon={MapPin} label="Address" value={loan.customer_address} />
+          <InfoRow icon={Key} label="Aadhaar" value={loan.aadhaar_number ? `XXXX XXXX ${digitsOnly(loan.aadhaar_number).slice(-4)}` : ''} />
+          <InfoRow icon={Languages} label="SMS language" value={SMS_LANGUAGES.find(l => l.value === loan.preferred_language)?.label} />
+        </dl>
+      </div>
+
+      <div className="section-card">
+        <div className="section-card-title">Guarantor</div>
+        <dl className="info-list">
+          <InfoRow icon={User} label="Name" value={loan.guarantor_name} />
+          <InfoRow icon={Phone} label="Phone" value={loan.guarantor_phone} href={loan.guarantor_phone && `tel:${loan.guarantor_phone}`} />
+          <InfoRow icon={MapPin} label="Address" value={loan.guarantor_address} />
+        </dl>
+      </div>
+
+      <div className="section-card">
+        <div className="section-card-title">Loan</div>
+        <div className="customer-detail-grid">
+          <div><span>Loan amount</span><strong>{money(loan.loan_amount)}</strong></div>
+          <div><span>Disbursed</span><strong>{money(cashDisbursed)}</strong></div>
+          <div><span>Total due</span><strong>{money(metrics.dueAmount)}</strong></div>
+          <div><span>Collected</span><strong>{money(metrics.collectedAmount)}</strong></div>
+          <div><span>Installment</span><strong>{money(loan.repayment_amount)} <em>{loan.repayment_frequency}</em></strong></div>
+          <div><span>Paid / missed days</span><strong>{loan.total_days_paid || 0} / {loan.total_days_not_paid || 0}</strong></div>
+          <div><span>Start date</span><strong>{formatDate(loan.start_date)}</strong></div>
+          <div><span>Due date</span><strong>{formatDate(loan.closing_date)}</strong></div>
+        </div>
+        {canManage && metrics.pendingAmount <= 0 && (
+          <div className="customer-close-loan">
+            <button type="button" className={`btn ${loan.status === 'closed' ? 'btn-secondary' : 'btn-success'}`}
+              disabled={loan.status === 'closed'} onClick={() => onCloseLoan(loan)}>
+              <CheckCircle2 size={15} /> {loan.status === 'closed' ? 'Loan closed' : 'Mark loan as closed'}
+            </button>
+            <span>Payment is complete. The loan history will remain saved.</span>
           </div>
+        )}
+      </div>
 
-          <SectionLabel>{t('personalDetails')}</SectionLabel>
+      <div className="section-card">
+        <div className="section-card-title">Active Loans ({activeLoans.length})</div>
+        {activeLoans.length === 0 ? <div className="muted-note">No active loans — everything is settled.</div> : (
+          <LoanList loans={activeLoans} currentId={loan.id} onOpenLoan={onOpenLoan} />
+        )}
+      </div>
 
-          <div className="form-group">
-            <label className="form-label">{t('fullName')}</label>
-            <IconInput icon={<User size={16} />}><input required type="text" className="form-input" {...field('name')} /></IconInput>
-          </div>
-          <div className="form-group">
-            <label className="form-label">{t('shopBusinessName')}</label>
-            <IconInput icon={<Building2 size={16} />}><input type="text" className="form-input" {...field('shop_name')} /></IconInput>
-          </div>
+      <div className="section-card">
+        <div className="section-card-title"><History size={14} /> Loan History ({relatedLoans.length})</div>
+        <LoanList loans={relatedLoans} currentId={loan.id} onOpenLoan={onOpenLoan} />
+      </div>
 
-          <div className="form-row" style={{ gap: '12px' }}>
-            <div className="form-group">
-              <label className="form-label">{t('primaryMobile')}</label>
-              <IconInput icon={<Phone size={16} />}><input required type="tel" className="form-input" {...field('phone')} /></IconInput>
-            </div>
-            <div className="form-group">
-              <label className="form-label">{t('alternateMobile')}</label>
-              <IconInput icon={<PhoneCall size={16} />}><input type="tel" className="form-input" {...field('alternate_phone')} /></IconInput>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t('areaInCoimbatore')}</label>
-            <IconInput icon={<MapPin size={16} />}>
-              <input type="text" list="zones-datalist-edit" className="form-input" placeholder="Select an area or type a new one…" {...field('zone')} />
-            </IconInput>
-            <datalist id="zones-datalist-edit">
-              {ZONES.map(z => <option key={z} value={z} />)}
-            </datalist>
-          </div>
-
-          <div className="form-row" style={{ gap: '12px' }}>
-            <div className="form-group">
-              <label className="form-label">{t('email')}</label>
-              <IconInput icon={<Mail size={16} />}><input type="email" className="form-input" {...field('email')} /></IconInput>
-            </div>
-            <div className="form-group">
-              <label className="form-label">{t('aadhaarNumber')}</label>
-              <IconInput icon={<Key size={16} />}>
-                <input type="text" className="form-input" placeholder="XXXX XXXX XXXX" maxLength={14} {...field('aadhaar_number')} />
-              </IconInput>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t('address')}</label>
-            <IconInput icon={<MapPin size={16} />} top>
-              <textarea rows={2} className="form-input" style={{ resize: 'none' }} placeholder="House no., Street, City, State" {...field('address')} />
-            </IconInput>
-          </div>
-
-          <SectionLabel>{t('guarantorDetails')}</SectionLabel>
-
-          <div className="form-row" style={{ gap: '12px' }}>
-            <div className="form-group">
-              <label className="form-label">{t('guarantorName')}</label>
-              <IconInput icon={<User size={16} />}><input type="text" className="form-input" {...field('guarantor_name')} /></IconInput>
-            </div>
-            <div className="form-group">
-              <label className="form-label">{t('guarantorPhone')}</label>
-              <IconInput icon={<Phone size={16} />}><input type="tel" className="form-input" {...field('guarantor_phone')} /></IconInput>
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">{t('guarantorAddress')}</label>
-            <IconInput icon={<MapPin size={16} />} top>
-              <textarea rows={2} className="form-input" style={{ resize: 'none' }} placeholder="Guarantor's address" {...field('guarantor_address')} />
-            </IconInput>
-          </div>
-
-          {error && <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
-
-          <button type="submit" className="save-btn" disabled={saving} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Check size={16} /> {saving ? 'Saving…' : 'Save Changes'}
-          </button>
-        </form>
+      <div className="section-card">
+        <PaymentHistorySection key={loan.id} loanId={loan.id} />
       </div>
     </div>
   );
 }
 
+function LoanList({ loans, currentId, onOpenLoan }) {
+  return (
+    <div className="loan-list">
+      {loans.map(l => {
+        const m = getLoanMetrics(l);
+        return (
+          <button type="button" key={l.id} className={`loan-list-row${l.id === currentId ? ' current' : ''}`}
+            onClick={() => l.id !== currentId && onOpenLoan(l)}>
+            <div>
+              <strong>{money(l.loan_amount)}</strong>
+              <span>{formatDate(l.start_date || l.created_at)} → {formatDate(l.closing_date)}</span>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <StatusBadge status={m.status} />
+              <span>{money(m.pendingAmount)} left</span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function InfoRow({ icon, label, value, href }) {
+  return (
+    <div className="info-row">
+      <dt>{React.createElement(icon, { size: 14 })} {label}</dt>
+      <dd>{value ? (href ? <a href={href}>{value}</a> : value) : <span className="text-muted">—</span>}</dd>
+    </div>
+  );
+}
+
+// ── Edit borrower screen ────────────────────────────────────────────────────
+const EDIT_FIELDS = [
+  'customer_name', 'shop_name', 'customer_phone', 'alternate_phone', 'zone', 'customer_email',
+  'aadhaar_number', 'customer_address', 'guarantor_name', 'guarantor_phone', 'guarantor_address',
+  'preferred_language', 'photo_url',
+];
+
+function validateBorrower(form) {
+  const errors = {};
+  const phoneOk = v => /^\+?[0-9]{10,15}$/.test(String(v).replace(/[\s\-()]/g, ''));
+  if (form.customer_name.trim().length < 2) errors.customer_name = 'Enter the full name (at least 2 characters).';
+  if (!form.customer_phone.trim()) errors.customer_phone = 'Primary mobile is required.';
+  else if (!phoneOk(form.customer_phone)) errors.customer_phone = 'Enter a valid mobile number (10–15 digits).';
+  if (form.alternate_phone.trim() && !phoneOk(form.alternate_phone)) errors.alternate_phone = 'Enter a valid mobile number.';
+  if (form.guarantor_phone.trim() && !phoneOk(form.guarantor_phone)) errors.guarantor_phone = 'Enter a valid mobile number.';
+  if (form.customer_email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.customer_email.trim())) errors.customer_email = 'Enter a valid email address.';
+  const aadhaar = form.aadhaar_number.replace(/[\s-]/g, '');
+  if (aadhaar && !/^[0-9]{12}$/.test(aadhaar)) errors.aadhaar_number = 'Aadhaar number must be 12 digits.';
+  return errors;
+}
+
+function EditBorrowerScreen({ loan, onCancel, onSave }) {
+  const { t } = useLanguage();
+  const initial = useMemo(() => Object.fromEntries(EDIT_FIELDS.map(k => [k, loan[k] ?? (k === 'preferred_language' ? 'en' : '')])), [loan]);
+  const [form, setForm] = useState(initial);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [failed, setFailed] = useState(false);
+  const invalid = Object.values(errors).some(Boolean);
+
+  const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); setErrors(e => ({ ...e, [k]: undefined })); };
+  const field = key => ({ value: form[key] ?? '', onChange: e => set(key, e.target.value), 'aria-invalid': Boolean(errors[key]) });
+  const changed = EDIT_FIELDS.filter(k => (form[k] ?? '') !== (initial[k] ?? ''));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (saving) return;
+    const found = validateBorrower(form);
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    if (changed.length === 0) { onCancel(); return; }
+    setSaving(true); setError(''); setFailed(false);
+    try {
+      await onSave(Object.fromEntries(changed.map(k => [k, typeof form[k] === 'string' && k !== 'photo_url' ? form[k].trim() : form[k]])));
+    } catch (err) {
+      setError(err.message || '');
+      setFailed(true);
+      setSaving(false);
+    }
+  };
+
+  const fieldError = name => (errors[name] ? <div className="field-error">{errors[name]}</div> : null);
+
+  return (
+    <form className="screen edit-screen animate-fadeUp" onSubmit={handleSubmit} noValidate>
+      <div className="screen-header">
+        <button type="button" className="icon-btn" onClick={onCancel} disabled={saving} aria-label="Cancel"><ArrowLeft size={20} /></button>
+        <div>
+          <div className="screen-header-title">Edit Borrower</div>
+          <div className="screen-header-sub">{loan.customer_name}{loan.account_number ? ` · A/C ${loan.account_number}` : ''}</div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <PhotoCapture value={form.photo_url || null} onChange={v => set('photo_url', v || '')} label={t('addPhotoUploadCamera')} />
+      </div>
+
+      <SectionLabel>{t('personalDetails')}</SectionLabel>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-name">{t('fullName')}</label>
+        <IconInput icon={<User size={16} />}><input id="eb-name" type="text" className="form-input" autoComplete="off" {...field('customer_name')} /></IconInput>
+        {fieldError('customer_name')}
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-shop">{t('shopBusinessName')}</label>
+        <IconInput icon={<Building2 size={16} />}><input id="eb-shop" type="text" className="form-input" {...field('shop_name')} /></IconInput>
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-phone">{t('primaryMobile')}</label>
+        <IconInput icon={<Phone size={16} />}><input id="eb-phone" type="tel" inputMode="tel" className="form-input" {...field('customer_phone')} /></IconInput>
+        {fieldError('customer_phone')}
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-alt">{t('alternateMobile')}</label>
+        <IconInput icon={<PhoneCall size={16} />}><input id="eb-alt" type="tel" inputMode="tel" className="form-input" {...field('alternate_phone')} /></IconInput>
+        {fieldError('alternate_phone')}
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-zone">{t('areaInCoimbatore')}</label>
+        <IconInput icon={<MapPin size={16} />}>
+          <input id="eb-zone" type="text" list="zones-datalist-edit" className="form-input" placeholder="Select an area or type a new one…" {...field('zone')} />
+        </IconInput>
+        <datalist id="zones-datalist-edit">{ZONES.map(z => <option key={z} value={z} />)}</datalist>
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-email">{t('email')}</label>
+        <IconInput icon={<Mail size={16} />}><input id="eb-email" type="email" inputMode="email" className="form-input" {...field('customer_email')} /></IconInput>
+        {fieldError('customer_email')}
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-aadhaar">{t('aadhaarNumber')}</label>
+        <IconInput icon={<Key size={16} />}>
+          <input id="eb-aadhaar" type="text" inputMode="numeric" className="form-input" placeholder="XXXX XXXX XXXX" maxLength={14} {...field('aadhaar_number')} />
+        </IconInput>
+        {fieldError('aadhaar_number')}
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-address">{t('address')}</label>
+        <IconInput icon={<MapPin size={16} />} top>
+          <textarea id="eb-address" rows={3} className="form-input" style={{ resize: 'none' }} placeholder="House no., Street, City, State" {...field('customer_address')} />
+        </IconInput>
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-lang">{t('disbursementSmsLanguage')}</label>
+        <IconInput icon={<Languages size={16} />}>
+          <select id="eb-lang" className="form-input" {...field('preferred_language')}>
+            {SMS_LANGUAGES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+          </select>
+        </IconInput>
+      </div>
+
+      <SectionLabel>{t('guarantorDetails')}</SectionLabel>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-gname">{t('guarantorName')}</label>
+        <IconInput icon={<User size={16} />}><input id="eb-gname" type="text" className="form-input" {...field('guarantor_name')} /></IconInput>
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-gphone">{t('guarantorPhone')}</label>
+        <IconInput icon={<Phone size={16} />}><input id="eb-gphone" type="tel" inputMode="tel" className="form-input" {...field('guarantor_phone')} /></IconInput>
+        {fieldError('guarantor_phone')}
+      </div>
+      <div className="form-group">
+        <label className="form-label" htmlFor="eb-gaddress">{t('guarantorAddress')}</label>
+        <IconInput icon={<MapPin size={16} />} top>
+          <textarea id="eb-gaddress" rows={2} className="form-input" style={{ resize: 'none' }} placeholder="Guarantor's address" {...field('guarantor_address')} />
+        </IconInput>
+      </div>
+
+      <p className="muted-note">Loan amounts and payment history can't be edited here, so financial records stay accurate.</p>
+
+      {invalid && <div className="form-alert" role="alert">Please fix the highlighted fields.</div>}
+      {failed && (
+        <div className="form-alert" role="alert">
+          <strong>Unable to update borrower.</strong> Please try again.
+          {error && <div>{error}</div>}
+        </div>
+      )}
+
+      <div className="sticky-actions">
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>Cancel</button>
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          <Check size={16} /> {saving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // ── Main Component ──────────────────────────────────────────────────────────
-export default function Members({ readOnly = false }) {
+export default function Members({ readOnly = false, basePath = '/borrowers' }) {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { showToast } = useToast();
+  const navigate = useNavigate();
+  const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [detailId, subView] = (params['*'] || '').split('/');
+
   const FREQ_OPTIONS = [
     { value: 'daily',   icon: Calendar,      label: t('daily'),   desc: t('freqDailyDesc') },
     { value: 'weekly',  icon: CalendarDays,  label: t('weekly'),  desc: t('freqWeeklyDesc') },
@@ -493,34 +618,61 @@ export default function Members({ readOnly = false }) {
     { value: 'custom',  icon: Settings2,     label: t('freqCustom'),  desc: t('freqCustomDesc') },
   ];
   const SORT_OPTIONS = [
-    { value: 'name',     icon: null,    label: t('nameAZ') },
-    { value: 'balance',  icon: null,    label: t('highestBalance') },
-    { value: 'location', icon: MapPin,  label: t('byArea') },
-    { value: 'newest',   icon: null,    label: t('newestFirst') },
+    { value: 'newest',   label: t('newestFirst') },
+    { value: 'name',     label: t('nameAZ') },
+    { value: 'balance',  label: t('highestBalance') },
+    { value: 'location', label: t('byArea') },
   ];
-  const canCreate = !readOnly && user?.role === 'admin';
-  const canMerge = !readOnly && user?.role === 'admin';
+  const canManage = !readOnly && user?.role === 'admin';
   const [loans, setLoans] = useState([]);
-  const [showModal, setShowModal] = useState(false);
+  // Deep link: /borrowers?add=1 opens the Add Borrower form
+  const [showModal, setShowModal] = useState(() => canManage && searchParams.get('add') === '1');
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedLoanId, setSelectedLoanId] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [sortBy, setSortBy] = useState('newest');
   const [zoneFilter, setZoneFilter] = useState('all');
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [showOtpSection, setShowOtpSection] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
-  const [expandedId, setExpandedId] = useState(null);
-  const [editingLoan, setEditingLoan] = useState(null);
+  const [menuLoan, setMenuLoan] = useState(null);
+  const [deleteLoan, setDeleteLoan] = useState(null);
+  const [deleteAck, setDeleteAck] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [closeTarget, setCloseTarget] = useState(null);
+  const createKeyRef = useRef(null);
+  const listScrollRef = useRef(0);
 
-  const updateSearch = (value) => { setSearch(value); setCurrentPage(1); };
-  const updateStatusFilter = (value) => { setStatusFilter(value); setCurrentPage(1); };
-  const updateZoneFilter = (value) => { setZoneFilter(value); setCurrentPage(1); };
-  const updateSortBy = (value) => { setSortBy(value); setCurrentPage(1); };
+  const resetPaging = () => setVisibleCount(PAGE_SIZE);
+  const updateSearch = (value) => { setSearch(value); resetPaging(); };
+  const updateStatusFilter = (value) => { setStatusFilter(value); resetPaging(); };
+  const updateZoneFilter = (value) => { setZoneFilter(value); resetPaging(); };
+  const updateSortBy = (value) => { setSortBy(value); resetPaging(); };
+
+  useEffect(() => {
+    if (searchParams.get('add')) setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  // Keep the list's scroll position when going into a borrower and back
+  useEffect(() => {
+    const area = document.querySelector('.page-area');
+    if (!area) return;
+    if (detailId) area.scrollTo({ top: 0 });
+    else area.scrollTo({ top: listScrollRef.current });
+  }, [detailId, subView]);
+
+  const openDetails = (loan) => {
+    const area = document.querySelector('.page-area');
+    if (!detailId && area) listScrollRef.current = area.scrollTop;
+    setMenuLoan(null);
+    navigate(`${basePath}/${loan.id}`);
+  };
+  const openEdit = (loan) => { setMenuLoan(null); navigate(`${basePath}/${loan.id}/edit`); };
+  const askDelete = (loan) => { setMenuLoan(null); setDeleteAck(false); setDeleteLoan(loan); };
 
   const handleMerge = async (id1, id2) => {
     setLoading(true);
@@ -529,71 +681,69 @@ export default function Members({ readOnly = false }) {
         method: 'POST',
         body: JSON.stringify({ primary_loan_id: id1, secondary_loan_id: id2 }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Merge failed');
+      if (!res.ok) throw new Error(await readError(res, 'Merge failed'));
       const refreshRes = await apiFetch('/api/loans/');
-      const refreshData = await refreshRes.json();
-      setLoans(refreshData);
-      alert('Borrowers merged successfully!');
+      setLoans(await refreshRes.json());
+      showToast('Borrowers merged successfully');
     } catch (err) {
-      alert('Error merging borrowers: ' + err.message);
+      showToast(`Could not merge borrowers. ${err.message}`, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteLoan = async (loan) => {
-    const pending = Number(loan.pending_amount || 0);
-    const warning = pending > 0
-      ? `₹${pending.toLocaleString('en-IN')} is still outstanding.`
-      : 'This loan is already fully paid.';
-    const confirmed = window.confirm(`Delete ${loan.customer_name}'s loan? ${warning} It will be moved to the Recycle Bin and can be restored later.`);
-    if (!confirmed) return;
-
-    setLoading(true);
+  const confirmDelete = async () => {
+    if (!deleteLoan || deleting) return;
+    setDeleting(true);
     try {
-      const res = await apiFetch(`/api/loans/${loan.id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Delete failed');
-      setLoans(current => current.filter(item => item.id !== loan.id));
-      setSelectedLoanId(null);
+      const res = await apiFetch(`/api/loans/${deleteLoan.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await readError(res));
+      setLoans(current => current.filter(item => item.id !== deleteLoan.id));
+      setDeleteLoan(null);
+      showToast('Borrower deleted successfully');
+      if (detailId) navigate(basePath, { replace: true });
     } catch (err) {
-      alert('Error deleting borrower: ' + err.message);
+      showToast(`Something went wrong. Please try again.${err.message ? ` (${err.message})` : ''}`, 'error');
     } finally {
-      setLoading(false);
+      setDeleting(false);
     }
   };
 
   const handleUpdateLoan = async (loanId, updates) => {
-    const res = await apiFetch(`/api/loans/${loanId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
-    });
+    let res;
+    try {
+      res = await apiFetch(`/api/loans/${loanId}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    } catch {
+      showToast('Unable to update borrower. Please try again.', 'error');
+      throw new Error('Check your internet connection.');
+    }
+    if (!res.ok) {
+      const message = await readError(res, '');
+      showToast('Unable to update borrower. Please try again.', 'error');
+      throw new Error(message);
+    }
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Update failed');
-    setLoans(current => current.map(item => item.id === loanId ? data : item));
+    setLoans(current => current.map(item => item.id === loanId ? { ...item, ...data } : item));
+    showToast('Borrower updated successfully');
+    navigate(`${basePath}/${loanId}`, { replace: true });
   };
 
-  const handleCloseLoan = async (loan) => {
-    if (Number(loan.pending_amount || 0) > 0) {
-      alert('This loan cannot be closed until the pending amount is fully paid.');
-      return;
-    }
-    const confirmed = window.confirm(`Mark ${loan.customer_name}'s loan as closed? Payment history will remain saved.`);
-    if (!confirmed) return;
-
+  const confirmCloseLoan = async () => {
+    const loan = closeTarget;
+    if (!loan) return;
     setLoading(true);
     try {
       const res = await apiFetch(`/api/loans/${loan.id}/close`, { method: 'POST' });
+      if (!res.ok) throw new Error(await readError(res, 'Loan close failed'));
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Loan close failed');
       const updatedLoan = data.data || { ...loan, status: 'closed' };
-      setLoans(current => current.map(item => item.id === loan.id ? updatedLoan : item));
-      alert('Loan marked as closed.');
+      setLoans(current => current.map(item => item.id === loan.id ? { ...item, ...updatedLoan } : item));
+      showToast('Loan marked as closed');
     } catch (err) {
-      alert('Error closing loan: ' + err.message);
+      showToast(`Could not close the loan. ${err.message}`, 'error');
     } finally {
       setLoading(false);
+      setCloseTarget(null);
     }
   };
 
@@ -609,9 +759,12 @@ export default function Members({ readOnly = false }) {
 
   useEffect(() => {
     apiFetch('/api/loans/')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error(await readError(res, 'Could not load borrowers.'));
+        return res.json();
+      })
       .then(data => setLoans(Array.isArray(data) ? data : []))
-      .catch(console.error)
+      .catch(err => setLoadError(err.message || 'Could not load borrowers. Check your connection.'))
       .finally(() => setDataLoading(false));
   }, []);
 
@@ -653,6 +806,7 @@ export default function Members({ readOnly = false }) {
   const cashDisbursed = Math.max(0, principal - totalDeductions);
 
   const resetModal = () => {
+    createKeyRef.current = null;
     setShowModal(false);
     setPhoneVerified(false);
     setPhotoPreview(null);
@@ -670,9 +824,12 @@ export default function Members({ readOnly = false }) {
 
   const handleCreate = async (e) => {
     e.preventDefault();
+    if (loading) return;
     if (!formData.name || !formData.phone || !formData.zone || !formData.amount || !formData.closeDate) {
-      alert('Name, Phone, Coimbatore area, Amount and Due Date are required.'); return;
+      showToast('Name, Phone, Coimbatore area, Amount and Due Date are required.', 'error'); return;
     }
+    // One key per borrower being added, reused on retry, so a double tap never creates two loans
+    if (!createKeyRef.current) createKeyRef.current = newIdempotencyKey();
     setLoading(true);
     const payload = {
       customer_id: 'CUST-' + Math.floor(Math.random() * 1000000),
@@ -702,18 +859,22 @@ export default function Members({ readOnly = false }) {
     try {
       const res = await apiFetch('/api/loans/', {
         method: 'POST',
+        headers: { 'Idempotency-Key': createKeyRef.current },
         body: JSON.stringify(payload),
       });
+      if (!res.ok) throw new Error(await readError(res, 'Failed to create'));
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to create');
-      setLoans([data.data, ...loans]);
+      // Show the new borrower at the top of the list straight away
+      setLoans(current => [data.data, ...current.filter(l => l.id !== data.data.id)]);
+      setSearch(''); setStatusFilter('all'); setZoneFilter('all'); setSortBy('newest'); resetPaging();
       setDisburseResult(data);
-    } catch (err) { 
-      console.error('Loan creation error:', err);
-      alert('Error creating loan: ' + (err.message || 'Unknown error')); 
+      showToast('Borrower added successfully');
+    } catch (err) {
+      showToast(`Could not add borrower. ${err.message || 'Please try again.'}`, 'error');
     }
     finally { setLoading(false); }
   };
+
 
   const visibleLoans = loans.filter(l => {
     const metrics = getLoanMetrics(l);
@@ -733,182 +894,193 @@ export default function Members({ readOnly = false }) {
     if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
     return 0;
   });
-  const totalPages = Math.max(1, Math.ceil(sortedLoans.length / PAGE_SIZE));
-  const pageLoans = sortedLoans.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const selectedLoan = sortedLoans.find(l => l.id === selectedLoanId) || pageLoans[0] || null;
-  const activeCount = loans.filter(l => getLoanMetrics(l).status === 'active').length;
+  const shownLoans = sortedLoans.slice(0, visibleCount);
   const overdueCount = loans.filter(l => getLoanMetrics(l).status === 'overdue').length;
-  const settledCount = loans.filter(l => getLoanMetrics(l).status === 'settled').length;
-  const totalOutstanding = loans.reduce((s, l) => s + (l.pending_amount || 0), 0);
+  const totalOutstanding = loans.reduce((s, l) => s + Math.max(0, l.pending_amount || 0), 0);
 
+  const detailLoan = detailId ? loans.find(l => l.id === detailId) : null;
+  const relatedLoans = detailLoan
+    ? loans.filter(l => l.id === detailLoan.id || l.customer_id === detailLoan.customer_id
+        || samePhone(l.customer_phone, detailLoan.customer_phone))
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    : [];
+
+  const deletePending = Number(deleteLoan?.pending_amount || 0);
+  const deleteIsRisky = deleteLoan && (deletePending > 0 || deleteLoan.status === 'active');
+
+  const dialogs = (
+    <>
+      <BottomSheet open={Boolean(menuLoan)} onClose={() => setMenuLoan(null)} title={menuLoan?.customer_name}>
+        {menuLoan && (
+          <div className="action-list">
+            <button type="button" onClick={() => openDetails(menuLoan)}><Eye size={20} /> View Borrower</button>
+            {canManage && <button type="button" onClick={() => openEdit(menuLoan)}><Pencil size={20} /> Edit Borrower</button>}
+            {canManage && <button type="button" className="danger" onClick={() => askDelete(menuLoan)}><Trash2 size={20} /> Delete Borrower</button>}
+          </div>
+        )}
+      </BottomSheet>
+
+      <ConfirmDialog
+        open={Boolean(deleteLoan)}
+        title="Delete Borrower?"
+        confirmLabel="Delete"
+        busyLabel="Deleting..."
+        busy={deleting}
+        confirmDisabled={deleteIsRisky && !deleteAck}
+        onCancel={() => !deleting && setDeleteLoan(null)}
+        onConfirm={confirmDelete}
+      >
+        <p>Are you sure you want to remove <strong>{deleteLoan?.customer_name}</strong> from active borrowers?</p>
+        <p>Existing loan and payment history will be preserved.</p>
+        {deleteIsRisky && (
+          <div className="dialog-warning">
+            <strong>This borrower has an active loan or outstanding balance{deletePending > 0 ? ` of ${money(deletePending)}` : ''}.</strong>
+            <span>Deleting the borrower will NOT delete their financial records.</span>
+            <label className="dialog-check">
+              <input type="checkbox" checked={deleteAck} onChange={e => setDeleteAck(e.target.checked)} disabled={deleting} />
+              <span>I understand. Continue with delete.</span>
+            </label>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={Boolean(closeTarget)}
+        title="Close this loan?"
+        tone="primary"
+        confirmLabel="Mark as closed"
+        busyLabel="Closing..."
+        busy={loading}
+        onCancel={() => setCloseTarget(null)}
+        onConfirm={confirmCloseLoan}
+      >
+        <p>Mark {closeTarget?.customer_name}'s loan as closed? Payment history will remain saved.</p>
+      </ConfirmDialog>
+    </>
+  );
+
+  // ── Edit screen ──
+  if (detailId && subView === 'edit') {
+    if (!canManage) return <NotFound onBack={() => navigate(basePath)} message="Only admins can edit borrowers." />;
+    if (dataLoading) return <DetailSkeleton />;
+    if (!detailLoan) return <NotFound onBack={() => navigate(basePath)} message={loadError || 'This borrower was not found or has been deleted.'} />;
+    return (
+      <EditBorrowerScreen
+        key={detailLoan.id}
+        loan={detailLoan}
+        onCancel={() => navigate(`${basePath}/${detailLoan.id}`, { replace: true })}
+        onSave={updates => handleUpdateLoan(detailLoan.id, updates)}
+      />
+    );
+  }
+
+  // ── Details screen ──
+  if (detailId) {
+    if (dataLoading) return <DetailSkeleton />;
+    if (!detailLoan) return <NotFound onBack={() => navigate(basePath)} message={loadError || 'This borrower was not found or has been deleted.'} />;
+    return (
+      <>
+        <BorrowerDetails
+          loan={detailLoan}
+          relatedLoans={relatedLoans}
+          canManage={canManage}
+          onBack={() => navigate(basePath)}
+          onEdit={openEdit}
+          onDelete={askDelete}
+          onCloseLoan={setCloseTarget}
+          onOpenLoan={l => navigate(`${basePath}/${l.id}`)}
+        />
+        {dialogs}
+      </>
+    );
+  }
+
+  // ── List screen ──
   return (
     <div className="customer-page animate-fadeUp">
-      <div className="customer-page-header">
-        <div>
-          <div className="page-title">{t('borrowersAndLoans')}</div>
-          <div className="page-subtitle">{loans.length} customers · {zoneFilter === 'all' ? 'All Coimbatore areas' : zoneFilter}</div>
-        </div>
-        <div className="customer-actions">
-          {canMerge && <button className="btn btn-secondary" onClick={() => setShowMerge(true)}><GitMerge size={16} /> {t('merge')}</button>}
-          {canCreate && <button className="btn btn-primary" onClick={() => setShowModal(true)}><UserPlus size={16} /> {t('addBorrower')}</button>}
-        </div>
+      <div className="list-summary">
+        <div><span>Borrowers</span><strong>{loans.length}</strong></div>
+        <div><span>Outstanding</span><strong className="text-amber">{money(totalOutstanding)}</strong></div>
+        <div><span>Overdue</span><strong className="text-red">{overdueCount}</strong></div>
       </div>
 
-      <div className="customer-stat-grid">
-        <MetricCard icon={Users} label="Total Customers" value={loans.length.toLocaleString()} tone="indigo" sub={`${activeCount} active loans`} />
-        <MetricCard icon={Wallet} label="Outstanding" value={`₹${totalOutstanding.toLocaleString()}`} tone="amber" sub="Pending balance" />
-        <MetricCard icon={ShieldCheck} label="Settled" value={settledCount.toLocaleString()} tone="green" sub={`${overdueCount} overdue`} />
-        <MetricCard icon={MapPin} label="Areas" value={new Set(loans.map(l => l.zone).filter(Boolean)).size || 0} tone="cyan" sub="Coimbatore coverage" />
-      </div>
-
-      <div className="customer-toolbar card">
-        <div className="search-bar customer-search">
-          <Search size={16} style={{ color: 'var(--text-2)' }} />
-          <input placeholder="Search customer, phone, shop, account..." value={search} onChange={e => updateSearch(e.target.value)} />
+      {canManage && (
+        <div className="list-actions">
+          <button className="btn btn-primary" onClick={() => setShowModal(true)}><UserPlus size={17} /> {t('addBorrower')}</button>
+          <button className="btn btn-secondary" onClick={() => setShowMerge(true)}><GitMerge size={17} /> {t('merge')}</button>
         </div>
-        <div className="customer-filter-group" aria-label="Status filters">
+      )}
+
+      <div className="list-toolbar">
+        <label className="search-field">
+          <Search size={18} />
+          <input type="search" placeholder="Search name, phone, shop, A/C…" value={search} onChange={e => updateSearch(e.target.value)} />
+          {search && <button type="button" onClick={() => updateSearch('')} aria-label="Clear search"><X size={16} /></button>}
+        </label>
+        <div className="chip-row" role="tablist" aria-label="Status filters">
           {STATUS_TABS.map(tab => (
-            <button key={tab.value} className={`customer-chip${statusFilter === tab.value ? ' active' : ''}`} onClick={() => updateStatusFilter(tab.value)}>
+            <button key={tab.value} type="button" className={`chip${statusFilter === tab.value ? ' active' : ''}`} onClick={() => updateStatusFilter(tab.value)}>
               {tab.label}
             </button>
           ))}
         </div>
-        <label className="customer-select">
-          <MapPin size={14} />
-          <select value={zoneFilter} onChange={e => updateZoneFilter(e.target.value)} aria-label="Area filter">
-            <option value="all">All areas</option>
-            {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
-          </select>
-        </label>
-        <label className="customer-select">
-          <ArrowUpDown size={14} />
-          <select value={sortBy} onChange={e => updateSortBy(e.target.value)} aria-label="Sort customers">
-            {SORT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </label>
+        <div className="select-row">
+          <label className="select-field">
+            <MapPin size={15} />
+            <select value={zoneFilter} onChange={e => updateZoneFilter(e.target.value)} aria-label="Area filter">
+              <option value="all">All areas</option>
+              {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
+            </select>
+          </label>
+          <label className="select-field">
+            <ArrowUpDown size={15} />
+            <select value={sortBy} onChange={e => updateSortBy(e.target.value)} aria-label="Sort borrowers">
+              {SORT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
 
-      <div className="customer-content-grid">
-        <section className="table-wrap customer-table-card" aria-label="Customer table">
-          {dataLoading ? (
-            <div className="customer-skeleton-list">
-              {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton customer-skeleton-row" />)}
-            </div>
-          ) : pageLoans.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon"><Users size={36} /></div>
-              <div className="empty-title">No customers found</div>
-              <p>Try a different search, status, or area filter.</p>
-            </div>
-          ) : (
-            <>
-              <table className="customer-table desktop-table">
-                <thead>
-                  <tr>
-                    <th>Customer</th>
-                    <th>Area</th>
-                    <th>Status</th>
-                    <th>Progress</th>
-                    <th>Outstanding</th>
-                    <th>Due Date</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageLoans.map((loan, idx) => {
-                    const metrics = getLoanMetrics(loan);
-                    const freq = loan.repayment_frequency || 'monthly';
-                    return (
-                      <tr key={loan.id} className={selectedLoan?.id === loan.id ? 'selected' : ''} onClick={() => setSelectedLoanId(loan.id)} style={{ animation: `fadeUp .35s ${idx * 0.04}s ease both` }}>
-                        <td>
-                          <div className="customer-cell">
-                            <div className="customer-avatar">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
-                            <div>
-                              <strong>{loan.customer_name}</strong>
-                              <span>{loan.shop_name || loan.customer_phone || 'No phone'}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td>{loan.zone || 'Unassigned'}</td>
-                        <td><StatusBadge status={metrics.status} /></td>
-                        <td>
-                          <div className="customer-progress">
-                            <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
-                            <span>{Math.round(metrics.progress)}%</span>
-                          </div>
-                        </td>
-                        <td className="text-mono text-amber">₹{metrics.pendingAmount.toLocaleString()}</td>
-                        <td>{loan.closing_date || '—'} <span className="badge badge-gray">{freq}</span></td>
-                        <td>
-                          <button className="btn btn-secondary btn-icon" onClick={e => { e.stopPropagation(); setSelectedLoanId(loan.id); }} aria-label={`View ${loan.customer_name}`}>
-                            <Eye size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              <div className="mobile-customer-list">
-                {pageLoans.map(loan => {
-                  const metrics = getLoanMetrics(loan);
-                  const expanded = expandedId === loan.id;
-                  return (
-                    <article key={loan.id} className={`customer-mobile-card${expanded ? ' selected' : ''}`} onClick={() => { setExpandedId(expanded ? null : loan.id); setSelectedLoanId(loan.id); }}>
-                      <div className="customer-mobile-main">
-                        <div className="customer-avatar">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
-                        <div>
-                          <h3>{loan.customer_name}</h3>
-                          <p>{loan.shop_name || loan.zone || loan.customer_phone || 'Customer'}</p>
-                        </div>
-                        <div className="customer-mobile-amount">
-                          <strong>₹{metrics.pendingAmount.toLocaleString()}</strong>
-                          <StatusBadge status={metrics.status} />
-                        </div>
-                      </div>
-                      <div className="customer-progress">
-                        <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.progress}%`, background: 'var(--green)' }} /></div>
-                        <span>{Math.round(metrics.progress)}%</span>
-                      </div>
-                      {expanded && <CustomerDetailPanel loan={loan} onClose={() => setExpandedId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} onEdit={setEditingLoan} canClose={canCreate} />}
-                    </article>
-                  );
-                })}
-              </div>
-            </>
+      {dataLoading ? (
+        <div className="customer-skeleton-list">
+          {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton customer-skeleton-row" />)}
+        </div>
+      ) : loadError ? (
+        <div className="empty-state">
+          <div className="empty-title">Could not load borrowers</div>
+          <p>{loadError}</p>
+          <button className="btn btn-secondary" style={{ marginTop: 12 }} onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      ) : shownLoans.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon"><Users size={36} /></div>
+          <div className="empty-title">No borrowers found</div>
+          <p>{loans.length === 0 ? 'Add your first borrower to get started.' : 'Try a different search, status, or area filter.'}</p>
+        </div>
+      ) : (
+        <div className="borrower-list">
+          {shownLoans.map(loan => (
+            <BorrowerCard key={loan.id} loan={loan} onOpen={openDetails} onMenu={canManage ? setMenuLoan : null} />
+          ))}
+          {sortedLoans.length > shownLoans.length && (
+            <button type="button" className="btn btn-secondary show-more" onClick={() => setVisibleCount(c => c + PAGE_SIZE)}>
+              Show more ({sortedLoans.length - shownLoans.length} left)
+            </button>
           )}
-
-          <div className="customer-pagination">
-            <span>{sortedLoans.length === 0 ? '0' : (currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, sortedLoans.length)} of {sortedLoans.length}</span>
-            <div>
-              <button className="btn btn-secondary btn-icon" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}><ChevronLeft size={16} /></button>
-              <button className="btn btn-secondary btn-icon" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}><ChevronRight size={16} /></button>
-            </div>
-          </div>
-        </section>
-
-        <CustomerDetailPanel loan={selectedLoan} onClose={() => setSelectedLoanId(null)} onCloseLoan={handleCloseLoan} onDeleteLoan={handleDeleteLoan} onEdit={setEditingLoan} canClose={canCreate} />
-      </div>
-
-      {canCreate && (
-        <button className="fab customer-mobile-fab" onClick={() => setShowModal(true)} title="Add Borrower + Loan">
-          <UserPlus size={22} />
-        </button>
+        </div>
       )}
 
-      {/* ── Add Borrower + Loan Modal ──────────────────────────────────────── */}
+      {/* ── Add Borrower + Loan (full-screen sheet) ── */}
       {showModal && (
-        <div className="borrower-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(6px)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto' }}>
-          <div className="card borrower-modal-card" style={{ animation: 'slideUp 0.3s ease' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div className="fullscreen-sheet">
+          <div className="fullscreen-sheet-inner">
+            <div className="screen-header">
+              <button type="button" className="icon-btn" onClick={resetModal} aria-label="Close"><X size={20} /></button>
               <div>
-                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>{t('newBorrowerLoan')}</h3>
-                <p style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }}>{t('requiredNote')}</p>
+                <div className="screen-header-title">{t('newBorrowerLoan')}</div>
+                <div className="screen-header-sub">{t('requiredNote')}</div>
               </div>
-              <button onClick={resetModal} style={{ background: 'none', border: 'none', color: 'var(--text-2)', cursor: 'pointer', display: 'flex' }}><X size={22} /></button>
             </div>
-
             {disburseResult ? (
               <DisburseSuccess result={disburseResult} onDone={resetModal} />
             ) : (
@@ -1100,7 +1272,7 @@ export default function Members({ readOnly = false }) {
               {/* ── Repayment Frequency ── */}
               <SectionLabel>{t('repaymentSchedule')}</SectionLabel>
 
-              <div className="form-row" style={{ gap: '8px', marginBottom: '16px' }}>
+              <div className="choice-grid" style={{ marginBottom: '16px' }}>
                 {FREQ_OPTIONS.map(opt => (
                   <button key={opt.value} type="button" onClick={() => set('repaymentFreq', opt.value)}
                     style={{ padding: '12px', borderRadius: '12px', textAlign: 'left', cursor: 'pointer',
@@ -1151,7 +1323,7 @@ export default function Members({ readOnly = false }) {
                 </div>
               )}
 
-              <button type="submit" className="save-btn" disabled={loading} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <button type="submit" className="save-btn" disabled={loading} aria-busy={loading} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Check size={16} /> {loading ? t('creating') : t('confirmLoanDisbursal')}
               </button>
             </form>
@@ -1161,19 +1333,32 @@ export default function Members({ readOnly = false }) {
       )}
 
       {showMerge && <MergeModal loans={loans} onClose={() => setShowMerge(false)} onMerge={handleMerge} />}
+      {dialogs}
+    </div>
+  );
+}
 
-      {editingLoan && (
-        <EditBorrowerModal
-          loan={editingLoan}
-          onClose={() => setEditingLoan(null)}
-          onSave={updates => handleUpdateLoan(editingLoan.id, updates)}
-        />
-      )}
+function DetailSkeleton() {
+  return (
+    <div className="screen">
+      <div className="skeleton" style={{ height: 88, borderRadius: 18, marginBottom: 12 }} />
+      <div className="skeleton" style={{ height: 70, borderRadius: 16, marginBottom: 12 }} />
+      <div className="skeleton" style={{ height: 220, borderRadius: 16 }} />
+    </div>
+  );
+}
 
-      <style>{`
-        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        textarea.form-input { font-family: var(--font-family); }
-      `}</style>
+function NotFound({ message, onBack }) {
+  return (
+    <div className="screen">
+      <div className="screen-header">
+        <button type="button" className="icon-btn" onClick={onBack} aria-label="Back"><ArrowLeft size={20} /></button>
+        <div className="screen-header-title">Borrower</div>
+      </div>
+      <div className="empty-state">
+        <div className="empty-title">{message}</div>
+        <button type="button" className="btn btn-secondary" style={{ marginTop: 12 }} onClick={onBack}>Back to borrowers</button>
+      </div>
     </div>
   );
 }
