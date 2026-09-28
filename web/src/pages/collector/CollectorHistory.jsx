@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { apiFetch, isDemoMode } from '../../utils/api';
+import { apiFetch } from '../../utils/api';
 import { ClipboardList, Banknote, Smartphone, Calendar, Pencil, Trash2, X, Check } from 'lucide-react';
 
 function localDateInputValue(dateValue) {
@@ -24,7 +24,6 @@ export default function CollectorHistory() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingPayment, setEditingPayment] = useState(null);
-  const demo = isDemoMode();
 
   useEffect(() => {
     apiFetch(`/api/collector/payments?collector_name=${encodeURIComponent(user.name)}`)
@@ -161,12 +160,10 @@ export default function CollectorHistory() {
                         </div>
                       </div>
                     </div>
-                    {demo && (
-                      <div className="collector-history-actions">
-                        <button type="button" title="Edit payment" onClick={() => startEditing(p)}><Pencil size={14} /> Edit</button>
-                        <button type="button" title="Delete payment" onClick={() => deletePayment(p)}><Trash2 size={14} /> Delete</button>
-                      </div>
-                    )}
+                    <div className="collector-history-actions">
+                      <button type="button" title="Edit payment" onClick={() => startEditing(p)}><Pencil size={14} /> Edit</button>
+                      <button type="button" title="Delete payment" onClick={() => deletePayment(p)}><Trash2 size={14} /> Delete</button>
+                    </div>
                   </div>
                 </div>
               </div>

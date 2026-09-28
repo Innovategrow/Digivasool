@@ -208,6 +208,13 @@ class LoanPaymentCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class LoanPaymentUpdate(BaseModel):
+    amount: float = Field(ge=0)
+    payment_method: Literal["Cash", "GPay"] = "Cash"
+    payment_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class LoanPaymentRecord(BaseModel):
     id: str
     loan_id: str

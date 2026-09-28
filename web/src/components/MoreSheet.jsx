@@ -39,7 +39,7 @@ export default function MoreSheet({ open, onClose, collectorMode = false }) {
         <div className="more-avatar">{user?.name?.charAt(0)?.toUpperCase()}</div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="more-user-name">{user?.name}</div>
-          <div className="more-user-role">{user?.role?.toUpperCase()}{user?.demo ? ' · DEMO' : ''}</div>
+          <div className="more-user-role">{user?.role?.toUpperCase()}</div>
         </div>
       </div>
 

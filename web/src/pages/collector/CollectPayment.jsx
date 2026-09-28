@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { useAuth } from '../../context/AuthContext';
-import { apiFetch, isDemoMode, newIdempotencyKey, readError } from '../../utils/api';
+import { apiFetch, newIdempotencyKey, readError } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
 import {
   ArrowLeft,
@@ -141,7 +141,6 @@ export default function CollectPayment() {
   const receiptRef = useRef(null);
   const proofFileInput = useRef(null);
   const proofInputRefs = useRef({});
-  const demo = isDemoMode();
   const paymentKeyRef = useRef(null);
   // A changed entry is a new payment; an unchanged retry keeps its key
   useEffect(() => { paymentKeyRef.current = null; }, [selectedLoan?.id, amount, paymentMethod, paymentDate]);
@@ -581,12 +580,10 @@ export default function CollectPayment() {
                     <div>
                       <span className="collector-got-label">{Number(payment.amount) > 0 ? 'YOU GOT' : 'NOT PAID'}</span>
                       <strong>{money(payment.amount)}</strong>
-                      {demo && (
-                        <div className="collector-row-actions">
-                          <button type="button" title="Edit transaction" onClick={() => startEditingPayment(payment)}><Pencil size={13} /></button>
-                          <button type="button" title="Delete transaction" onClick={() => deletePayment(payment)}><Trash2 size={13} /></button>
-                        </div>
-                      )}
+                      <div className="collector-row-actions">
+                        <button type="button" title="Edit transaction" onClick={() => startEditingPayment(payment)}><Pencil size={13} /></button>
+                        <button type="button" title="Delete transaction" onClick={() => deletePayment(payment)}><Trash2 size={13} /></button>
+                      </div>
                     </div>
                   </div>
                   {isGPayPayment && (

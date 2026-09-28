@@ -200,7 +200,7 @@ export function AppDataProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [user?.role, user?.token, user?.demo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.role, user?.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (user?.role === 'admin') refresh();

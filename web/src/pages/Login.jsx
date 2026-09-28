@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Zap, Wrench, Languages, Clock3, User, Wallet } from 'lucide-react';
+import { ShieldCheck, Phone, ChevronRight, ArrowLeft, Lock, HardHat, Wrench, Languages, Clock3, User, Wallet } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
@@ -80,7 +80,7 @@ export default function Login() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Invalid OTP');
-      login(data.role, data.name, data.phone || contact.trim(), false, data.token);
+      login(data.role, data.name, data.phone || contact.trim(), data.token);
     } catch (err) {
       setError(err.message);
       setOtp(['', '', '', '', '', '']);
@@ -151,16 +151,6 @@ export default function Login() {
         </select>
       </div>
 
-      {/* Demo Banner */}
-      <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '6px 14px', marginBottom: 24, fontSize: 12, color: 'var(--text-2)', fontWeight: 500, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Zap size={13} style={{ color: 'var(--amber)', flexShrink: 0 }} />
-        <span style={{ fontWeight: 700 }}>Quick demo login:</span>
-        {[{role:'admin',name:'Rahul',label:'Admin'},{role:'collector',name:'Collector 1',label:'Collector'},{role:'borrower',name:'Rajan Kumar',phone:'9876543210',label:'Borrower'}].map(d => (
-          <button key={d.role} onClick={() => login(d.role, d.name, d.phone || '', true)} style={{ background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border-2)', borderRadius: 8, padding: '6px 12px', minHeight: 32, fontWeight: 600, cursor: 'pointer', fontSize: 12 }}>
-            {d.label}
-          </button>
-        ))}
-      </div>
       {/* Brand */}
       <div style={{ textAlign: 'center', marginBottom: '36px' }}>
         <div style={{

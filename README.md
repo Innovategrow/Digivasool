@@ -36,10 +36,10 @@ cd web && npm install && VITE_API_BASE_URL= npm run build
 cd web && npm run dev
 ```
 
-For local testing, set `OTP_DEV_MODE=true` and `SEED_DEMO_DATA=true` in
-`backend/.env`. The OTP is then shown on screen and a few demo borrowers are added
-to an empty database. The login screen also has **Quick demo login** buttons,
-which run entirely in the browser with sample data.
+For local testing without a real SMS gateway, set `OTP_DEV_MODE=true` in
+`backend/.env` — the OTP is then also returned in the API response / shown on
+screen. There is no browser-only demo mode: every login and every screen always
+calls the real backend and reads/writes the real database.
 
 ## Data and security
 

@@ -1,5 +1,4 @@
 import { API_BASE_URL } from '../config';
-import { demoFetch } from './demoApi';
 
 function savedUser() {
   try { return JSON.parse(localStorage.getItem('dk_user') || 'null'); } catch { return null; }
@@ -10,10 +9,6 @@ export function getAuthHeaders() {
   const token = savedUser()?.token;
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
-}
-
-export function isDemoMode() {
-  return savedUser()?.demo === true;
 }
 
 // A fresh key per user action; resend the SAME key when retrying that action so the
@@ -34,9 +29,6 @@ export async function readError(res, fallback = 'Something went wrong. Please tr
 }
 
 export async function apiFetch(path, options = {}) {
-  if (isDemoMode()) {
-    return demoFetch(path, options);
-  }
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers = { ...getAuthHeaders(), ...(options.headers || {}) };
   if (isFormData) delete headers['Content-Type']; // let the browser set the multipart boundary

@@ -204,6 +204,42 @@ def test_expenses_capital_staff_persist():
     login("collector", "+919000000099")
 
 
+def test_edit_and_delete_collector_payment():
+    loan = create_loan(customer_phone="9876500077")
+    pay = client.post(f"/api/loans/{loan['id']}/payments", headers=COLLECTOR, json={"amount": 250, "payment_method": "Cash"})
+    payment_id = pay.json()["payment"]["id"]
+
+    # Another collector cannot edit someone else's collection
+    other_collector = login("collector", "+919000000003", collector_name="Collector 2")
+    assert client.patch(f"/api/collector/payments/{payment_id}", headers=other_collector,
+                        json={"amount": 999, "payment_method": "Cash"}).status_code == 403
+
+    # Owning collector can correct the amount; loan totals recompute
+    r = client.patch(f"/api/collector/payments/{payment_id}", headers=COLLECTOR,
+                     json={"amount": 400, "payment_method": "GPay", "notes": "corrected"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["data"]["amount"] == 400 and body["data"]["payment_method"] == "GPay"
+    assert body["loan"]["collected_amount"] == 400
+    assert body["loan"]["pending_amount"] == loan["due_amount"] - 400
+
+    listed = next(l for l in client.get("/api/loans/", headers=ADMIN).json() if l["id"] == loan["id"])
+    assert listed["collected_amount"] == 400
+
+    # Editing to zero flips paid/not-paid day counters
+    r0 = client.patch(f"/api/collector/payments/{payment_id}", headers=COLLECTOR, json={"amount": 0, "payment_method": "Cash"})
+    assert r0.json()["loan"]["total_days_paid"] == 0
+    assert r0.json()["loan"]["total_days_not_paid"] == 1
+
+    # Delete removes the payment and restores the loan balance
+    d = client.delete(f"/api/collector/payments/{payment_id}", headers=COLLECTOR)
+    assert d.status_code == 200, d.text
+    assert d.json()["loan"]["collected_amount"] == 0
+    assert d.json()["loan"]["pending_amount"] == loan["due_amount"]
+    assert client.get(f"/api/loans/{loan['id']}/payments", headers=ADMIN).json() == []
+    assert client.delete(f"/api/collector/payments/{payment_id}", headers=ADMIN).status_code == 404
+
+
 def test_data_survives_restart():
     loan = create_loan(customer_name="Persistent Person")
     client.post("/api/expenses/", headers=ADMIN, json={"category": "Printing", "amount": 99, "date": "2026-09-21"})

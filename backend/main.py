@@ -49,6 +49,7 @@ from schemas import (
     LoanCreateResponse,
     LoanPaymentCreate,
     LoanPaymentRecord,
+    LoanPaymentUpdate,
     LoanPaymentWithBorrower,
     LoanStatsResponse,
     LoanRecord,
@@ -1173,6 +1174,110 @@ async def get_collector_history(collector_name: Optional[str] = None, user=Depen
         collector_name = user["name"]
     rows = get_collector_payments_db(collector_name or None)
     return [LoanPaymentWithBorrower(**r) for r in rows]
+
+
+@app.patch("/api/collector/payments/{payment_id}")
+async def update_collector_payment(
+    payment_id: str,
+    body: LoanPaymentUpdate,
+    user=Depends(require_role("admin", "collector")),
+):
+    """Correct a mis-entered collection (wrong amount/date/method). Recomputes the loan's totals."""
+    db = get_firestore_client()
+    with db_lock:
+        payment_ref = db.collection("loan_payments").document(payment_id)
+        payment_doc = payment_ref.get()
+        if not payment_doc.exists:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        payment = payment_doc.to_dict()
+        if user["role"] == "collector" and payment.get("collector_name") != user["name"]:
+            raise HTTPException(status_code=403, detail="You can only edit your own collections")
+
+        loan_ref, loan = _get_loan_or_404(payment["loan_id"])
+
+        old_amount = float(payment.get("amount", 0) or 0)
+        new_amount = body.amount
+        was_paid_day = old_amount > 0
+        is_paid_day = new_amount > 0
+
+        new_collected = max(0.0, (loan.get("collected_amount", 0) or 0) - old_amount + new_amount)
+        new_pending = (loan.get("due_amount", 0) or 0) - new_collected
+        new_days_paid = (loan.get("total_days_paid", 0) or 0)
+        new_days_not_paid = (loan.get("total_days_not_paid", 0) or 0)
+        if was_paid_day != is_paid_day:
+            new_days_paid = max(0, new_days_paid + (1 if is_paid_day else -1))
+            new_days_not_paid = max(0, new_days_not_paid + (-1 if is_paid_day else 1))
+        new_status = "closed" if new_pending <= 0 else "active"
+
+        loan_ref.update({
+            "collected_amount": new_collected,
+            "pending_amount": new_pending,
+            "total_days_paid": new_days_paid,
+            "total_days_not_paid": new_days_not_paid,
+            "status": new_status,
+            "updated_at": _now(),
+            "updated_by": user["name"],
+        })
+
+        payment_ref.update({
+            "amount": new_amount,
+            "payment_method": body.payment_method,
+            "payment_date": body.payment_date or payment.get("payment_date"),
+            "notes": body.notes if body.notes is not None else payment.get("notes"),
+            "edited_at": _now(),
+            "edited_by": user["name"],
+        })
+        updated_payment = payment_ref.get().to_dict()
+        updated_loan = loan_ref.get().to_dict()
+
+    _write_audit(user["name"], "PAYMENT_EDITED", f"Edited payment {payment_id} for {loan.get('customer_name', 'unknown borrower')}: ₹{old_amount:,.0f} → ₹{new_amount:,.0f}")
+    return {
+        "status": "success",
+        "data": {**updated_payment, "customer_name": loan.get("customer_name"), "customer_phone": loan.get("customer_phone")},
+        "loan": updated_loan,
+    }
+
+
+@app.delete("/api/collector/payments/{payment_id}")
+async def delete_collector_payment(
+    payment_id: str,
+    user=Depends(require_role("admin", "collector")),
+):
+    """Remove a wrongly recorded collection. Recomputes the loan's totals."""
+    db = get_firestore_client()
+    with db_lock:
+        payment_ref = db.collection("loan_payments").document(payment_id)
+        payment_doc = payment_ref.get()
+        if not payment_doc.exists:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        payment = payment_doc.to_dict()
+        if user["role"] == "collector" and payment.get("collector_name") != user["name"]:
+            raise HTTPException(status_code=403, detail="You can only delete your own collections")
+
+        loan_ref, loan = _get_loan_or_404(payment["loan_id"])
+
+        amount = float(payment.get("amount", 0) or 0)
+        was_paid_day = amount > 0
+        new_collected = max(0.0, (loan.get("collected_amount", 0) or 0) - amount)
+        new_pending = (loan.get("due_amount", 0) or 0) - new_collected
+        new_days_paid = max(0, (loan.get("total_days_paid", 0) or 0) - (1 if was_paid_day else 0))
+        new_days_not_paid = max(0, (loan.get("total_days_not_paid", 0) or 0) - (0 if was_paid_day else 1))
+        new_status = "closed" if new_pending <= 0 else "active"
+
+        loan_ref.update({
+            "collected_amount": new_collected,
+            "pending_amount": new_pending,
+            "total_days_paid": new_days_paid,
+            "total_days_not_paid": new_days_not_paid,
+            "status": new_status,
+            "updated_at": _now(),
+            "updated_by": user["name"],
+        })
+        payment_ref.delete()
+        updated_loan = loan_ref.get().to_dict()
+
+    _write_audit(user["name"], "PAYMENT_DELETED", f"Deleted ₹{amount:,.0f} payment {payment_id} for {loan.get('customer_name', 'unknown borrower')}")
+    return {"status": "success", "loan": updated_loan}
 
 
 # ==============================
