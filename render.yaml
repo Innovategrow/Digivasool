@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: digivasool-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: SESSION_TTL_HOURS
+        value: "720"
+      # No SMS gateway is wired yet (see backend/services/sms.py), so the OTP
+      # is returned in the API response instead of texted. Set this to
+      # "false" only after plugging a real gateway into send_otp_sms().
+      - key: OTP_DEV_MODE
+        value: "true"
+      - key: ADMIN_SECRET_KEYWORD
+        sync: false
+      # "Name:+91XXXXXXXXXX, Name:+91XXXXXXXXXX" — same format/values as
+      # backend/.env locally. Fill these in on Render's dashboard; they are
+      # not committed to git.
+      - key: ADMIN_USERS
+        sync: false
+      - key: COLLECTOR_USERS
+        sync: false
+      - key: ADMIN_WHATSAPP
+        sync: false
+      - key: DB_BACKEND
+        value: sqlite
+      - key: DB_PATH
+        value: data/digivasool.db
+      - key: SEED_DEMO_DATA
+        value: "false"
+      - key: UPLOAD_DIR
+        value: uploads
+      # The deployed frontend's origin — update this if the Netlify site's
+      # domain ever changes.
+      - key: CORS_ORIGINS
+        value: https://digivasool.netlify.app

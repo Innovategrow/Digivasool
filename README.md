@@ -70,6 +70,39 @@ calls the real backend and reads/writes the real database.
 
 Serve over HTTPS. Back up `backend/data/` and `UPLOAD_DIR` regularly.
 
+## Deploying (Netlify + Render)
+
+The frontend (`web/`, Vite) is deployed to Netlify. Netlify only serves static
+files, so the backend needs its own host — `render.yaml` at the repo root is a
+[Render](https://render.com) Blueprint that deploys `backend/` as a web
+service.
+
+1. On Render: **New → Blueprint** → connect this GitHub repo → Render reads
+   `render.yaml`. Fill in `ADMIN_USERS`, `COLLECTOR_USERS`,
+   `ADMIN_SECRET_KEYWORD`, `ADMIN_WHATSAPP` with the same values you use in
+   `backend/.env` (these are marked `sync: false` so they're never committed).
+   Deploy — Render gives you a URL like `https://digivasool-api.onrender.com`.
+2. On Netlify: the site's `web/netlify.toml` already sets
+   `VITE_API_BASE_URL` to that Render URL. If Render assigns a different
+   subdomain, update that value and push — Netlify rebuilds automatically.
+3. `CORS_ORIGINS` in `render.yaml` must match the Netlify site's exact origin
+   (`https://digivasool.netlify.app`) or the browser will reject every API
+   call with "Failed to fetch".
+
+**Known limits of the free tier**, so there are no surprises later:
+
+- Render's free plan has **no persistent disk** — every redeploy or
+  auto-sleep/wake cycle wipes the SQLite file, i.e. all loans/payments are
+  lost. Fine for testing today; before trusting it with real money, either
+  attach a paid Render disk (`DB_PATH` already points at a mountable folder)
+  or set `DB_BACKEND=firestore` with a Firebase service account so data lives
+  outside the container.
+- `OTP_DEV_MODE=true` is required until a real SMS gateway is wired into
+  `backend/services/sms.py → send_otp_sms()` — until then the OTP is
+  returned directly in the API response instead of texted.
+- Render's free instance sleeps after 15 minutes of inactivity; the first
+  request after a sleep can take ~30–50s to wake it up.
+
 ## Tests
 
 ```bash
