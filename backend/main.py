@@ -279,15 +279,11 @@ async def request_otp(body: OTPRequest):
     contact = body.contact.strip()
     admins = _all_admins()
 
-    if body.role == "admin":
-        if not is_admin_phone_allowed_db(contact, admins):
-            if not body.admin_name or not body.admin_name.strip():
-                raise HTTPException(status_code=400, detail="Please enter your name so an admin can review your request.")
-            create_admin_access_request_db(body.admin_name.strip(), contact)
-            _write_audit(body.admin_name.strip(), "ADMIN_ACCESS_REQUESTED", f"Access requested from {contact}")
-            return {"status": "pending_approval", "message": "Your request has been sent to the admin for approval. You'll be notified once approved."}
+    # Admin approval gate temporarily disabled — any contact can request an
+    # admin OTP directly. Re-enable before going live with real users/money
+    # (restore the is_admin_phone_allowed_db check + pending_approval return).
 
-    elif body.role == "collector":
+    if body.role == "collector":
         collector = _find_collector(contact)
         if not collector:
             raise HTTPException(status_code=404, detail="Collector not found. Check your phone number.")
@@ -311,8 +307,9 @@ async def verify_otp(body: OTPVerify):
 
     if body.role == "admin":
         admins = _all_admins()
-        if not is_admin_phone_allowed_db(contact, admins):
-            raise HTTPException(status_code=403, detail="This number is not yet approved for admin access.")
+        # Approval gate temporarily disabled (see request_otp) — any verified
+        # contact is granted admin. Restore the is_admin_phone_allowed_db
+        # check before going live with real users/money.
         name = get_admin_display_name_db(contact, admins) or (body.admin_name or "Admin").strip()
         _write_audit(name, "LOGIN", f"Admin logged in via {contact}")
         return {"role": "admin", "name": name, "phone": contact, "token": issue_token("admin", name, contact)}
