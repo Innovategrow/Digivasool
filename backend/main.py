@@ -277,22 +277,12 @@ def _find_collector(contact: str) -> Optional[Dict[str, Any]]:
 async def request_otp(body: OTPRequest):
     """Step 1 of login: generate OTP (returned in the response only when OTP_DEV_MODE is on)."""
     contact = body.contact.strip()
-    admins = _all_admins()
 
-    # Admin approval gate temporarily disabled — any contact can request an
-    # admin OTP directly. Re-enable before going live with real users/money
-    # (restore the is_admin_phone_allowed_db check + pending_approval return).
-
-    if body.role == "collector":
-        collector = _find_collector(contact)
-        if not collector:
-            raise HTTPException(status_code=404, detail="Collector not found. Check your phone number.")
-        if body.collector_name and body.collector_name.strip().lower() != collector["name"].lower():
-            raise HTTPException(status_code=400, detail="This phone number is not registered to the selected collector.")
-
-    elif body.role == "borrower":
-        if not _borrower_loans_for_phone(contact):
-            raise HTTPException(status_code=404, detail="No loan account found for this mobile number.")
+    # Admin/collector/borrower existence checks temporarily disabled — any
+    # contact can request an OTP directly for any role. Re-enable before
+    # going live with real users/money: is_admin_phone_allowed_db +
+    # pending_approval (admin), _find_collector (collector),
+    # _borrower_loans_for_phone (borrower) — see verify_otp below too.
 
     otp = otp_store.generate_and_store(_otp_key(body.role, contact))
     return _otp_response(otp, contact)
@@ -315,22 +305,21 @@ async def verify_otp(body: OTPVerify):
         return {"role": "admin", "name": name, "phone": contact, "token": issue_token("admin", name, contact)}
 
     if body.role == "borrower":
+        # No-loan-found gate temporarily disabled — see request_otp.
         loans = _borrower_loans_for_phone(contact)
-        if not loans:
-            raise HTTPException(status_code=404, detail="No loan account found for this mobile number.")
-        name = loans[0]["customer_name"]
+        name = loans[0]["customer_name"] if loans else "Borrower"
         _write_audit(name, "LOGIN", f"Borrower logged in via {contact}")
         return {"role": "borrower", "name": name, "phone": contact, "token": issue_token("borrower", name, contact)}
 
+    # Collector-not-found gate temporarily disabled — see request_otp.
     collector = _find_collector(contact)
-    if not collector:
-        raise HTTPException(status_code=404, detail="Collector not found")
-    _write_audit(collector["name"], "LOGIN", f"Collector logged in via {contact}")
+    name = collector["name"] if collector else (body.collector_name or "Collector").strip()
+    _write_audit(name, "LOGIN", f"Collector logged in via {contact}")
     return {
         "role": "collector",
-        "name": collector["name"],
-        "phone": collector["phone"],
-        "token": issue_token("collector", collector["name"], collector["phone"]),
+        "name": name,
+        "phone": contact,
+        "token": issue_token("collector", name, contact),
     }
 
 

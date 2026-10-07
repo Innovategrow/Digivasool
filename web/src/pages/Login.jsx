@@ -253,7 +253,7 @@ export default function Login() {
             {role === 'collector' && (
               <div className="form-group">
                 <label className="form-label">Select Your Name</label>
-                <select required className="form-input" value={collectorName} onChange={e => setCollectorName(e.target.value)} style={{ cursor: 'pointer' }}>
+                <select className="form-input" value={collectorName} onChange={e => setCollectorName(e.target.value)} style={{ cursor: 'pointer' }}>
                   <option value="">-- Choose your name --</option>
                   {collectors.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                 </select>
