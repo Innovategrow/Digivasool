@@ -4,10 +4,12 @@ Persistent storage layer.
 Two interchangeable backends expose the same small Firestore-style API that
 main.py uses (collection -> document -> get/set/update/delete, where/limit/add):
 
-* Firestore - used when DB_BACKEND=firestore, or when DB_BACKEND is unset and
-  FIREBASE_SERVICE_ACCOUNT_PATH points at an existing service-account file.
-* SQLite    - the default. One file (DB_PATH) that survives restarts without
-  any cloud setup.
+* Firestore - the default, and the only backend used in production. Requires
+  FIREBASE_SERVICE_ACCOUNT_PATH to point at a valid service-account file; if
+  it doesn't, startup fails loudly instead of silently falling back to a
+  local file that disappears on every redeploy/sleep cycle.
+* SQLite    - opt-in only, via DB_BACKEND=sqlite. Used by the test suite for
+  a throwaway, isolated database — never used unless explicitly requested.
 
 Nothing here keeps business data only in process memory.
 """
@@ -186,23 +188,28 @@ def _service_account_path() -> str:
 def _connect():
     global _db, _backend_name
     choice = (os.environ.get("DB_BACKEND") or "").strip().lower()
-    sa_path = _service_account_path()
-    if choice == "firestore" or (not choice and os.path.exists(sa_path)):
-        import firebase_admin
-        from firebase_admin import credentials, firestore
-
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(credentials.Certificate(sa_path))
-        _db = firestore.client()
-        _backend_name = "firestore"
-        print("Storage: Firebase Firestore")
-    else:
+    if choice == "sqlite":
         path = os.environ.get("DB_PATH", "data/digivasool.db")
         if not os.path.isabs(path):
             path = os.path.join(BACKEND_DIR, path)
         _db = SQLiteStore(path)
         _backend_name = "sqlite"
         print(f"Storage: SQLite ({path})")
+        return
+
+    # Firestore is the only non-sqlite option, and the default when
+    # DB_BACKEND isn't "sqlite" — including when it's unset or mistyped, so a
+    # misconfigured deploy fails loudly here instead of quietly running on an
+    # ephemeral local file.
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+
+    sa_path = _service_account_path()
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(credentials.Certificate(sa_path))
+    _db = firestore.client()
+    _backend_name = "firestore"
+    print("Storage: Firebase Firestore")
 
 
 def get_firestore_client():
