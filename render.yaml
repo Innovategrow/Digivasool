@@ -31,8 +31,15 @@ services:
         sync: false
       - key: ADMIN_WHATSAPP
         sync: false
+      # Render's free plan has no persistent disk, so sqlite data is wiped on
+      # every redeploy/sleep-wake cycle. Firestore keeps data outside the
+      # container — see README "Deploying" section for the one-time setup
+      # (create a Firebase project, enable Firestore, add the service
+      # account JSON as a Render Secret File).
       - key: DB_BACKEND
-        value: sqlite
+        value: firestore
+      - key: FIREBASE_SERVICE_ACCOUNT_PATH
+        value: /etc/secrets/firebase-service-account.json
       - key: DB_PATH
         value: data/digivasool.db
       - key: SEED_DEMO_DATA
