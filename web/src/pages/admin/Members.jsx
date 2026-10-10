@@ -306,6 +306,8 @@ function BorrowerCard({ loan, onOpen, onMenu }) {
 }
 
 // ── Borrower details screen ─────────────────────────────────────────────────
+const pct = (part, whole) => (whole > 0 ? Math.round(((part || 0) / whole) * 1000) / 10 : 0);
+
 function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDelete, onCloseLoan, onOpenLoan }) {
   const metrics = getLoanMetrics(loan);
   const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - (loan.monthly_interest_amount || 0));
@@ -396,11 +398,11 @@ function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDele
       <div className="section-card">
         <div className="section-card-title">Charges &amp; Fees</div>
         <div className="customer-detail-grid">
-          <div><span>Total charges</span><strong>{money(totalCharges)}</strong></div>
-          <div><span>Interest</span><strong>{money(chargeInterest)}</strong></div>
-          <div><span>Field verification</span><strong>{money(loan.field_visit_charge)}</strong></div>
-          <div><span>Document fee</span><strong>{money(loan.document_fee)}</strong></div>
-          <div><span>Processing fee</span><strong>{money(loan.processing_fee)}</strong></div>
+          <div><span>Total charges{loan.loan_amount > 0 && ` (${pct(totalCharges, loan.loan_amount)}% of loan)`}</span><strong>{money(totalCharges)}</strong></div>
+          <div><span>Interest ({pct(chargeInterest, totalCharges)}%)</span><strong>{money(chargeInterest)}</strong></div>
+          <div><span>Field verification ({pct(loan.field_visit_charge, totalCharges)}%)</span><strong>{money(loan.field_visit_charge)}</strong></div>
+          <div><span>Document fee ({pct(loan.document_fee, totalCharges)}%)</span><strong>{money(loan.document_fee)}</strong></div>
+          <div><span>Processing fee ({pct(loan.processing_fee, totalCharges)}%)</span><strong>{money(loan.processing_fee)}</strong></div>
         </div>
       </div>
 
@@ -1395,13 +1397,17 @@ function DisburseSuccess({ result, onDone }) {
 
       <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 16, textAlign: 'left', fontSize: 13 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>{t('chargesAndFees')}</div>
-        {[
-          [t('charges'), loan.monthly_interest_amount],
-          [t('chargeInterest'), Math.max(0, (loan.monthly_interest_amount || 0) - (loan.field_visit_charge || 0) - (loan.document_fee || 0) - (loan.processing_fee || 0))],
-          [t('fieldVerification'), loan.field_visit_charge],
-          [t('documentFee'), loan.document_fee],
-          [t('processingFee'), loan.processing_fee],
-        ].map(([label, v]) => (
+        {(() => {
+          const total = loan.monthly_interest_amount || 0;
+          const interest = Math.max(0, total - (loan.field_visit_charge || 0) - (loan.document_fee || 0) - (loan.processing_fee || 0));
+          return [
+            [loan.loan_amount > 0 ? `${t('charges')} (${pct(total, loan.loan_amount)}%)` : t('charges'), total],
+            [`${t('chargeInterest')} (${pct(interest, total)}%)`, interest],
+            [`${t('fieldVerification')} (${pct(loan.field_visit_charge, total)}%)`, loan.field_visit_charge],
+            [`${t('documentFee')} (${pct(loan.document_fee, total)}%)`, loan.document_fee],
+            [`${t('processingFee')} (${pct(loan.processing_fee, total)}%)`, loan.processing_fee],
+          ];
+        })().map(([label, v]) => (
           <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
             <span style={{ color: 'var(--text-2)' }}>{label}</span><strong>₹{Number(v || 0).toLocaleString('en-IN')}</strong>
           </div>
