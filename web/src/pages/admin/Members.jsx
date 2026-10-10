@@ -236,7 +236,7 @@ function PaymentHistorySection({ loanId }) {
         const isNotPaid = Number(p.amount || 0) <= 0;
         const expanded = expandedId === p.id;
         const paymentDate = new Date(p.payment_date);
-        const dateLabel = Number.isNaN(paymentDate.getTime()) ? '' : paymentDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        const dateLabel = Number.isNaN(paymentDate.getTime()) ? '' : `${paymentDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}, ${paymentDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
         return (
           <div key={p.id} className="payment-history-row">
             <button
@@ -309,6 +309,8 @@ function BorrowerCard({ loan, onOpen, onMenu }) {
 function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDelete, onCloseLoan, onOpenLoan }) {
   const metrics = getLoanMetrics(loan);
   const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - (loan.monthly_interest_amount || 0));
+  const totalCharges = loan.monthly_interest_amount || 0;
+  const chargeInterest = Math.max(0, totalCharges - (loan.field_visit_charge || 0) - (loan.document_fee || 0) - (loan.processing_fee || 0));
   const activeLoans = relatedLoans.filter(l => getLoanMetrics(l).pendingAmount > 0 && l.status !== 'closed');
 
   return (
@@ -389,6 +391,17 @@ function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDele
             <span>Payment is complete. The loan history will remain saved.</span>
           </div>
         )}
+      </div>
+
+      <div className="section-card">
+        <div className="section-card-title">Charges &amp; Fees</div>
+        <div className="customer-detail-grid">
+          <div><span>Total charges</span><strong>{money(totalCharges)}</strong></div>
+          <div><span>Interest</span><strong>{money(chargeInterest)}</strong></div>
+          <div><span>Field verification</span><strong>{money(loan.field_visit_charge)}</strong></div>
+          <div><span>Document fee</span><strong>{money(loan.document_fee)}</strong></div>
+          <div><span>Processing fee</span><strong>{money(loan.processing_fee)}</strong></div>
+        </div>
       </div>
 
       <div className="section-card">
@@ -1379,6 +1392,21 @@ function DisburseSuccess({ result, onDone }) {
       <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 20 }}>
         ₹{(loan.loan_amount || 0).toLocaleString()} {t('disbursedTo')} <strong>{loan.customer_name}</strong>
       </p>
+
+      <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 16, textAlign: 'left', fontSize: 13 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>{t('chargesAndFees')}</div>
+        {[
+          [t('charges'), loan.monthly_interest_amount],
+          [t('chargeInterest'), Math.max(0, (loan.monthly_interest_amount || 0) - (loan.field_visit_charge || 0) - (loan.document_fee || 0) - (loan.processing_fee || 0))],
+          [t('fieldVerification'), loan.field_visit_charge],
+          [t('documentFee'), loan.document_fee],
+          [t('processingFee'), loan.processing_fee],
+        ].map(([label, v]) => (
+          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+            <span style={{ color: 'var(--text-2)' }}>{label}</span><strong>₹{Number(v || 0).toLocaleString('en-IN')}</strong>
+          </div>
+        ))}
+      </div>
 
       <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 16, textAlign: 'left' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>

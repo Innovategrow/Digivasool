@@ -3,7 +3,7 @@ import re
 import shutil
 import urllib.parse
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
@@ -123,7 +123,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 def _now() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ==============================
@@ -641,7 +641,7 @@ async def create_loan(
         try:
             db = get_firestore_client()
             loan_id = str(uuid4())
-            create_time = datetime.utcnow()
+            create_time = datetime.now(timezone.utc)
             created_at = create_time.isoformat()
 
             # Field verification/document/processing are a breakdown of the single

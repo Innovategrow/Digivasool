@@ -115,7 +115,8 @@ function localDateInputValue(dateValue = new Date()) {
 
 function paymentDateIso(dateValue) {
   const [year, month, day] = dateValue.split('-').map(Number);
-  return new Date(year, month - 1, day, 12, 0, 0).toISOString();
+  const now = new Date();
+  return new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
 }
 
 export default function CollectPayment() {
