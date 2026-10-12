@@ -1402,7 +1402,7 @@ async def get_reminder_policy():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "storage": get_backend_name()}
+    return {"status": "ok", "storage": get_backend_name(), "sheet_backup": sheets_backup.status()}
 
 
 # ==============================

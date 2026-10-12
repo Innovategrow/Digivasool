@@ -129,6 +129,7 @@ def request_sync() -> None:
     """Schedule a sync shortly from now; repeated calls within the window collapse into one."""
     global _timer
     if not is_enabled():
+        print("Google Sheets backup is off (GOOGLE_SHEET_ID / GOOGLE_SHEETS_CREDENTIALS not set)")
         return
     if _timer:
         _timer.cancel()
@@ -138,7 +139,12 @@ def request_sync() -> None:
 
 
 def status() -> Dict[str, Any]:
-    return {"enabled": is_enabled(), **_last_status}
+    return {
+        "enabled": is_enabled(),
+        "has_sheet_id": bool(os.environ.get("GOOGLE_SHEET_ID")),
+        "has_credentials": bool(os.environ.get("GOOGLE_SHEETS_CREDENTIALS")),
+        **_last_status,
+    }
 
 
 def export_workbook_bytes(book_id: str | None = None) -> bytes:
