@@ -223,15 +223,15 @@ def _connect(business: str):
 
 
 # ── Business scoping (Finance vs Fund) ───────────────────────────────────────
-# Finance and Fund run the exact same flow on completely separate data. The
+
 # active business is set per request (X-Business header). SQLite uses one
 # database file per business; Firestore prefixes Fund collections with "fund_".
 
 BUSINESSES = ("finance", "fund")
 DEFAULT_BUSINESS = "finance"
 _FUND_PREFIX = "fund_"
-# Login-level access approvals are the only thing shared between businesses.
-_SHARED_COLLECTIONS = {"admin_access_requests"}
+# Nothing is shared: Finance and Fund are completely different businesses, so
+# every collection (including admin access requests) is stored per business.
 
 _current_business: ContextVar[str] = ContextVar("current_business", default=DEFAULT_BUSINESS)
 
@@ -260,8 +260,6 @@ class _ScopedClient:
         self._business = business
 
     def collection(self, name: str):
-        if name in _SHARED_COLLECTIONS:
-            return _store("finance").collection(name)
         store = _store(self._business)
         if self._business == "fund" and _backend_name == "firestore":
             name = _FUND_PREFIX + name

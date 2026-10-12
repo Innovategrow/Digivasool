@@ -250,6 +250,13 @@ def test_fund_and_finance_are_isolated():
     assert os.path.exists(os.path.join(TMP, "test_fund.db"))  # Fund has its own database file
     client.post("/api/staff/", headers=FUND, json={"name": "Fund Collector", "phone": "+919111111111", "role": "collector"})
     assert not any(x.get("name") == "Fund Collector" for x in client.get("/api/staff/", headers=ADMIN).json())
+    import db
+    db.create_admin_access_request_db("Fund Only", "+919222222222")  # runs in Finance context
+    tok = db.set_current_business("fund")
+    db.create_admin_access_request_db("Fund Admin", "+919333333333")
+    db.reset_current_business(tok)
+    names = lambda h: {r["name"] for r in client.get("/api/admin/access-requests", headers=h).json()}  # noqa: E731
+    assert "Fund Admin" in names(FUND) and "Fund Admin" not in names(ADMIN)
     client.post("/api/expenses/", headers=FUND, json={"category": "FundOnly", "amount": 7, "date": "2026-09-21"})
     assert not any(e["category"] == "FundOnly" for e in client.get("/api/expenses/", headers=ADMIN).json())
 
