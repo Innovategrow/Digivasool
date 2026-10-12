@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAppData, ZONES } from '../../context/AppDataContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiFetch } from '../../utils/api';
+import { downloadReportPdf } from '../../utils/reportPdf';
 import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2, BarChart3, TrendingUp, Wallet, Layers, MapPin, Target, Calendar, CalendarDays } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell,
@@ -29,7 +30,13 @@ export default function Reports() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
   const handleExport = async (type) => {
-    if (type !== 'Excel') return showToast(`${type} export ready!`);
+    if (type === 'PDF') {
+      const ok = downloadReportPdf({
+        loans: state.loans,
+        totals: { disbursed: derived.totalDisbursed, collected: derived.totalCollected, outstanding: derived.totalOutstanding, expenses: derived.totalExpenses },
+      });
+      return showToast(ok ? 'Choose "Save as PDF" in the print window' : 'Allow pop-ups to download the PDF');
+    }
     try {
       const res = await apiFetch('/api/reports/export.xlsx');
       if (!res.ok) throw new Error('Export failed');
