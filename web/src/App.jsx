@@ -6,8 +6,8 @@ import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { ToastProvider } from './components/Toast';
 import MoreSheet from './components/MoreSheet';
 import BottomSheet from './components/BottomSheet';
-import { apiFetch, BUSINESSES, getBusiness, setBusiness } from './utils/api';
-import { Bell, Menu, LayoutDashboard, Users, CreditCard, BookOpen, UserCheck, Check, X, Wallet } from 'lucide-react';
+import { apiFetch, getBooks, saveBooks, getBusiness, setBusiness } from './utils/api';
+import { Bell, Menu, LayoutDashboard, Users, CreditCard, BookOpen, UserCheck, Check, X, Wallet, ChevronDown, Plus } from 'lucide-react';
 
 import Dashboard from './pages/admin/Dashboard';
 import Ledger from './pages/admin/Ledger';
@@ -99,6 +99,28 @@ function MobileShell({ collectorMode = false }) {
   const { t } = useLanguage();
   const location = useLocation();
   const business = getBusiness();
+  const [books, setBooks] = useState(getBooks);
+  const [bookSheet, setBookSheet] = useState(false);
+  const [newBook, setNewBook] = useState('');
+  const [bookError, setBookError] = useState('');
+  const bookName = books.find(b => b.id === business)?.name || 'Finance';
+
+  useEffect(() => {
+    apiFetch('/api/books').then(r => r.ok ? r.json() : null).then(list => {
+      if (Array.isArray(list)) { saveBooks(list); setBooks(list); }
+    }).catch(() => {});
+  }, []);
+
+  const createBook = async () => {
+    setBookError('');
+    try {
+      const res = await apiFetch('/api/books', { method: 'POST', body: JSON.stringify({ name: newBook }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Could not create book');
+      saveBooks([...books, data]);
+      setBusiness(data.id);
+    } catch (err) { setBookError(err.message); }
+  };
 
   useEffect(() => {
     if (collectorMode || user?.role !== 'admin') return;
@@ -136,7 +158,7 @@ function MobileShell({ collectorMode = false }) {
         <div className="app-bar-brand"><Wallet size={16} /></div>
         <div className="app-bar-titles">
           <div className="app-bar-title">{pageTitle}</div>
-          <div className="app-bar-sub">{t('appName')} · {business === 'fund' ? 'Fund' : 'Finance'}</div>
+          <div className="app-bar-sub">{t('appName')} · {bookName}</div>
         </div>
         <div className="app-bar-actions">
           {!collectorMode && (
@@ -152,14 +174,30 @@ function MobileShell({ collectorMode = false }) {
         </div>
       </header>
 
-      <div className="biz-switch" role="tablist" aria-label="Business">
-        {BUSINESSES.map(b => (
-          <button key={b.id} type="button" role="tab" aria-selected={business === b.id}
-            className={`biz-tab${business === b.id ? ' active' : ''}`} onClick={() => setBusiness(b.id)}>
-            {b.label}
+      <button type="button" className="biz-switch" onClick={() => setBookSheet(true)} aria-label="Switch book">
+        <span className="biz-avatar">{bookName.slice(0, 2).toUpperCase()}</span>
+        <span className="biz-name">{bookName}</span>
+        <ChevronDown size={18} />
+      </button>
+      <BottomSheet open={bookSheet} title="Select book" onClose={() => setBookSheet(false)}>
+        {books.map(b => (
+          <button key={b.id} type="button" className={`biz-row${b.id === business ? ' active' : ''}`} onClick={() => setBusiness(b.id)}>
+            <span className="biz-avatar">{b.name.slice(0, 2).toUpperCase()}</span>
+            <span className="biz-name">{b.name}</span>
+            {b.id === business && <Check size={18} />}
           </button>
         ))}
-      </div>
+        {user?.role === 'admin' && (
+          <div className="biz-new">
+            <input className="form-input" placeholder="New book name (e.g. Pongal Fund)" value={newBook}
+              maxLength={40} onChange={e => setNewBook(e.target.value)} />
+            {bookError && <div className="biz-error">{bookError}</div>}
+            <button type="button" className="btn btn-primary" disabled={!newBook.trim()} onClick={createBook}>
+              <Plus size={16} /> Create new book
+            </button>
+          </div>
+        )}
+      </BottomSheet>
 
       <main className="page-area">
         <Suspense fallback={<ScreenLoader />}>

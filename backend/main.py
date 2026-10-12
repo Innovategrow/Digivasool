@@ -28,7 +28,8 @@ from db import (
     set_current_business,
     reset_current_business,
     get_current_business,
-    BUSINESSES,
+    list_books,
+    create_book,
     get_idempotent_response,
     get_loan_payments_db,
     get_collector_payments_db,
@@ -332,7 +333,7 @@ async def verify_otp(body: OTPVerify):
         # No-loan-found gate temporarily disabled — see request_otp.
         # A borrower may hold loans in Finance or Fund; land them in whichever has theirs.
         business, loans = get_current_business(), []
-        for candidate in (get_current_business(), *[b for b in BUSINESSES if b != get_current_business()]):
+        for candidate in (get_current_business(), *[b for b in (x['id'] for x in list_books()) if b != get_current_business()]):
             tok = set_current_business(candidate)
             try:
                 loans = _borrower_loans_for_phone(contact)
@@ -387,8 +388,8 @@ def _save_upload(file: UploadFile, folder: str) -> str:
     original = os.path.basename(file.filename or "file")
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", original)[-80:] or "file"
     filename = f"{uuid4().hex[:8]}_{safe}"
-    if get_current_business() == "fund":  # Fund uploads are stored apart from Finance
-        folder = f"fund/{folder}"
+    if get_current_business() != "finance":  # other books' uploads are stored apart from Finance
+        folder = f"{get_current_business()}/{folder}"
     target_dir = os.path.join(UPLOAD_DIR, folder)
     os.makedirs(target_dir, exist_ok=True)
     path = os.path.join(target_dir, filename)
@@ -433,6 +434,25 @@ async def upload_payment_proof(payment_id: str, file: UploadFile = File(...), us
     })
     _write_audit(user["name"], "PAYMENT_PROOF_UPLOADED", f"Proof uploaded for payment {payment_id}")
     return {"status": "success", "data": payment_ref.get().to_dict()}
+
+
+# ==============================
+# BOOKS (Finance, Fund, and any admin-created book)
+# ==============================
+
+@app.get("/api/books")
+async def get_books(user=Depends(require_role("admin", "collector"))):
+    return list_books()
+
+
+@app.post("/api/books")
+async def add_book(body: dict, user=Depends(require_admin)):
+    try:
+        book = create_book(body.get("name", ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _write_audit(user["name"], "BOOK_CREATED", f"Created book {book['name']}")
+    return book
 
 
 # ==============================

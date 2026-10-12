@@ -281,3 +281,15 @@ if __name__ == "__main__":
                 failures += 1
                 print("FAIL", name, repr(exc))
     sys.exit(1 if failures else 0)
+
+
+def test_create_custom_book_is_isolated():
+    r = client.post("/api/books", json={"name": "Pongal Fund"}, headers=ADMIN)
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == "pongalfund"
+    assert client.post("/api/books", json={"name": "pongal fund"}, headers=ADMIN).status_code == 400
+    assert any(b["id"] == "pongalfund" for b in client.get("/api/books", headers=ADMIN).json())
+    BOOK = {**ADMIN, "X-Business": "pongalfund"}
+    assert client.get("/api/loans/", headers=BOOK).json() == []
+    client.post("/api/loans/", json={**NEW_LOAN, "customer_name": "Book Person"}, headers=BOOK)
+    assert not any(l["customer_name"] == "Book Person" for l in client.get("/api/loans/", headers=ADMIN).json())

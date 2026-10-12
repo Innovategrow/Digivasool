@@ -4,15 +4,25 @@ function savedUser() {
   try { return JSON.parse(localStorage.getItem('dk_user') || 'null'); } catch { return null; }
 }
 
-export const BUSINESSES = [
-  { id: 'finance', label: 'Finance' },
-  { id: 'fund', label: 'Fund' },
-];
+const DEFAULT_BOOKS = [{ id: 'finance', name: 'Finance' }, { id: 'fund', name: 'Fund' }];
+
+// Books (Finance, Fund, and any the admin creates) are cached locally and refreshed from /api/books.
+export function getBooks() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('dk_books') || 'null');
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch { /* ignore */ }
+  return DEFAULT_BOOKS;
+}
+
+export function saveBooks(books) {
+  try { localStorage.setItem('dk_books', JSON.stringify(books)); } catch { /* ignore */ }
+}
 
 export function getBusiness() {
   try {
     const saved = localStorage.getItem('dk_business');
-    return BUSINESSES.some(b => b.id === saved) ? saved : 'finance';
+    return saved && /^[a-z0-9]{1,30}$/.test(saved) ? saved : 'finance';
   } catch { return 'finance'; }
 }
 

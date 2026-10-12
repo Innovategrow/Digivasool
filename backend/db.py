@@ -16,6 +16,7 @@ Nothing here keeps business data only in process memory.
 
 import json
 import os
+import re
 import sqlite3
 import threading
 from contextvars import ContextVar
@@ -190,9 +191,9 @@ def _sqlite_path(business: str) -> str:
     path = os.environ.get("DB_PATH", "data/digivasool.db")
     if not os.path.isabs(path):
         path = os.path.join(BACKEND_DIR, path)
-    if business == "fund":  # Fund gets its own database file: <name>_fund.db
+    if business != DEFAULT_BUSINESS:  # every other book gets its own file: <name>_<book>.db
         root, ext = os.path.splitext(path)
-        path = f"{root}_fund{ext}"
+        path = f"{root}_{business}{ext}"
     return path
 
 
@@ -225,20 +226,47 @@ def _connect(business: str):
 # ── Business scoping (Finance vs Fund) ───────────────────────────────────────
 
 # active business is set per request (X-Business header). SQLite uses one
-# database file per business; Firestore prefixes Fund collections with "fund_".
+# database file per book; Firestore prefixes non-Finance collections with "<book>_".
 
-BUSINESSES = ("finance", "fund")
+# Books: "finance" always exists; "fund" is the original second book; admins can
+# create more, each with its own storage. Only the book registry is shared.
 DEFAULT_BUSINESS = "finance"
-_FUND_PREFIX = "fund_"
-# Nothing is shared: Finance and Fund are completely different businesses, so
-# every collection (including admin access requests) is stored per business.
+_BUILTIN_BOOKS = [{"id": "finance", "name": "Finance"}, {"id": "fund", "name": "Fund"}]
+_SHARED_COLLECTIONS = {"books"}
 
 _current_business: ContextVar[str] = ContextVar("current_business", default=DEFAULT_BUSINESS)
 
 
+def slugify_book(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())[:30]
+
+
+def list_books() -> List[Dict[str, str]]:
+    books = list(_BUILTIN_BOOKS)
+    known = {b["id"] for b in books}
+    for snap in _store("finance").collection("books").get():
+        data = snap.to_dict() or {}
+        if snap.id not in known and data.get("name"):
+            books.append({"id": snap.id, "name": data["name"]})
+    return books
+
+
+def create_book(name: str) -> Dict[str, str]:
+    name = (name or "").strip()[:40]
+    book_id = slugify_book(name)
+    if not name or not book_id:
+        raise ValueError("Enter a name for the book")
+    if any(b["id"] == book_id or b["name"].lower() == name.lower() for b in list_books()):
+        raise ValueError("A book with this name already exists")
+    _store("finance").collection("books").document(book_id).set({"name": name})
+    return {"id": book_id, "name": name}
+
+
 def normalize_business(value: Optional[str]) -> str:
     value = (value or "").strip().lower()
-    return value if value in BUSINESSES else DEFAULT_BUSINESS
+    if value in ("", DEFAULT_BUSINESS) or not re.fullmatch(r"[a-z0-9]{1,30}", value):
+        return DEFAULT_BUSINESS
+    return value if any(b["id"] == value for b in list_books()) else DEFAULT_BUSINESS
 
 
 def set_current_business(value: Optional[str]):
@@ -260,9 +288,11 @@ class _ScopedClient:
         self._business = business
 
     def collection(self, name: str):
+        if name in _SHARED_COLLECTIONS:
+            return _store(DEFAULT_BUSINESS).collection(name)
         store = _store(self._business)
-        if self._business == "fund" and _backend_name == "firestore":
-            name = _FUND_PREFIX + name
+        if self._business != DEFAULT_BUSINESS and _backend_name == "firestore":
+            name = f"{self._business}_{name}"
         return store.collection(name)
 
 
