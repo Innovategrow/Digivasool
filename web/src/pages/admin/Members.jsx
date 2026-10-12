@@ -891,7 +891,17 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
       // Show the new borrower at the top of the list straight away
       setLoans(current => [data.data, ...current.filter(l => l.id !== data.data.id)]);
       setSearch(''); setStatusFilter('all'); setZoneFilter('all'); setSortBy('newest'); resetPaging();
-      setDisburseResult(data);
+      // Keep what the admin just entered even if an older server dropped the new fields
+      setDisburseResult({
+        ...data,
+        data: {
+          ...data.data,
+          terms_accepted: data.data.terms_accepted || termsAccepted,
+          terms_accepted_at: data.data.terms_accepted_at || new Date().toISOString(),
+          signature_url: data.data.signature_url || signature || '',
+          photo_url: data.data.photo_url || photoPreview || '',
+        },
+      });
       showToast('Borrower added successfully');
     } catch (err) {
       showToast(`Could not add borrower. ${err.message || 'Please try again.'}`, 'error');
