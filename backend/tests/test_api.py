@@ -53,7 +53,7 @@ COLLECTOR = login("collector", "+919000000002", collector_name="Collector 1")
 NEW_LOAN = {
     "customer_id": "CUST-T1", "customer_name": "Rahul Kumar", "customer_phone": "9876500001",
     "customer_email": "", "customer_address": "1 Main St", "zone": "Peelamedu",
-    "loan_amount": 12500, "monthly_interest_amount": 500, "start_date": "2026-09-01",
+    "loan_amount": 12500, "terms_accepted": True, "monthly_interest_amount": 500, "start_date": "2026-09-01",
     "closing_date": "2026-12-01", "repayment_frequency": "daily", "repayment_amount": 250,
 }
 

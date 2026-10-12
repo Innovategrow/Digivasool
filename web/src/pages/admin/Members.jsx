@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { ZONES } from '../../context/AppDataContext';
 import PhotoCapture from '../../components/PhotoCapture';
+import SignaturePad from '../../components/SignaturePad';
 import BottomSheet from '../../components/BottomSheet';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
@@ -652,6 +653,8 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
   const [zoneFilter, setZoneFilter] = useState('all');
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [signature, setSignature] = useState(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [showOtpSection, setShowOtpSection] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const [menuLoan, setMenuLoan] = useState(null);
@@ -825,6 +828,8 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
     setShowModal(false);
     setPhoneVerified(false);
     setPhotoPreview(null);
+    setSignature(null);
+    setTermsAccepted(false);
     setShowOtpSection(false);
     setDisburseResult(null);
     setFormData({
@@ -843,6 +848,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
     if (!formData.name || !formData.phone || !formData.zone || !formData.amount || !formData.closeDate) {
       showToast('Name, Phone, Coimbatore area, Amount and Due Date are required.', 'error'); return;
     }
+    if (!termsAccepted) { showToast(t('termsRequired'), 'error'); return; }
     // One key per borrower being added, reused on retry, so a double tap never creates two loans
     if (!createKeyRef.current) createKeyRef.current = newIdempotencyKey();
     setLoading(true);
@@ -855,6 +861,8 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
       alternate_phone: formData.alternate_phone,
       zone: formData.zone,
       photo_url: photoPreview || '',
+      signature_url: signature || '',
+      terms_accepted: termsAccepted,
       shop_name: formData.shop_name,
       aadhaar_number: formData.aadhaar_number,
       guarantor_name: formData.guarantor_name,
@@ -1338,6 +1346,22 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
                 </div>
               )}
 
+              {/* ── Terms & Conditions (mandatory) and digital signature (optional) ── */}
+              <SectionLabel>{t('termsAndConditions')}</SectionLabel>
+              <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: 14, marginBottom: 12, maxHeight: 180, overflowY: 'auto', fontSize: 12, color: 'var(--text-2)' }}>
+                <ol style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
+                  {['terms1', 'terms2', 'terms3', 'terms4', 'terms5'].map(k => <li key={k}>{t(k)}</li>)}
+                </ol>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, fontWeight: 600, marginBottom: 16, cursor: 'pointer' }}>
+                <input type="checkbox" required checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} style={{ marginTop: 3, width: 18, height: 18 }} />
+                <span>{t('acceptTerms')}</span>
+              </label>
+              <div className="form-group">
+                <label className="form-label">{t('digitalSignature')}</label>
+                <SignaturePad onChange={setSignature} />
+              </div>
+
               <button type="submit" className="save-btn" disabled={loading} aria-busy={loading} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Check size={16} /> {loading ? t('creating') : t('confirmLoanDisbursal')}
               </button>
@@ -1437,6 +1461,12 @@ function DisburseSuccess({ result, onDone }) {
           </a>
         ) : (
           <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{t('noPhoneSmsUnavailable')}</div>
+        )}
+        {sms.admin_sms_url && (
+          <a href={sms.admin_sms_url}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: 12, marginTop: 8, borderRadius: 12, background: 'var(--surface-2)', color: 'var(--text)', textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>
+            <MessageSquare size={16} /> {t('sendSmsToAdmin')}
+          </a>
         )}
       </div>
 

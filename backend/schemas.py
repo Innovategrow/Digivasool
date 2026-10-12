@@ -89,6 +89,18 @@ class BorrowerFieldsMixin:
             raise ValueError("Photo must be an image")
         return v
 
+    @field_validator("signature_url", mode="before", check_fields=False)
+    @classmethod
+    def _v_signature(cls, v):
+        if v is None:
+            return v
+        v = str(v)
+        if len(v) > _MAX_PHOTO_CHARS:
+            raise ValueError("Signature is too large")
+        if v and not (v.startswith("data:image/") or v.startswith("http") or v.startswith("/uploads/")):
+            raise ValueError("Signature must be an image")
+        return v
+
     @field_validator("customer_address", "guarantor_address", "shop_name", "zone", "guarantor_name",
                      mode="before", check_fields=False)
     @classmethod
@@ -179,6 +191,9 @@ class LoanCreate(BorrowerFieldsMixin, BaseModel):
     shop_name: Optional[str] = None
     aadhaar_number: Optional[str] = None
     photo_url: Optional[str] = None
+    # Terms & conditions must be accepted; the digital signature is optional
+    terms_accepted: bool = False
+    signature_url: Optional[str] = None
     zone: Optional[str] = None
     guarantor_name: Optional[str] = None
     guarantor_phone: Optional[str] = None
@@ -254,6 +269,9 @@ class LoanRecord(BaseModel):
     shop_name: Optional[str] = None
     aadhaar_number: Optional[str] = None
     photo_url: Optional[str] = None
+    signature_url: Optional[str] = None
+    terms_accepted: bool = False
+    terms_accepted_at: Optional[str] = None
     zone: Optional[str] = None
     guarantor_name: Optional[str] = None
     guarantor_phone: Optional[str] = None
@@ -317,6 +335,7 @@ class WhatsAppLinks(BaseModel):
 
 class SMSLinks(BaseModel):
     send_sms_url: Optional[str] = None
+    admin_sms_url: Optional[str] = None
     message_preview: str
     language: str
 

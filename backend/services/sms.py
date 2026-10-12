@@ -13,6 +13,8 @@ gateway (Twilio / MSG91 / Fast2SMS) into `queue_disbursement_sms` below and
 call it from main.py instead of only returning the deep link.
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 SUPPORTED_LANGUAGES = {
     "en": "English",
     "hi": "Hindi",
@@ -84,6 +86,14 @@ def build_disbursement_sms(
 def queue_disbursement_sms(phone: str, message: str) -> None:
     """Placeholder for a real SMS gateway (Twilio / MSG91 / Fast2SMS) integration."""
     print("Queued disbursement SMS ->", phone, ":", message)
+
+
+def queue_disbursement_sms_batch(messages: list[tuple[str, str]]) -> None:
+    """Send every (phone, message) pair concurrently so the admin copy never waits on the borrower's."""
+    if not messages:
+        return
+    with ThreadPoolExecutor(max_workers=len(messages)) as pool:
+        list(pool.map(lambda pm: queue_disbursement_sms(*pm), messages))
 
 
 def send_otp_sms(phone: str, otp: str) -> None:

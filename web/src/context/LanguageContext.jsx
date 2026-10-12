@@ -75,6 +75,16 @@ const TRANSLATIONS = {
     linkedBankAccount: 'Linked Bank Account', mandatoryProofKyc: 'Mandatory Proof Copy (KYC)', notYetUploaded: 'Not yet uploaded',
     upload: 'Upload', loginHistory: 'Login History', signOutSafely: 'Sign Out Safely', loadingProfile: 'Loading profile...',
 
+    // Terms & signature (other languages fall back to English)
+    termsAndConditions: 'Terms & Conditions', digitalSignature: 'Digital Signature (optional)', signHere: 'Sign here',
+    clearSignature: 'Clear', acceptTerms: 'I confirm the borrower has read and accepts the Terms & Conditions *',
+    termsRequired: 'The borrower must accept the Terms & Conditions.', sendSmsToAdmin: 'Send SMS copy to me (admin)',
+    terms1: 'The borrower confirms all details provided (identity, address, contact) are true and correct.',
+    terms2: 'The loan amount, charges and fees shown are agreed, and charges are deducted upfront from the principal.',
+    terms3: 'The borrower agrees to repay the installments on the scheduled dates until the loan is fully closed.',
+    terms4: 'Late or missed payments may lead to reminders, follow-up visits and recovery action as permitted by law.',
+    terms5: 'The borrower consents to SMS / WhatsApp messages about this loan and to storage of the provided details and photo.',
+
     // PhotoCapture
     uploadBtn: 'Upload', cameraBtn: 'Camera', removeBtn: 'Remove', takePhoto: 'Take Photo', retake: 'Retake',
     usePhoto: 'Use Photo', flip: 'Flip', capture: 'Capture',

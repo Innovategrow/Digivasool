@@ -73,7 +73,7 @@ from services.reminders import (
     build_whatsapp_reminder_schedule,
     queue_whatsapp_reminders,
 )
-from services.sms import build_disbursement_sms, queue_disbursement_sms, send_otp_sms
+from services.sms import build_disbursement_sms, queue_disbursement_sms_batch, send_otp_sms
 import otp_store
 from config_admins import ADMIN_USERS, COLLECTOR_USERS
 
@@ -642,7 +642,7 @@ def _loan_out(l: Dict[str, Any], doc_id: str, reminders: Optional[List[Dict[str,
     l.setdefault("repayment_amount", 0.0)
     l.setdefault("total_days_paid", 0)
     l.setdefault("total_days_not_paid", 0)
-    for key in ("alternate_phone", "shop_name", "zone", "aadhaar_number", "photo_url",
+    for key in ("alternate_phone", "shop_name", "zone", "aadhaar_number", "photo_url", "signature_url",
                 "guarantor_name", "guarantor_phone", "guarantor_address"):
         l.setdefault(key, "")
     if "monthly_interest_amount" not in l:
@@ -683,6 +683,8 @@ async def create_loan(
         raise HTTPException(status_code=400, detail="Customer ID is required")
     if loan.loan_amount <= 0:
         raise HTTPException(status_code=400, detail="Loan amount must be greater than 0")
+    if not loan.terms_accepted:
+        raise HTTPException(status_code=400, detail="Borrower must accept the terms and conditions")
     if not loan.start_date:
         raise HTTPException(status_code=400, detail="Start date is required")
     if not loan.closing_date:
@@ -721,6 +723,9 @@ async def create_loan(
                 "shop_name": loan.shop_name or "",
                 "aadhaar_number": loan.aadhaar_number or "",
                 "photo_url": loan.photo_url or "",
+                "signature_url": loan.signature_url or "",
+                "terms_accepted": True,
+                "terms_accepted_at": _now(),
                 "zone": loan.zone or "",
                 "guarantor_name": loan.guarantor_name or "",
                 "guarantor_phone": loan.guarantor_phone or "",
@@ -774,13 +779,19 @@ async def create_loan(
                 due_date=loan.closing_date,
             )
             sms_url = _build_sms_url(loan.customer_phone, sms_message) if loan.customer_phone else None
-            if loan.customer_phone:
-                background_tasks.add_task(queue_disbursement_sms, loan.customer_phone, sms_message)
+            # Copy to the admin who created the loan, queued at the same time as the borrower's SMS
+            admin_phone = (user or {}).get("phone") or ""
+            admin_message = f"[Admin copy - {loan.customer_name}] {sms_message}"
+            admin_sms_url = _build_sms_url(admin_phone, admin_message) if admin_phone else None
+            recipients = [(loan.customer_phone, sms_message), (admin_phone, admin_message)]
+            background_tasks.add_task(
+                queue_disbursement_sms_batch, [(p, m) for p, m in recipients if p]
+            )
 
             response = LoanCreateResponse(
                 status="success",
                 data=_loan_out(dict(record), loan_id, reminders),
-                sms=SMSLinks(send_sms_url=sms_url, message_preview=sms_message, language=loan.preferred_language),
+                sms=SMSLinks(send_sms_url=sms_url, admin_sms_url=admin_sms_url, message_preview=sms_message, language=loan.preferred_language),
             ).model_dump()
             if idempotency_key:
                 save_idempotent_response("loan", idempotency_key, response)
