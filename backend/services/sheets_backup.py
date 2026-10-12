@@ -128,3 +128,28 @@ def request_sync() -> None:
 
 def status() -> Dict[str, Any]:
     return {"enabled": is_enabled(), **_last_status}
+
+
+def export_workbook_bytes(book_id: str | None = None) -> bytes:
+    """Build an .xlsx of the active book's borrowers and payments (used by the Reports download)."""
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    from db import get_firestore_client
+
+    db = get_firestore_client(book_id)
+    loans = [d.to_dict() for d in db.collection("loans").get()]
+    pays = [d.to_dict() for d in db.collection("loan_payments").get()]
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, rows in (
+        ("Borrowers", _table(loans, _BORROWER_COLUMNS)),
+        ("Payments", _table(pays, ["id", "loan_id", "amount", "payment_date", "created_at"])),
+    ):
+        ws = wb.create_sheet(title)
+        for r in rows:
+            ws.append(r)
+        ws.freeze_panes = "A2"
+    out = BytesIO()
+    wb.save(out)
+    return out.getvalue()

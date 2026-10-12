@@ -458,6 +458,17 @@ async def get_books(user=Depends(require_role("admin", "collector"))):
     return list_books()
 
 
+@app.get("/api/reports/export.xlsx")
+def export_excel(user=Depends(require_admin)):
+    from fastapi.responses import Response
+    data = sheets_backup.export_workbook_bytes()
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="digivasool-report.xlsx"'},
+    )
+
+
 @app.get("/api/admin/sheet-backup")
 def sheet_backup_status(user=Depends(require_admin)):
     return sheets_backup.status()

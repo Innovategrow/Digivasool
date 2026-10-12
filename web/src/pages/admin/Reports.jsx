@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAppData, ZONES } from '../../context/AppDataContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { apiFetch } from '../../utils/api';
 import { Download, FileText, PieChart, Inbox, ClipboardList, AlertCircle, CheckCircle2, BarChart3, TrendingUp, Wallet, Layers, MapPin, Target, Calendar, CalendarDays } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell,
@@ -27,7 +28,18 @@ export default function Reports() {
   ];
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
-  const handleExport = (type) => showToast(`${type} export ready!`);
+  const handleExport = async (type) => {
+    if (type !== 'Excel') return showToast(`${type} export ready!`);
+    try {
+      const res = await apiFetch('/api/reports/export.xlsx');
+      if (!res.ok) throw new Error('Export failed');
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = `digivasool-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      showToast('Excel downloaded');
+    } catch { showToast('Could not download the Excel file. Please try again.'); }
+  };
 
   const { totalCollected, totalExpenses, totalOutstanding, totalCapital } = derived;
 
