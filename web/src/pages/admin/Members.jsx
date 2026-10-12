@@ -6,7 +6,7 @@ import {
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
   Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench,
   MessageSquare, Languages, Hash, ExternalLink, CheckCircle2, Search,
-  ArrowUpDown, Eye, Trash2, Pencil, MoreVertical, ArrowLeft, History, Store,
+  FileDown, ArrowUpDown, Eye, Trash2, Pencil, MoreVertical, ArrowLeft, History, Store,
 } from 'lucide-react';
 import { apiFetch, newIdempotencyKey, readError } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
@@ -15,6 +15,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { ZONES } from '../../context/AppDataContext';
 import PhotoCapture from '../../components/PhotoCapture';
 import SignaturePad from '../../components/SignaturePad';
+import { downloadBorrowerPdf } from '../../utils/borrowerPdf';
 import BottomSheet from '../../components/BottomSheet';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useToast } from '../../components/Toast';
@@ -1470,6 +1471,10 @@ function DisburseSuccess({ result, onDone }) {
         )}
       </div>
 
+      <button type="button" onClick={() => downloadBorrowerPdf(loan, t)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: 12, marginBottom: 10, borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+        <FileDown size={16} /> {t('downloadPdf')}
+      </button>
       <button className="save-btn" onClick={onDone}>{t('done')}</button>
     </div>
   );

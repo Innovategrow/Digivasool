@@ -76,7 +76,7 @@ const TRANSLATIONS = {
     upload: 'Upload', loginHistory: 'Login History', signOutSafely: 'Sign Out Safely', loadingProfile: 'Loading profile...',
 
     // Terms & signature (other languages fall back to English)
-    termsAndConditions: 'Terms & Conditions', digitalSignature: 'Digital Signature (optional)', signHere: 'Sign here',
+    downloadPdf: 'Download PDF (details & terms)', termsAndConditions: 'Terms & Conditions', digitalSignature: 'Digital Signature (optional)', signHere: 'Sign here',
     clearSignature: 'Clear', acceptTerms: 'I confirm the borrower has read and accepts the Terms & Conditions *',
     termsRequired: 'The borrower must accept the Terms & Conditions.', sendSmsToAdmin: 'Send SMS copy to me (admin)',
     terms1: 'The borrower confirms all details provided (identity, address, contact) are true and correct.',
