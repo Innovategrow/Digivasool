@@ -73,6 +73,7 @@ from services.reminders import (
     build_whatsapp_reminder_schedule,
     queue_whatsapp_reminders,
 )
+from services import sheets_backup
 from services.sms import build_disbursement_sms, queue_disbursement_sms_batch, send_otp_sms
 import otp_store
 from config_admins import ADMIN_USERS, COLLECTOR_USERS
@@ -119,8 +120,20 @@ class BusinessMiddleware:
             return await self.inner(scope, receive, send)
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         token = set_current_business(headers.get("x-business"))
+        mutating = scope["method"] in ("POST", "PUT", "PATCH", "DELETE") and scope["path"].startswith(
+            ("/api/loans", "/api/collector/payments", "/api/payments", "/api/transactions")
+        )
+        ok = {"v": False}
+
+        async def watch(message):
+            if message["type"] == "http.response.start":
+                ok["v"] = 200 <= message["status"] < 300
+            await send(message)
+
         try:
-            await self.inner(scope, receive, send)
+            await self.inner(scope, receive, watch if mutating else send)
+            if mutating and ok["v"]:
+                sheets_backup.request_sync()
         finally:
             reset_current_business(token)
 
@@ -443,6 +456,19 @@ async def upload_payment_proof(payment_id: str, file: UploadFile = File(...), us
 @app.get("/api/books")
 async def get_books(user=Depends(require_role("admin", "collector"))):
     return list_books()
+
+
+@app.get("/api/admin/sheet-backup")
+def sheet_backup_status(user=Depends(require_admin)):
+    return sheets_backup.status()
+
+
+@app.post("/api/admin/sheet-backup/sync")
+def sheet_backup_sync(user=Depends(require_admin)):
+    """Rewrite the Google Sheet from the database right now."""
+    if not sheets_backup.is_enabled():
+        raise HTTPException(status_code=400, detail="Google Sheets backup is not configured")
+    return sheets_backup.sync_now()
 
 
 @app.post("/api/books")

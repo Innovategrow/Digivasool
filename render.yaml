@@ -31,6 +31,12 @@ services:
         sync: false
       - key: ADMIN_WHATSAPP
         sync: false
+      # Optional live Google Sheets backup (see backend/services/sheets_backup.py).
+      # GOOGLE_SHEETS_CREDENTIALS = the service-account JSON pasted as the value.
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_SHEETS_CREDENTIALS
+        sync: false
       # Render's free plan has no persistent disk, so sqlite data is wiped on
       # every redeploy/sleep-wake cycle. Firestore keeps data outside the
       # container — see README "Deploying" section for the one-time setup

@@ -7,3 +7,4 @@ pydantic>=2.0.0
 python-dotenv>=1.0.0
 python-multipart>=0.0.6
 httpx>=0.24  # used by tests (FastAPI TestClient)
+gspread>=6.0.0
