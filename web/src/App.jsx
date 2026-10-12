@@ -6,7 +6,7 @@ import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { ToastProvider } from './components/Toast';
 import MoreSheet from './components/MoreSheet';
 import BottomSheet from './components/BottomSheet';
-import { apiFetch } from './utils/api';
+import { apiFetch, BUSINESSES, getBusiness, setBusiness } from './utils/api';
 import { Bell, Menu, LayoutDashboard, Users, CreditCard, BookOpen, UserCheck, Check, X, Wallet } from 'lucide-react';
 
 import Dashboard from './pages/admin/Dashboard';
@@ -98,6 +98,7 @@ function MobileShell({ collectorMode = false }) {
   const { derived, actions } = useAppData();
   const { t } = useLanguage();
   const location = useLocation();
+  const business = getBusiness();
 
   useEffect(() => {
     if (collectorMode || user?.role !== 'admin') return;
@@ -135,7 +136,7 @@ function MobileShell({ collectorMode = false }) {
         <div className="app-bar-brand"><Wallet size={16} /></div>
         <div className="app-bar-titles">
           <div className="app-bar-title">{pageTitle}</div>
-          <div className="app-bar-sub">{t('appName')}</div>
+          <div className="app-bar-sub">{t('appName')} · {business === 'fund' ? 'Fund' : 'Finance'}</div>
         </div>
         <div className="app-bar-actions">
           {!collectorMode && (
@@ -150,6 +151,15 @@ function MobileShell({ collectorMode = false }) {
           )}
         </div>
       </header>
+
+      <div className="biz-switch" role="tablist" aria-label="Business">
+        {BUSINESSES.map(b => (
+          <button key={b.id} type="button" role="tab" aria-selected={business === b.id}
+            className={`biz-tab${business === b.id ? ' active' : ''}`} onClick={() => setBusiness(b.id)}>
+            {b.label}
+          </button>
+        ))}
+      </div>
 
       <main className="page-area">
         <Suspense fallback={<ScreenLoader />}>

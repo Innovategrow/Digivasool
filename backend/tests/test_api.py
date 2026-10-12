@@ -240,6 +240,20 @@ def test_edit_and_delete_collector_payment():
     assert client.delete(f"/api/collector/payments/{payment_id}", headers=ADMIN).status_code == 404
 
 
+def test_fund_and_finance_are_isolated():
+    FUND = {**ADMIN, "X-Business": "fund"}
+    fin_before = len(client.get("/api/loans/", headers=ADMIN).json())
+    r = client.post("/api/loans/", json={**NEW_LOAN, "customer_name": "Fund Person"}, headers=FUND)
+    assert r.status_code == 200, r.text
+    assert [l["customer_name"] for l in client.get("/api/loans/", headers=FUND).json()] == ["Fund Person"]
+    assert len(client.get("/api/loans/", headers=ADMIN).json()) == fin_before
+    assert os.path.exists(os.path.join(TMP, "test_fund.db"))  # Fund has its own database file
+    client.post("/api/staff/", headers=FUND, json={"name": "Fund Collector", "phone": "+919111111111", "role": "collector"})
+    assert not any(x.get("name") == "Fund Collector" for x in client.get("/api/staff/", headers=ADMIN).json())
+    client.post("/api/expenses/", headers=FUND, json={"category": "FundOnly", "amount": 7, "date": "2026-09-21"})
+    assert not any(e["category"] == "FundOnly" for e in client.get("/api/expenses/", headers=ADMIN).json())
+
+
 def test_data_survives_restart():
     loan = create_loan(customer_name="Persistent Person")
     client.post("/api/expenses/", headers=ADMIN, json={"category": "Printing", "amount": 99, "date": "2026-09-21"})

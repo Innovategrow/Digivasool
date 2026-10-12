@@ -4,8 +4,27 @@ function savedUser() {
   try { return JSON.parse(localStorage.getItem('dk_user') || 'null'); } catch { return null; }
 }
 
+export const BUSINESSES = [
+  { id: 'finance', label: 'Finance' },
+  { id: 'fund', label: 'Fund' },
+];
+
+export function getBusiness() {
+  try {
+    const saved = localStorage.getItem('dk_business');
+    return BUSINESSES.some(b => b.id === saved) ? saved : 'finance';
+  } catch { return 'finance'; }
+}
+
+// Switching business reloads the app so every screen refetches that business's data.
+export function setBusiness(id) {
+  if (id === getBusiness()) return;
+  try { localStorage.setItem('dk_business', id); } catch { /* ignore */ }
+  window.location.reload();
+}
+
 export function getAuthHeaders() {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 'Content-Type': 'application/json', 'X-Business': getBusiness() };
   const token = savedUser()?.token;
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;

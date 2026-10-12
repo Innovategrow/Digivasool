@@ -80,6 +80,7 @@ export default function Login() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || 'Invalid OTP');
+      if (data.business) { try { localStorage.setItem('dk_business', data.business); } catch { /* ignore */ } }
       login(data.role, data.name, data.phone || contact.trim(), data.token);
     } catch (err) {
       setError(err.message);

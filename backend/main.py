@@ -25,6 +25,10 @@ from db import (
     get_backend_name,
     get_dashboard_summary_db,
     get_firestore_client,
+    set_current_business,
+    reset_current_business,
+    get_current_business,
+    BUSINESSES,
     get_idempotent_response,
     get_loan_payments_db,
     get_collector_payments_db,
@@ -101,6 +105,26 @@ app.add_middleware(
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+class BusinessMiddleware:
+    """Pure-ASGI middleware: scopes every request to Finance or Fund via the X-Business header."""
+
+    def __init__(self, app):
+        self.inner = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.inner(scope, receive, send)
+        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        token = set_current_business(headers.get("x-business"))
+        try:
+            await self.inner(scope, receive, send)
+        finally:
+            reset_current_business(token)
+
+
+app.add_middleware(BusinessMiddleware)
 
 
 @app.on_event("startup")
@@ -306,10 +330,21 @@ async def verify_otp(body: OTPVerify):
 
     if body.role == "borrower":
         # No-loan-found gate temporarily disabled — see request_otp.
-        loans = _borrower_loans_for_phone(contact)
+        # A borrower may hold loans in Finance or Fund; land them in whichever has theirs.
+        business, loans = get_current_business(), []
+        for candidate in (get_current_business(), *[b for b in BUSINESSES if b != get_current_business()]):
+            tok = set_current_business(candidate)
+            try:
+                loans = _borrower_loans_for_phone(contact)
+            finally:
+                reset_current_business(tok)
+            if loans:
+                business = candidate
+                break
         name = loans[0]["customer_name"] if loans else "Borrower"
         _write_audit(name, "LOGIN", f"Borrower logged in via {contact}")
-        return {"role": "borrower", "name": name, "phone": contact, "token": issue_token("borrower", name, contact)}
+        return {"role": "borrower", "name": name, "phone": contact, "business": business,
+                "token": issue_token("borrower", name, contact)}
 
     # Collector-not-found gate temporarily disabled — see request_otp.
     collector = _find_collector(contact)
@@ -352,6 +387,8 @@ def _save_upload(file: UploadFile, folder: str) -> str:
     original = os.path.basename(file.filename or "file")
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", original)[-80:] or "file"
     filename = f"{uuid4().hex[:8]}_{safe}"
+    if get_current_business() == "fund":  # Fund uploads are stored apart from Finance
+        folder = f"fund/{folder}"
     target_dir = os.path.join(UPLOAD_DIR, folder)
     os.makedirs(target_dir, exist_ok=True)
     path = os.path.join(target_dir, filename)

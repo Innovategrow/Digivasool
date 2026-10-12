@@ -70,6 +70,9 @@ body{overflow:hidden;background:var(--desk-bg);}
 .app-bar-title{font-size:17px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .app-bar-sub{font-size:11px;color:var(--text-3);font-weight:600;}
 .app-bar-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.biz-switch{flex:none;display:flex;gap:4px;margin:8px 16px 0;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;}
+.biz-tab{flex:1;border:0;background:transparent;border-radius:9px;padding:8px 0;font-size:14px;font-weight:800;color:var(--text-3);cursor:pointer;}
+.biz-tab.active{background:linear-gradient(135deg,var(--brand),var(--violet));color:#fff;}
 .today-chip{background:var(--green-soft);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:6px 10px;font-size:12px;font-weight:800;color:var(--green);white-space:nowrap;max-width:132px;overflow:hidden;text-overflow:ellipsis;}
 @container app (max-width: 359px){ .today-chip{display:none;} }
 .page-area{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:16px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom));}

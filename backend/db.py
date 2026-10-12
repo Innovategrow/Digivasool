@@ -18,6 +18,7 @@ import json
 import os
 import sqlite3
 import threading
+from contextvars import ContextVar
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -176,7 +177,7 @@ class SQLiteStore:
 
 # ── Backend selection ────────────────────────────────────────────────────────
 
-_db = None
+_raw_stores: Dict[str, Any] = {}
 _backend_name = None
 
 
@@ -185,44 +186,103 @@ def _service_account_path() -> str:
     return path if os.path.isabs(path) else os.path.join(BACKEND_DIR, path)
 
 
-def _connect():
-    global _db, _backend_name
+def _sqlite_path(business: str) -> str:
+    path = os.environ.get("DB_PATH", "data/digivasool.db")
+    if not os.path.isabs(path):
+        path = os.path.join(BACKEND_DIR, path)
+    if business == "fund":  # Fund gets its own database file: <name>_fund.db
+        root, ext = os.path.splitext(path)
+        path = f"{root}_fund{ext}"
+    return path
+
+
+def _connect(business: str):
+    global _backend_name
     choice = (os.environ.get("DB_BACKEND") or "").strip().lower()
     if choice == "sqlite":
-        path = os.environ.get("DB_PATH", "data/digivasool.db")
-        if not os.path.isabs(path):
-            path = os.path.join(BACKEND_DIR, path)
-        _db = SQLiteStore(path)
+        path = _sqlite_path(business)
+        _raw_stores[business] = SQLiteStore(path)
         _backend_name = "sqlite"
-        print(f"Storage: SQLite ({path})")
+        print(f"Storage [{business}]: SQLite ({path})")
         return
 
     # Firestore is the only non-sqlite option, and the default when
     # DB_BACKEND isn't "sqlite" — including when it's unset or mistyped, so a
     # misconfigured deploy fails loudly here instead of quietly running on an
-    # ephemeral local file.
+    # ephemeral local file. Fund lives in the same project under "fund_*" collections.
     import firebase_admin
     from firebase_admin import credentials, firestore
 
     sa_path = _service_account_path()
     if not firebase_admin._apps:
         firebase_admin.initialize_app(credentials.Certificate(sa_path))
-    _db = firestore.client()
+    _raw_stores[business] = _raw_stores.get("_firestore") or firestore.client()
+    _raw_stores["_firestore"] = _raw_stores[business]
     _backend_name = "firestore"
-    print("Storage: Firebase Firestore")
+    print(f"Storage [{business}]: Firebase Firestore")
 
 
-def get_firestore_client():
-    """Return the active document store (Firestore client or SQLite store)."""
-    if _db is None:
+# ── Business scoping (Finance vs Fund) ───────────────────────────────────────
+# Finance and Fund run the exact same flow on completely separate data. The
+# active business is set per request (X-Business header). SQLite uses one
+# database file per business; Firestore prefixes Fund collections with "fund_".
+
+BUSINESSES = ("finance", "fund")
+DEFAULT_BUSINESS = "finance"
+_FUND_PREFIX = "fund_"
+# Login-level access approvals are the only thing shared between businesses.
+_SHARED_COLLECTIONS = {"admin_access_requests"}
+
+_current_business: ContextVar[str] = ContextVar("current_business", default=DEFAULT_BUSINESS)
+
+
+def normalize_business(value: Optional[str]) -> str:
+    value = (value or "").strip().lower()
+    return value if value in BUSINESSES else DEFAULT_BUSINESS
+
+
+def set_current_business(value: Optional[str]):
+    return _current_business.set(normalize_business(value))
+
+
+def reset_current_business(token):
+    _current_business.reset(token)
+
+
+def get_current_business() -> str:
+    return _current_business.get()
+
+
+class _ScopedClient:
+    """Routes collection access to the active business's storage."""
+
+    def __init__(self, business: str):
+        self._business = business
+
+    def collection(self, name: str):
+        if name in _SHARED_COLLECTIONS:
+            return _store("finance").collection(name)
+        store = _store(self._business)
+        if self._business == "fund" and _backend_name == "firestore":
+            name = _FUND_PREFIX + name
+        return store.collection(name)
+
+
+def _store(business: str):
+    if business not in _raw_stores:
         with db_lock:
-            if _db is None:
-                _connect()
-    return _db
+            if business not in _raw_stores:
+                _connect(business)
+    return _raw_stores[business]
+
+
+def get_firestore_client(business: Optional[str] = None):
+    """Return the document store scoped to the active (or given) business."""
+    return _ScopedClient(normalize_business(business) if business else get_current_business())
 
 
 def get_backend_name() -> str:
-    get_firestore_client()
+    _store("finance")
     return _backend_name
 
 
@@ -236,7 +296,8 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 def init_db():
     """Called on app startup — connects storage and optionally seeds demo data."""
-    db = get_firestore_client()
+    _store("fund")  # connect Fund storage at startup so misconfiguration fails loudly
+    db = get_firestore_client("finance")
     if _env_flag("SEED_DEMO_DATA") and len(db.collection("loans").limit(1).get()) == 0:
         seed_db()
 
