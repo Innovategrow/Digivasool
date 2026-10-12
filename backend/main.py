@@ -144,6 +144,7 @@ app.add_middleware(BusinessMiddleware)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    sheets_backup.request_sync()  # fill/refresh the Google Sheet backup shortly after every start
     print(f"DigiVasool API ready — storage={get_backend_name()} otp_dev_mode={OTP_DEV_MODE}")
 
 
