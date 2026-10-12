@@ -77,11 +77,22 @@ def _client():
     return gspread.service_account_from_dict(info)
 
 
-def _write(sh, title: str, rows: List[List[Any]]) -> None:
+class BackupShrinkError(Exception):
+    pass
+
+
+def _write(sh, title: str, rows: List[List[Any]], force: bool = False) -> None:
     import gspread
 
     try:
         ws = sh.worksheet(title)
+        # Never let a wiped/emptied database overwrite the only good copy
+        existing = len(ws.col_values(1))
+        if not force and existing > len(rows) and existing > 1:
+            raise BackupShrinkError(
+                f"'{title}' has {existing - 1} rows but the database has {len(rows) - 1}. "
+                "Sync paused to protect the backup; run a forced sync once you've checked the data."
+            )
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=title, rows=max(len(rows) + 50, 100), cols=max(len(rows[0]) + 2, 10))
     ws.clear()
@@ -90,7 +101,7 @@ def _write(sh, title: str, rows: List[List[Any]]) -> None:
     ws.freeze(rows=1)
 
 
-def sync_now() -> Dict[str, Any]:
+def sync_now(force: bool = False) -> Dict[str, Any]:
     """Rewrite every book's tabs from the database. Safe to call from any thread."""
     from db import get_firestore_client, list_books
 
@@ -103,8 +114,8 @@ def sync_now() -> Dict[str, Any]:
                 loans = [d.to_dict() for d in db.collection("loans").get()]
                 pays = [d.to_dict() for d in db.collection("loan_payments").get()]
                 name = book["name"]
-                _write(sh, f"{name} Borrowers", _table(loans, _BORROWER_COLUMNS))
-                _write(sh, f"{name} Payments", _table(pays, ["id", "loan_id", "amount", "payment_date", "created_at"]))
+                _write(sh, f"{name} Borrowers", _table(loans, _BORROWER_COLUMNS), force)
+                _write(sh, f"{name} Payments", _table(pays, ["id", "loan_id", "amount", "payment_date", "created_at"]), force)
                 counts[name] = {"borrowers": len(loans), "payments": len(pays)}
             _last_status.update(last_sync=datetime.now(timezone.utc).isoformat(), error=None)
             return {"ok": True, "counts": counts, **_last_status}

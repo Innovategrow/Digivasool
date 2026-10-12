@@ -475,11 +475,11 @@ def sheet_backup_status(user=Depends(require_admin)):
 
 
 @app.post("/api/admin/sheet-backup/sync")
-def sheet_backup_sync(user=Depends(require_admin)):
+def sheet_backup_sync(force: bool = False, user=Depends(require_admin)):
     """Rewrite the Google Sheet from the database right now."""
     if not sheets_backup.is_enabled():
         raise HTTPException(status_code=400, detail="Google Sheets backup is not configured")
-    return sheets_backup.sync_now()
+    return sheets_backup.sync_now(force=force)
 
 
 @app.post("/api/books")
