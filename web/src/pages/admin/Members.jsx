@@ -948,6 +948,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
         {menuLoan && (
           <div className="action-list">
             <button type="button" onClick={() => openDetails(menuLoan)}><Eye size={20} /> View Borrower</button>
+            <button type="button" onClick={() => { downloadBorrowerPdf(menuLoan, t); setMenuLoan(null); }}><FileDown size={20} /> {t('downloadPdf')}</button>
             {canManage && <button type="button" onClick={() => openEdit(menuLoan)}><Pencil size={20} /> Edit Borrower</button>}
             {canManage && <button type="button" className="danger" onClick={() => askDelete(menuLoan)}><Trash2 size={20} /> Delete Borrower</button>}
           </div>
