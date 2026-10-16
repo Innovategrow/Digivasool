@@ -311,6 +311,7 @@ function BorrowerCard({ loan, onOpen, onMenu }) {
 const pct = (part, whole) => (whole > 0 ? Math.round(((part || 0) / whole) * 1000) / 10 : 0);
 
 function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDelete, onCloseLoan, onOpenLoan }) {
+  const { t } = useLanguage();
   const metrics = getLoanMetrics(loan);
   const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - (loan.monthly_interest_amount || 0));
   const totalCharges = loan.monthly_interest_amount || 0;
@@ -423,6 +424,11 @@ function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDele
       <div className="section-card">
         <PaymentHistorySection key={loan.id} loanId={loan.id} />
       </div>
+
+      <button type="button" className="save-btn" onClick={() => downloadBorrowerPdf(loan, t)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', marginBottom: 16 }}>
+        <FileDown size={18} /> {t('downloadPdf')}
+      </button>
     </div>
   );
 }
