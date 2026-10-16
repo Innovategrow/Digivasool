@@ -323,6 +323,7 @@ function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDele
       <div className="screen-header">
         <button type="button" className="icon-btn" onClick={onBack} aria-label="Back to borrowers"><ArrowLeft size={20} /></button>
         <div className="screen-header-title">Borrower Details</div>
+        <button type="button" className="icon-btn" style={{ marginLeft: 'auto' }} onClick={() => downloadBorrowerPdf(loan, t)} aria-label={t('downloadPdf')} title={t('downloadPdf')}><FileDown size={20} /></button>
       </div>
 
       <section className="detail-hero">
