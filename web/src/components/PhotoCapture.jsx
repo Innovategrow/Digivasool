@@ -52,7 +52,7 @@ export default function PhotoCapture({ value, onChange, size = 72, label }) {
         {!value && <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{displayLabel}</div>}
       </div>
 
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFile} />
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
 
       {camOpen && (
         <CameraModal

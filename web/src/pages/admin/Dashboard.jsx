@@ -1,7 +1,7 @@
 import { useAppData } from '../../context/AppDataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { AlertTriangle, Target, ArrowRight, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3, Search, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, Target, ArrowRight, Activity, IndianRupee, ClipboardList, Hourglass, Inbox, UserPlus, Banknote, BarChart3, Search, SlidersHorizontal, CalendarRange } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
@@ -77,6 +77,13 @@ export default function Dashboard() {
   const recoveryRate = apiStats?.recovery_rate ?? Math.round(
     (derived.totalCollected / Math.max(derived.totalCollected + derived.totalOutstanding, 1)) * 100
   );
+  const [fromDate, setFromDate] = useState(today.slice(0, 8) + '01');
+  const [toDate, setToDate] = useState(today);
+  const rangePayments = (state.payments || []).filter(p => {
+    const d = String(p.payment_date || '').slice(0, 10);
+    return d && d >= fromDate && d <= toDate;
+  });
+  const rangeCollected = rangePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const expectedToday = todayInstallments.reduce((s, i) => s + i.amount, 0);
   const todayProgress = expectedToday > 0 ? Math.round((todayCollected / expectedToday) * 100) : 0;
 
@@ -133,6 +140,20 @@ export default function Dashboard() {
               )}
             </div>
           ))}
+        </div>
+
+        <div className="section-card">
+          <div className="section-card-title"><CalendarRange size={15} /> Collected in date range</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <label style={{ flex: 1, fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>From
+              <input type="date" className="form-input" value={fromDate} max={toDate} onChange={e => setFromDate(e.target.value)} />
+            </label>
+            <label style={{ flex: 1, fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>To
+              <input type="date" className="form-input" value={toDate} min={fromDate} onChange={e => setToDate(e.target.value)} />
+            </label>
+          </div>
+          <div style={{ fontFamily: 'var(--mono)', fontSize: 24, fontWeight: 900, color: 'var(--green)' }}>₹{rangeCollected.toLocaleString('en-IN')}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{rangePayments.length} payments</div>
         </div>
 
         <div className="mh-pills">
