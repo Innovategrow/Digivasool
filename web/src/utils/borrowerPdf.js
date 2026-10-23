@@ -1,3 +1,5 @@
+import { apiFetch } from './api';
+
 // Builds a printable borrower agreement and opens the browser's print dialog,
 // where "Save as PDF" downloads it. Done this way (rather than a PDF library)
 // so names in Tamil, Hindi, etc. render correctly using the system fonts.
@@ -5,7 +7,21 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 const inr = (v) => '₹' + Number(v || 0).toLocaleString('en-IN');
 const fmtDate = (v) => { const d = new Date(v); return isNaN(d) ? (v || '-') : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); };
 
-export function downloadBorrowerPdf(loan, t) {
+export async function downloadBorrowerPdf(loan, t) {
+  // Open the tab right away (inside the click) so popup blockers allow it, then fill it in.
+  const w = window.open('', '_blank');
+  if (!w) return false;
+  w.document.write('<p style="font-family:sans-serif;padding:24px">Preparing agreement…</p>');
+  // The loan list only carries a thumbnail; fetch the full-size photo and signature for the printout.
+  if (loan.id && (loan.has_photo || loan.has_signature) && !(loan.photo_url && loan.signature_url)) {
+    try {
+      const res = await apiFetch(`/api/loans/${loan.id}/media`);
+      if (res.ok) {
+        const media = await res.json();
+        loan = { ...loan, photo_url: loan.photo_url || media.photo_url, signature_url: loan.signature_url || media.signature_url };
+      }
+    } catch { /* fall back to the thumbnail */ }
+  }
   const interest = Math.max(0, (loan.monthly_interest_amount || 0) - (loan.field_visit_charge || 0) - (loan.document_fee || 0) - (loan.processing_fee || 0));
   const cash = Math.max(0, (loan.loan_amount || 0) - (loan.monthly_interest_amount || 0));
   const rows = (pairs) => pairs.filter(([, v]) => v !== '' && v != null)
@@ -29,7 +45,7 @@ export function downloadBorrowerPdf(loan, t) {
 </style></head><body>
 <div class="top"><div><h1>DigiVasool — Loan Agreement</h1>
 <div class="sub">Account No: <strong>${esc(loan.account_number)}</strong> · Generated ${esc(fmtDate(new Date()))}</div></div>
-${loan.photo_url ? `<img class="photo" src="${esc(loan.photo_url)}" alt="">` : ''}</div>
+${(loan.photo_url || loan.photo_thumb) ? `<img class="photo" src="${esc(loan.photo_url || loan.photo_thumb)}" alt="">` : ''}</div>
 
 <h2>Borrower details</h2><table>${rows([
     ['Name', loan.customer_name], ['Shop / business', loan.shop_name], ['Mobile', loan.customer_phone],
@@ -64,8 +80,6 @@ ${loan.photo_url ? `<img class="photo" src="${esc(loan.photo_url)}" alt="">` : '
 <script>window.onload=()=>setTimeout(()=>window.print(),300)</script>
 </body></html>`;
 
-  const w = window.open('', '_blank');
-  if (!w) return false;
   w.document.open(); w.document.write(html); w.document.close();
   return true;
 }

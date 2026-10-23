@@ -270,6 +270,9 @@ class LoanRecord(BaseModel):
     aadhaar_number: Optional[str] = None
     photo_url: Optional[str] = None
     signature_url: Optional[str] = None
+    photo_thumb: Optional[str] = None
+    has_photo: bool = False
+    has_signature: bool = False
     terms_accepted: bool = False
     terms_accepted_at: Optional[str] = None
     zone: Optional[str] = None

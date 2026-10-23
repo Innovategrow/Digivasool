@@ -476,13 +476,14 @@ def get_loan_payments_db(loan_id: str) -> List[Dict[str, Any]]:
     return sorted(rows, key=lambda x: x.get("payment_date", ""), reverse=True)
 
 
-def get_collector_payments_db(collector_name: Optional[str]) -> List[Dict[str, Any]]:
+def get_collector_payments_db(collector_name: Optional[str], loans: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Payments logged by one collector (or all payments when collector_name is None), newest first."""
     db = get_firestore_client()
     query = db.collection("loan_payments")
     if collector_name:
         query = query.where("collector_name", "==", collector_name)
-    loans = {d.id: d.to_dict() for d in db.collection("loans").get()}
+    if loans is None:
+        loans = {d.id: d.to_dict() for d in db.collection("loans").get()}
     rows = []
     for doc in query.get():
         p = doc.to_dict()

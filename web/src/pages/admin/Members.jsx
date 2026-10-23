@@ -283,7 +283,7 @@ function BorrowerCard({ loan, onOpen, onMenu }) {
   const metrics = getLoanMetrics(loan);
   return (
     <article className="borrower-row" onClick={() => onOpen(loan)}>
-      <div className="customer-avatar">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
+      <div className="customer-avatar">{(loan.photo_thumb || loan.photo_url) ? <img src={loan.photo_thumb || loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
       <div className="borrower-row-main">
         <h3>{loan.customer_name}</h3>
         <p>{[loan.customer_phone, loan.zone].filter(Boolean).join(' · ') || 'No phone'}</p>
@@ -327,7 +327,7 @@ function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDele
       </div>
 
       <section className="detail-hero">
-        <div className="customer-avatar lg">{loan.photo_url ? <img src={loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
+        <div className="customer-avatar lg">{(loan.photo_thumb || loan.photo_url) ? <img src={loan.photo_thumb || loan.photo_url} alt="" /> : loan.customer_name.charAt(0).toUpperCase()}</div>
         <div style={{ minWidth: 0 }}>
           <h2>{loan.customer_name}</h2>
           <p>{loan.shop_name || loan.zone || 'Borrower'}</p>
@@ -489,7 +489,7 @@ function validateBorrower(form) {
 
 function EditBorrowerScreen({ loan, onCancel, onSave }) {
   const { t } = useLanguage();
-  const initial = useMemo(() => Object.fromEntries(EDIT_FIELDS.map(k => [k, loan[k] ?? (k === 'preferred_language' ? 'en' : '')])), [loan]);
+  const initial = useMemo(() => Object.fromEntries(EDIT_FIELDS.map(k => [k, (k === 'photo_url' ? (loan.photo_url || loan.photo_thumb) : loan[k]) ?? (k === 'preferred_language' ? 'en' : '')])), [loan]);
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);

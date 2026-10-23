@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { apiFetch, newIdempotencyKey, readError } from '../utils/api';
+import { apiFetch, getBusiness, newIdempotencyKey, readError } from '../utils/api';
 
 // ── Coimbatore collection areas (location-wise sorting & filtering) ───────
 export const ZONES = [
@@ -172,10 +172,23 @@ async function getJson(path) {
 // ── Context ──────────────────────────────────────────────────────────────────
 const AppDataContext = createContext(null);
 const READ_KEY = 'dk_notifications_read_at';
+const EMPTY_RAW = { loans: [], payments: [], expenses: [], capital: [], staff: [] };
+
+// Last successful load, kept per book so the app can paint instantly while fresh data loads.
+const cacheKey = () => `dk_app_data_${getBusiness()}`;
+function readCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey()) || 'null');
+    return cached && Array.isArray(cached.loans) ? { ...EMPTY_RAW, ...cached } : null;
+  } catch { return null; }
+}
+function writeCache(data) {
+  try { localStorage.setItem(cacheKey(), JSON.stringify(data)); } catch { /* storage full or blocked */ }
+}
 
 export function AppDataProvider({ children }) {
   const { user } = useAuth();
-  const [raw, setRaw] = useState({ loans: [], payments: [], expenses: [], capital: [], staff: [] });
+  const [raw, setRaw] = useState(() => (user?.role === 'admin' && readCache()) || EMPTY_RAW);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastReadAt, setLastReadAt] = useState(() => {
@@ -187,14 +200,10 @@ export function AppDataProvider({ children }) {
     setLoading(true);
     setError('');
     try {
-      const [loans, payments, expenses, capital, staff] = await Promise.all([
-        getJson('/api/loans/'),
-        getJson('/api/collector/payments'),
-        getJson('/api/expenses/'),
-        getJson('/api/capital/'),
-        getJson('/api/staff/'),
-      ]);
-      setRaw({ loans, payments, expenses, capital, staff });
+      const data = await getJson('/api/admin/app-data'); // one request instead of five
+      const next = { ...EMPTY_RAW, ...data };
+      setRaw(next);
+      writeCache(next);
     } catch (err) {
       setError(err.message || 'Could not load data');
     } finally {

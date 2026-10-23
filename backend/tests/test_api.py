@@ -293,3 +293,62 @@ def test_create_custom_book_is_isolated():
     assert client.get("/api/loans/", headers=BOOK).json() == []
     client.post("/api/loans/", json={**NEW_LOAN, "customer_name": "Book Person"}, headers=BOOK)
     assert not any(l["customer_name"] == "Book Person" for l in client.get("/api/loans/", headers=ADMIN).json())
+
+
+def _photo_data_url(size=600):
+    import base64
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (size, size), (200, 40, 40)).save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def test_photos_stay_out_of_the_loan_list():
+    photo, sig = _photo_data_url(), _photo_data_url(100)
+    loan = create_loan(customer_name="Photo Person", photo_url=photo, signature_url=sig)
+    assert loan["photo_url"] == "" and loan["has_photo"] and loan["has_signature"]
+    assert loan["photo_thumb"].startswith("data:image/") and len(loan["photo_thumb"]) < len(photo)
+
+    listed = next(l for l in client.get("/api/loans/", headers=ADMIN).json() if l["id"] == loan["id"])
+    assert listed["photo_url"] == "" and listed["signature_url"] == ""
+    assert listed["photo_thumb"] == loan["photo_thumb"]
+
+    media = client.get(f"/api/loans/{loan['id']}/media", headers=ADMIN).json()
+    assert media == {"photo_url": photo, "signature_url": sig}
+
+
+def test_editing_photo_updates_media_and_thumb():
+    loan = create_loan(customer_name="Edit Photo")
+    r = client.patch(f"/api/loans/{loan['id']}", headers=ADMIN, json={"photo_url": _photo_data_url(300)})
+    assert r.status_code == 200, r.text
+    assert r.json()["photo_url"] == "" and r.json()["photo_thumb"] and r.json()["has_photo"]
+    assert client.get(f"/api/loans/{loan['id']}/media", headers=ADMIN).json()["photo_url"].startswith("data:image/")
+    r = client.patch(f"/api/loans/{loan['id']}", headers=ADMIN, json={"photo_url": ""})
+    assert r.json()["has_photo"] is False and r.json()["photo_thumb"] == ""
+    assert client.get(f"/api/loans/{loan['id']}/media", headers=ADMIN).json()["photo_url"] == ""
+
+
+def test_legacy_inline_photo_is_migrated_in_background():
+    import db as dbmod
+    loan = create_loan(customer_name="Legacy Photo")
+    photo = _photo_data_url()
+    dbmod.get_firestore_client().collection("loans").document(loan["id"]).update({"photo_url": photo})
+    listed = next(l for l in client.get("/api/loans/", headers=ADMIN).json() if l["id"] == loan["id"])
+    assert listed["photo_url"] == ""  # never sent inline, even before migration
+    stored = dbmod.get_firestore_client().collection("loans").document(loan["id"]).get().to_dict()
+    assert stored["photo_url"] == "" and stored["photo_thumb"] and stored["has_photo"]
+    assert client.get(f"/api/loans/{loan['id']}/media", headers=ADMIN).json()["photo_url"] == photo
+
+
+def test_app_data_returns_everything_in_one_call():
+    loan = create_loan(customer_name="Bundle Person")
+    client.post("/api/expenses/", headers=ADMIN, json={"category": "Tea", "amount": 7, "date": "2026-09-22"})
+    r = client.get("/api/admin/app-data", headers=ADMIN)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) == {"loans", "payments", "expenses", "capital", "staff"}
+    assert any(l["id"] == loan["id"] for l in body["loans"])
+    assert any(e["amount"] == 7 for e in body["expenses"])
+    assert any(s["name"] == "Test Admin" for s in body["staff"])
+    assert client.get("/api/admin/app-data", headers=COLLECTOR).status_code == 403

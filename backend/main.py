@@ -1,7 +1,11 @@
+import contextvars
+import logging
 import os
 import re
 import shutil
+import threading
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -9,6 +13,7 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -74,6 +79,7 @@ from services.reminders import (
     queue_whatsapp_reminders,
 )
 from services import sheets_backup
+from services.media import is_data_url, make_thumb, split_media
 from services.sms import build_disbursement_sms, queue_disbursement_sms_batch, send_otp_sms
 import otp_store
 from config_admins import ADMIN_USERS, COLLECTOR_USERS
@@ -139,6 +145,7 @@ class BusinessMiddleware:
 
 
 app.add_middleware(BusinessMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.on_event("startup")
@@ -287,6 +294,18 @@ def _assert_borrower_owns_loan(user: Dict[str, Any], loan_id: str):
         raise HTTPException(status_code=403, detail="You can only view your own loan")
 
 
+def _has_loans_in_any_book(contact: str) -> bool:
+    """A borrower may hold loans in Finance or Fund; any of them lets them log in."""
+    for book in (x["id"] for x in list_books()):
+        tok = set_current_business(book)
+        try:
+            if _borrower_loans_for_phone(contact):
+                return True
+        finally:
+            reset_current_business(tok)
+    return False
+
+
 def _otp_key(role: str, contact: str) -> str:
     return f"{role}:{normalize_phone(contact) or contact.strip().lower()}"
 
@@ -317,11 +336,24 @@ async def request_otp(body: OTPRequest):
     """Step 1 of login: generate OTP (returned in the response only when OTP_DEV_MODE is on)."""
     contact = body.contact.strip()
 
-    # Admin/collector/borrower existence checks temporarily disabled — any
-    # contact can request an OTP directly for any role. Re-enable before
-    # going live with real users/money: is_admin_phone_allowed_db +
-    # pending_approval (admin), _find_collector (collector),
-    # _borrower_loans_for_phone (borrower) — see verify_otp below too.
+    if body.role == "admin":
+        if not is_admin_phone_allowed_db(contact, _all_admins()):
+            if not body.admin_name or not body.admin_name.strip():
+                raise HTTPException(status_code=400, detail="Please enter your name so an admin can review your request.")
+            create_admin_access_request_db(body.admin_name.strip(), contact)
+            _write_audit(body.admin_name.strip(), "ADMIN_ACCESS_REQUESTED", f"Access requested from {contact}")
+            return {"status": "pending_approval", "message": "Your request has been sent to the admin for approval. You'll be notified once approved."}
+
+    elif body.role == "collector":
+        collector = _find_collector(contact)
+        if not collector:
+            raise HTTPException(status_code=404, detail="Collector not found. Check your phone number.")
+        if body.collector_name and body.collector_name.strip().lower() != collector["name"].lower():
+            raise HTTPException(status_code=400, detail="This phone number is not registered to the selected collector.")
+
+    elif body.role == "borrower":
+        if not _has_loans_in_any_book(contact):
+            raise HTTPException(status_code=404, detail="No loan account found for this mobile number.")
 
     otp = otp_store.generate_and_store(_otp_key(body.role, contact))
     return _otp_response(otp, contact)
@@ -336,15 +368,13 @@ async def verify_otp(body: OTPVerify):
 
     if body.role == "admin":
         admins = _all_admins()
-        # Approval gate temporarily disabled (see request_otp) — any verified
-        # contact is granted admin. Restore the is_admin_phone_allowed_db
-        # check before going live with real users/money.
+        if not is_admin_phone_allowed_db(contact, admins):
+            raise HTTPException(status_code=403, detail="This number is not yet approved for admin access.")
         name = get_admin_display_name_db(contact, admins) or (body.admin_name or "Admin").strip()
         _write_audit(name, "LOGIN", f"Admin logged in via {contact}")
         return {"role": "admin", "name": name, "phone": contact, "token": issue_token("admin", name, contact)}
 
     if body.role == "borrower":
-        # No-loan-found gate temporarily disabled — see request_otp.
         # A borrower may hold loans in Finance or Fund; land them in whichever has theirs.
         business, loans = get_current_business(), []
         for candidate in (get_current_business(), *[b for b in (x['id'] for x in list_books()) if b != get_current_business()]):
@@ -356,20 +386,23 @@ async def verify_otp(body: OTPVerify):
             if loans:
                 business = candidate
                 break
-        name = loans[0]["customer_name"] if loans else "Borrower"
+        if not loans:
+            raise HTTPException(status_code=404, detail="No loan account found for this mobile number.")
+        name = loans[0]["customer_name"]
         _write_audit(name, "LOGIN", f"Borrower logged in via {contact}")
         return {"role": "borrower", "name": name, "phone": contact, "business": business,
                 "token": issue_token("borrower", name, contact)}
 
-    # Collector-not-found gate temporarily disabled — see request_otp.
     collector = _find_collector(contact)
-    name = collector["name"] if collector else (body.collector_name or "Collector").strip()
+    if not collector:
+        raise HTTPException(status_code=404, detail="Collector not found")
+    name = collector["name"]
     _write_audit(name, "LOGIN", f"Collector logged in via {contact}")
     return {
         "role": "collector",
         "name": name,
-        "phone": contact,
-        "token": issue_token("collector", name, contact),
+        "phone": collector["phone"],
+        "token": issue_token("collector", name, collector["phone"]),
     }
 
 
@@ -601,7 +634,7 @@ async def get_audit_log(limit: int = 30, user=Depends(require_admin)):
 # ==============================
 
 @app.get("/api/staff/")
-async def list_staff(user=Depends(require_admin)):
+def list_staff(user=Depends(require_admin)):
     """Admins and collectors from configuration plus staff added in the app."""
     configured = (
         [{"id": f"cfg-admin-{i}", "name": a["name"], "role": "admin", "phone": a.get("phone", ""), "email": a.get("email", ""), "target": 0, "source": "config"}
@@ -644,7 +677,7 @@ def _list_collection(name: str, sort_field: str) -> List[Dict[str, Any]]:
 
 
 @app.get("/api/expenses/")
-async def list_expenses(user=Depends(require_admin)):
+def list_expenses(user=Depends(require_admin)):
     return _list_collection("expenses", "date")
 
 
@@ -657,7 +690,7 @@ async def create_expense(body: ExpenseCreate, user=Depends(require_admin)):
 
 
 @app.get("/api/capital/")
-async def list_capital(user=Depends(require_admin)):
+def list_capital(user=Depends(require_admin)):
     return _list_collection("capital", "date")
 
 
@@ -690,8 +723,68 @@ def _loan_out(l: Dict[str, Any], doc_id: str, reminders: Optional[List[Dict[str,
     l.setdefault("processing_fee", 0.0)
     l.setdefault("preferred_language", "en")
     l.setdefault("created_at", "")
+    # Full base64 images live in `loan_media`; never ship them with the loan itself.
+    for key, flag in (("photo_url", "has_photo"), ("signature_url", "has_signature")):
+        if is_data_url(l.get(key)):
+            l[key] = ""
+            l[flag] = True
     l["reminder_schedule"] = reminders or []
     return LoanRecord(**l)
+
+
+_migrating: set = set()
+_migrating_lock = threading.Lock()
+
+
+def _migrate_loan_media(business: str, loan_ids: List[str]):
+    """One-time move of legacy inline base64 photos/signatures into `loan_media` (+ a small thumbnail)."""
+    db = get_firestore_client(business)
+    for loan_id in loan_ids:
+        try:
+            with db_lock:
+                ref = db.collection("loans").document(loan_id)
+                doc = ref.get()
+                if not doc.exists:
+                    continue
+                loan = doc.to_dict()
+                if not (is_data_url(loan.get("photo_url")) or is_data_url(loan.get("signature_url"))):
+                    continue
+                fields, media = split_media({k: loan[k] for k in ("photo_url", "signature_url") if is_data_url(loan.get(k))})
+                db.collection("loan_media").document(loan_id).set(
+                    {k: v for k, v in media.items() if v}, merge=True)
+                ref.update(fields)
+        except Exception:
+            logging.getLogger(__name__).exception("Could not migrate media for loan %s", loan_id)
+        finally:
+            with _migrating_lock:
+                _migrating.discard((business, loan_id))
+
+
+def _schedule_media_migration(background_tasks: BackgroundTasks, legacy_ids: List[str]):
+    business = get_current_business()
+    with _migrating_lock:
+        fresh = [i for i in legacy_ids if (business, i) not in _migrating]
+        _migrating.update((business, i) for i in fresh)
+    if fresh:
+        background_tasks.add_task(_migrate_loan_media, business, fresh)
+
+
+def _loans_out_from_docs(docs, reminders) -> tuple:
+    """Build LoanRecords from loan docs. Returns (records, ids of legacy docs still holding inline images)."""
+    db = get_firestore_client()
+    loans, legacy = [], []
+    for doc in docs:
+        l = doc.to_dict()
+        if _is_archived(l):
+            continue
+        if is_data_url(l.get("photo_url")) or is_data_url(l.get("signature_url")):
+            legacy.append(doc.id)
+        if not l.get("account_number"):
+            with db_lock:
+                l["account_number"] = _generate_unique_account_number(db)
+                doc.reference.update({"account_number": l["account_number"]})
+        loans.append(_loan_out(l, doc.id, reminders.get(l.get("id", doc.id))))
+    return loans, legacy
 
 
 def _reminders_by_loan() -> Dict[str, List[Dict[str, Any]]]:
@@ -792,6 +885,9 @@ async def create_loan(
                 "updated_by": user["name"],
             }
 
+            record, media = split_media(record)
+            if media.get("photo_url") or media.get("signature_url"):
+                db.collection("loan_media").document(loan_id).set({k: v for k, v in media.items() if v})
             db.collection("loans").document(loan_id).set(record)
 
             _write_audit(user["name"], "LOAN_CREATED", f"Loan ₹{loan.loan_amount} created for {loan.customer_name}, freq={loan.repayment_frequency}, total_due=₹{due_amount}, account={account_number}")
@@ -914,12 +1010,22 @@ async def update_loan(loan_id: str, updates: LoanUpdate, user=Depends(require_ad
             raise HTTPException(status_code=400, detail="Primary mobile cannot be empty")
         update_data = {k: v for k, v in update_data.items() if v is not None}
 
-        changed = [k for k, v in update_data.items() if loan.get(k) != v]
+        flags = {"photo_url": "has_photo", "signature_url": "has_signature"}
+        # An image stored in `loan_media` leaves the loan's own field blank, so compare against the flag.
+        changed = [k for k, v in update_data.items()
+                   if loan.get(k) != v or (k in flags and (is_data_url(v) or (not v and loan.get(flags[k]))))]
         if not changed:
             return _loan_out(loan, loan_id)
 
+        # Full images go to `loan_media`; the loan keeps only a thumbnail and flags.
+        media = {}
+        if "photo_url" in update_data or "signature_url" in update_data:
+            update_data, media = split_media(update_data)
+
         update_data["updated_at"] = _now()
         update_data["updated_by"] = user["name"]
+        if media:
+            get_firestore_client().collection("loan_media").document(loan_id).set(media, merge=True)
         loan_ref.update(update_data)
 
     _write_audit(
@@ -1016,20 +1122,64 @@ async def permanently_delete_loan(loan_id: str, user=Depends(require_admin)):
 
 
 @app.get("/api/loans/", response_model=List[LoanRecord])
-async def get_loans(user=Depends(require_role("admin", "collector"))):
-    db = get_firestore_client()
+def get_loans(background_tasks: BackgroundTasks, user=Depends(require_role("admin", "collector"))):
     reminders = _reminders_by_loan()
-    loans = []
-    for doc in db.collection("loans").get():
-        l = doc.to_dict()
-        if _is_archived(l):
-            continue
-        if not l.get("account_number"):
-            with db_lock:
-                l["account_number"] = _generate_unique_account_number(db)
-                doc.reference.update({"account_number": l["account_number"]})
-        loans.append(_loan_out(l, doc.id, reminders.get(l.get("id", doc.id))))
+    loans, legacy = _loans_out_from_docs(get_firestore_client().collection("loans").get(), reminders)
+    _schedule_media_migration(background_tasks, legacy)
     return loans
+
+
+@app.get("/api/loans/{loan_id}/media")
+def get_loan_media(loan_id: str, user=Depends(require_role("admin", "collector"))):
+    """Full-size photo and signature for one borrower (kept out of the list for speed)."""
+    db = get_firestore_client()
+    media_doc = db.collection("loan_media").document(loan_id).get()
+    media = media_doc.to_dict() if media_doc.exists else {}
+    out = {"photo_url": media.get("photo_url") or "", "signature_url": media.get("signature_url") or ""}
+    if not (out["photo_url"] and out["signature_url"]):
+        loan_doc = db.collection("loans").document(loan_id).get()
+        if not loan_doc.exists:
+            raise HTTPException(status_code=404, detail="Loan not found")
+        loan = loan_doc.to_dict()
+        out["photo_url"] = out["photo_url"] or loan.get("photo_url") or ""
+        out["signature_url"] = out["signature_url"] or loan.get("signature_url") or ""
+    return out
+
+
+def _run_parallel(*fns):
+    """Run independent blocking reads at the same time, keeping the request's business scope."""
+    with ThreadPoolExecutor(max_workers=len(fns)) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, fn) for fn in fns]
+        return [f.result() for f in futures]
+
+
+@app.get("/api/admin/app-data")
+def get_admin_app_data(background_tasks: BackgroundTasks, user=Depends(require_admin)):
+    """Everything the admin app needs on load, in one request (loans, payments, expenses, capital, staff)."""
+    db = get_firestore_client()
+    loan_docs, reminders, payment_rows, expenses, capital, staff = _run_parallel(
+        lambda: db.collection("loans").get(),
+        _reminders_by_loan,
+        lambda: get_collector_payments_db(None, loans={}),  # names are filled in below from the loans read
+        lambda: _list_collection("expenses", "date"),
+        lambda: _list_collection("capital", "date"),
+        lambda: list_staff(user),
+    )
+    loans_by_id = {d.id: d.to_dict() for d in loan_docs}
+    for p in payment_rows:
+        loan = loans_by_id.get(p.get("loan_id"))
+        if loan:
+            p["customer_name"] = loan.get("customer_name")
+            p["customer_phone"] = loan.get("customer_phone")
+    loans, legacy = _loans_out_from_docs(loan_docs, reminders)
+    _schedule_media_migration(background_tasks, legacy)
+    return {
+        "loans": [l.model_dump() for l in loans],
+        "payments": [LoanPaymentWithBorrower(**r).model_dump() for r in payment_rows],
+        "expenses": expenses,
+        "capital": capital,
+        "staff": staff,
+    }
 
 
 @app.post("/api/loans/{loan_id}/payments", response_model=PaymentResponse)
@@ -1260,7 +1410,7 @@ async def get_loan_stats(loan_id: str, user=Depends(require_role("admin", "colle
 
 
 @app.get("/api/collector/payments")
-async def get_collector_history(collector_name: Optional[str] = None, user=Depends(require_role("admin", "collector"))):
+def get_collector_history(collector_name: Optional[str] = None, user=Depends(require_role("admin", "collector"))):
     """Payments logged by a collector. Collectors only see their own; admins may omit the name to get all payments."""
     if user["role"] == "collector":
         collector_name = user["name"]

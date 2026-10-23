@@ -154,8 +154,8 @@ export default function MyLoan() {
         <div style={{ maxWidth: '500px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--brand)', flexShrink: 0 }}>
-              {photoSrc(profile.photo_url)
-                ? <img src={photoSrc(profile.photo_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {photoSrc(profile.photo_thumb || profile.photo_url)
+                ? <img src={photoSrc(profile.photo_thumb || profile.photo_url)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 : <span style={{ fontWeight: 900, fontSize: 20, color: 'var(--brand-light)' }}>{user.name?.charAt(0)?.toUpperCase()}</span>}
             </div>
             <div>

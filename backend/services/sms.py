@@ -13,7 +13,13 @@ gateway (Twilio / MSG91 / Fast2SMS) into `queue_disbursement_sms` below and
 call it from main.py instead of only returning the deep link.
 """
 
+import json
+import os
+import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+from fastapi import HTTPException
 
 SUPPORTED_LANGUAGES = {
     "en": "English",
@@ -97,5 +103,34 @@ def queue_disbursement_sms_batch(messages: list[tuple[str, str]]) -> None:
 
 
 def send_otp_sms(phone: str, otp: str) -> None:
-    """Deliver a login OTP. Plug a real SMS gateway in here before disabling OTP_DEV_MODE."""
-    print(f"Login OTP for {phone}: {otp}")
+    """Deliver a login OTP through Fast2SMS (route "otp").
+
+    Needs FAST2SMS_API_KEY in the environment. Without a key the OTP is only
+    printed to the server log, which is fine for OTP_DEV_MODE testing; with
+    OTP_DEV_MODE off a missing key or a gateway failure raises a 503 so the
+    user is told instead of waiting for an SMS that never comes.
+    """
+    api_key = os.environ.get("FAST2SMS_API_KEY", "").strip()
+    dev_mode = os.environ.get("OTP_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not api_key:
+        print(f"Login OTP for {phone}: {otp}")
+        if not dev_mode:
+            raise HTTPException(status_code=503, detail="SMS service is not configured. Contact the admin.")
+        return
+
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    number = digits[-10:]  # Fast2SMS takes the 10-digit Indian number
+    query = urllib.parse.urlencode({"route": "otp", "variables_values": otp, "numbers": number})
+    request = urllib.request.Request(
+        f"https://www.fast2sms.com/dev/bulkV2?{query}",
+        headers={"authorization": api_key, "cache-control": "no-cache"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        if not result.get("return"):
+            raise RuntimeError(str(result.get("message")))
+    except Exception as exc:  # network error, bad key, no wallet balance, ...
+        print(f"Fast2SMS OTP to {phone} failed: {exc}")
+        if not dev_mode:
+            raise HTTPException(status_code=503, detail="Could not send the OTP SMS. Please try again.")

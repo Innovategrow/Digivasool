@@ -58,13 +58,13 @@ def _cell(v: Any) -> Any:
 
 
 def _table(docs: List[Dict[str, Any]], preferred: List[str]) -> List[List[Any]]:
-    extra = sorted({k for d in docs for k in d} - set(preferred) - {"photo_url", "signature_url", "reminder_schedule"})
+    extra = sorted({k for d in docs for k in d} - set(preferred) - {"photo_url", "signature_url", "photo_thumb", "reminder_schedule"})
     cols = preferred + [c for c in extra if c not in preferred]
     rows = [cols]
     for d in docs:
         row = dict(d)
-        if "signature_url" in d:
-            row["signature_on_file"] = bool(d.get("signature_url"))
+        if "signature_url" in d or "has_signature" in d:
+            row["signature_on_file"] = bool(d.get("signature_url") or d.get("has_signature"))
         rows.append([_cell(row.get(c)) for c in cols])
     return rows
 
