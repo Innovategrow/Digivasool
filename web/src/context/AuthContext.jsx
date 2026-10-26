@@ -2,16 +2,11 @@ import { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
-// Login is switched off for now: everyone is the admin. Flip to false to bring the login screen back.
-const AUTH_DISABLED = true;
-const DEFAULT_USER = { role: 'admin', name: 'Admin', phone: '', token: '' };
-
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(AUTH_DISABLED ? DEFAULT_USER : null);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (AUTH_DISABLED) { setLoading(false); return; }
     const saved = localStorage.getItem('dk_user');
     if (saved) {
       try {
@@ -31,7 +26,6 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
-    if (AUTH_DISABLED) return;
     setUser(null);
     localStorage.removeItem('dk_user');
   };
