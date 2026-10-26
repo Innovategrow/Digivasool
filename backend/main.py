@@ -93,6 +93,8 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 # When true, OTPs are returned in the API response (for local testing only).
 OTP_DEV_MODE = _env_flag("OTP_DEV_MODE", False)
+# Login is switched off for now: every request is treated as the admin. Set AUTH_DISABLED=false to re-enable.
+AUTH_DISABLED = _env_flag("AUTH_DISABLED", True)
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 if not os.path.isabs(UPLOAD_DIR):
@@ -178,6 +180,8 @@ def _now() -> str:
 
 def get_current_user(authorization: Optional[str] = Header(default=None)):
     """Identify the caller from the signed session token issued at OTP login."""
+    if AUTH_DISABLED:
+        return {"merchant_id": "00000000-0000-0000-0000-000000000000", "role": "admin", "name": "Admin", "phone": ""}
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Please log in to continue.")
     data = decode_token(authorization.split(" ", 1)[1].strip())
