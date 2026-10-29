@@ -3,7 +3,7 @@ import { useAppData } from '../../context/AppDataContext';
 import { useToast } from '../../components/Toast';
 import { apiFetch } from '../../utils/api';
 import { useLanguage } from '../../context/LanguageContext';
-import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList } from 'lucide-react';
+import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList, Pencil } from 'lucide-react';
 
 const ACTION_LABELS = {
   LOAN_CREATED: 'created a loan', PAYMENT_RECORDED: 'recorded a payment', BORROWER_UPDATED: 'edited a borrower',
@@ -12,9 +12,11 @@ const ACTION_LABELS = {
   CAPITAL_ADDED: 'logged capital', PAYMENT_PROOF_UPLOADED: 'uploaded payment proof',
 };
 
-function AddStaffModal({ onClose, onAdd }) {
+function AddStaffModal({ onClose, onAdd, member }) {
   const { t } = useLanguage();
-  const [form, setForm] = useState({ name: '', role: 'collector', phone: '', email: '', target: 50000 });
+  const [form, setForm] = useState(member
+    ? { name: member.name, role: member.role, phone: member.phone || '', email: member.email || '', target: member.target || 0 }
+    : { name: '', role: 'collector', phone: '', email: '', target: 50000 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -28,7 +30,7 @@ function AddStaffModal({ onClose, onAdd }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <div className="modal-title">{t('addStaffMember')}</div>
+          <div className="modal-title">{member ? 'Edit staff member' : t('addStaffMember')}</div>
           <button className="modal-close" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="form-row">
@@ -38,7 +40,7 @@ function AddStaffModal({ onClose, onAdd }) {
           </div>
           <div className="form-group">
             <label className="form-label">{t('role')}</label>
-            <select className="form-input" value={form.role} onChange={e => set('role', e.target.value)}>
+            <select className="form-input" value={form.role} disabled={Boolean(member)} onChange={e => set('role', e.target.value)}>
               <option value="admin">{t('roleAdmin')}</option>
               <option value="manager">{t('roleManager')}</option>
               <option value="collector">{t('roleCollector')}</option>
@@ -55,10 +57,11 @@ function AddStaffModal({ onClose, onAdd }) {
             <input className="form-input" type="number" value={form.target} onChange={e => set('target', Number(e.target.value))} />
           </div>
         </div>
+        {member && form.role === 'collector' && <p className="muted-note">Renaming a collector also updates the borrowers assigned to them.</p>}
         {form.role === 'collector' && <p className="muted-note">Collectors log in with this phone number and an OTP.</p>}
         {error && <div className="form-alert" role="alert">{error}</div>}
         <button className="btn btn-primary w-full" disabled={saving || form.name.trim().length < 2} onClick={submit}>
-          <Plus size={16} /> {saving ? 'Saving...' : t('addStaff')}
+          {member ? <Check size={16} /> : <Plus size={16} />} {saving ? 'Saving...' : member ? 'Save changes' : t('addStaff')}
         </button>
       </div>
     </div>
@@ -78,6 +81,7 @@ export default function Staff() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { t } = useLanguage();
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   const ROLE_CONFIG = {
     admin:     { label: t('roleAdmin'),     cls: 'badge-indigo', icon: <Shield size={11} /> },
@@ -113,6 +117,9 @@ export default function Staff() {
                     <span className={`badge ${rc.cls}`}>{rc.icon} {rc.label}</span>
                   </div>
                 </div>
+                {s.source === 'app' && (
+                  <button type="button" className="icon-btn" onClick={() => setEditing(s)} aria-label={`Edit ${s.name}`} title="Edit"><Pencil size={16} /></button>
+                )}
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 22, fontWeight: 900, color: barColor }}>{pct}%</div>
                   <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{t('efficiency')}</div>
@@ -203,6 +210,11 @@ export default function Staff() {
         ))}
       </div>
 
+      {editing && <AddStaffModal member={editing} onClose={() => setEditing(null)} onAdd={async payload => {
+        const { name, phone, email, target } = payload;
+        await actions.updateStaff(editing.id, { name, phone, email, target });
+        showToast('Staff member updated');
+      }} />}
       {showAdd && <AddStaffModal onClose={() => setShowAdd(false)} onAdd={async payload => { await actions.addStaff(payload); showToast('Staff member added'); }} />}
     </div>
   );

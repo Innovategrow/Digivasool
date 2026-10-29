@@ -52,6 +52,7 @@ from schemas import (
     DashboardSummaryResponse,
     ExpenseCreate,
     StaffCreate,
+    StaffUpdate,
     TransactionCreate,
     TransactionResponse,
     VoiceToLedgerResponse,
@@ -687,6 +688,43 @@ async def create_staff(body: StaffCreate, user=Depends(require_admin)):
     get_firestore_client().collection("staff").document(record["id"]).set(record)
     _write_audit(user["name"], "STAFF_ADDED", f"Added {body.role} {record['name']}")
     return {**record, "source": "app"}
+
+
+@app.patch("/api/staff/{staff_id}")
+async def update_staff(staff_id: str, body: StaffUpdate, user=Depends(require_admin)):
+    """Edit a staff member added in the app. Renaming a collector moves their borrower assignments to the new name."""
+    if staff_id.startswith("cfg-"):
+        raise HTTPException(status_code=400, detail="This person is set up in the server configuration and can't be edited here")
+    with db_lock:
+        ref = get_firestore_client().collection("staff").document(staff_id)
+        doc = ref.get()
+        if not doc.exists or not doc.to_dict().get("is_active", True):
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        member = doc.to_dict()
+        updates = body.model_dump(exclude_unset=True)
+        updates = {k: v for k, v in updates.items() if v is not None}
+        if "name" in updates:
+            updates["name"] = updates["name"].strip()
+        others = [p for p in _all_admins() + _all_collectors()
+                  if not (p["name"] == member.get("name") and normalize_phone(p.get("phone", "")) == normalize_phone(member.get("phone", "")))]
+        phone = normalize_phone(updates.get("phone", "") or "")
+        if phone and any(normalize_phone(p.get("phone", "")) == phone for p in others):
+            raise HTTPException(status_code=400, detail="A staff member with this phone number already exists")
+        old_name, new_name = member.get("name", ""), updates.get("name", member.get("name", ""))
+        renamed = member.get("role") == "collector" and new_name != old_name
+        if renamed and any(p["name"].strip().lower() == new_name.lower() for p in _all_collectors() if p["name"] != old_name):
+            raise HTTPException(status_code=400, detail="Another collector already has this name")
+        if updates:
+            updates["updated_at"] = _now()
+            updates["updated_by"] = user["name"]
+            ref.update(updates)
+        if renamed:
+            for loan_doc in get_firestore_client().collection("loans").get():
+                names = loan_doc.to_dict().get("assigned_collectors") or []
+                if old_name in names:
+                    loan_doc.reference.update({"assigned_collectors": sorted({new_name if n == old_name else n for n in names}, key=str.lower)})
+    _write_audit(user["name"], "STAFF_UPDATED", f"Updated {member.get('role', 'staff')} {old_name}" + (f" (now {new_name})" if renamed else ""))
+    return {**member, **updates, "source": "app"}
 
 
 def _list_collection(name: str, sort_field: str) -> List[Dict[str, Any]]:

@@ -264,6 +264,13 @@ export function AppDataProvider({ children }) {
       setRaw(r => ({ ...r, staff: [...r.staff, row] }));
       return row;
     },
+    async updateStaff(id, payload) {
+      const res = await apiFetch(`/api/staff/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error(await readError(res));
+      const row = await res.json();
+      setRaw(r => ({ ...r, staff: r.staff.map(s => (s.id === id ? { ...s, ...row } : s)) }));
+      return row;
+    },
     // idempotencyKey must stay the same when the user retries the same payment
     async recordPayment({ loanId, amount, method = 'Cash', notes = '', idempotencyKey = newIdempotencyKey() }) {
       const data = await post(`/api/loans/${loanId}/payments`, {

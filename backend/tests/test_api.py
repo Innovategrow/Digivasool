@@ -384,3 +384,17 @@ def test_collector_assignment_rules():
     r = client.patch(f"/api/loans/{mine['id']}", headers=ADMIN, json={"assigned_collectors": ["Collector 2"]})
     assert r.status_code == 200 and r.json()["assigned_collectors"] == ["Collector 2"]
     assert client.patch(f"/api/loans/{mine['id']}", headers=ADMIN, json={"assigned_collectors": []}).status_code == 400
+
+
+def test_edit_collector_renames_assignments():
+    s = client.post("/api/staff/", headers=ADMIN, json={"name": "Temp Collector", "role": "collector", "phone": "+919000000077"}).json()
+    loan = create_loan(customer_name="Rename Check", assigned_collectors=["Temp Collector", "Collector 1"])
+    r = client.patch(f"/api/staff/{s['id']}", headers=ADMIN, json={"name": "Renamed Collector", "target": 900})
+    assert r.status_code == 200 and r.json()["name"] == "Renamed Collector"
+    got = next(l for l in client.get("/api/loans/", headers=ADMIN).json() if l["id"] == loan["id"])
+    assert got["assigned_collectors"] == ["Collector 1", "Renamed Collector"]
+    # duplicate name / phone and config staff are rejected; collectors cannot edit staff
+    assert client.patch(f"/api/staff/{s['id']}", headers=ADMIN, json={"name": "Collector 1"}).status_code == 400
+    assert client.patch(f"/api/staff/{s['id']}", headers=ADMIN, json={"phone": "+919000000002"}).status_code == 400
+    assert client.patch("/api/staff/cfg-collector-0", headers=ADMIN, json={"name": "X Y"}).status_code == 400
+    assert client.patch(f"/api/staff/{s['id']}", headers=COLLECTOR, json={"name": "Hacker"}).status_code == 403

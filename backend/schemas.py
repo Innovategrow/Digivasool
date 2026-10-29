@@ -405,6 +405,18 @@ class CapitalCreate(BaseModel):
     note: Optional[str] = Field(default="", max_length=300)
 
 
+class StaffUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    target: Optional[float] = Field(default=None, ge=0)
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _v_phone(cls, v):
+        return None if v is None else _clean_phone(v, "Phone")
+
+
 class StaffCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     role: Literal["admin", "manager", "collector"] = "collector"
