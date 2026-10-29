@@ -6,7 +6,7 @@ import {
   Key, PhoneCall, User, Shield, ChevronDown, ChevronUp, GitMerge,
   Calendar, CalendarDays, CalendarRange, Settings2, Check, X, Wrench,
   MessageSquare, Languages, Hash, ExternalLink, CheckCircle2, Search,
-  FileDown, ArrowUpDown, Eye, Trash2, Pencil, MoreVertical, ArrowLeft, History, Store,
+  FileDown, ArrowUpDown, Eye, Trash2, Pencil, MoreVertical, ArrowLeft, History, Store, UserCheck,
 } from 'lucide-react';
 import { apiFetch, newIdempotencyKey, readError } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
@@ -278,8 +278,59 @@ function PaymentHistorySection({ loanId }) {
 }
 
 
+// ── Collector assignment (1 to 3 collectors per borrower) ──────────────────
+const MAX_COLLECTORS = 3;
+const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+
+function useCollectorNames() {
+  const [names, setNames] = useState([]);
+  useEffect(() => {
+    let live = true;
+    apiFetch('/api/collectors/')
+      .then(res => (res.ok ? res.json() : []))
+      .then(rows => { if (live) setNames(rows.map(r => r.name).sort(byName)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  return names;
+}
+
+function CollectorPicker({ value, onChange, error }) {
+  const names = useCollectorNames();
+  const chosen = value || [];
+  const toggle = name => {
+    if (chosen.includes(name)) onChange(chosen.filter(n => n !== name));
+    else if (chosen.length < MAX_COLLECTORS) onChange([...chosen, name]);
+  };
+  return (
+    <div className="form-group">
+      <label className="form-label">Assigned collectors ({chosen.length}/{MAX_COLLECTORS})</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {names.map(name => {
+          const on = chosen.includes(name);
+          const full = !on && chosen.length >= MAX_COLLECTORS;
+          return (
+            <button key={name} type="button" onClick={() => toggle(name)} disabled={full} aria-pressed={on}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 20, fontSize: 13, fontWeight: 700,
+                cursor: full ? 'not-allowed' : 'pointer', opacity: full ? 0.5 : 1,
+                border: `1px solid ${on ? 'var(--brand)' : 'var(--border)'}`,
+                background: on ? 'var(--brand-soft)' : 'transparent', color: on ? 'var(--brand-light)' : 'var(--text-2)',
+              }}>
+              {on ? <Check size={14} /> : <UserCheck size={14} />} {name}
+            </button>
+          );
+        })}
+        {names.length === 0 && <span className="text-muted" style={{ fontSize: 13 }}>No collectors yet — add one in Staff first.</span>}
+      </div>
+      <div className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>Pick 1 to {MAX_COLLECTORS}. Any assigned collector can collect from this borrower.</div>
+      {error && <div className="field-error">{error}</div>}
+    </div>
+  );
+}
+
 // ── Borrower list card ──────────────────────────────────────────────────────
-function BorrowerCard({ loan, onOpen, onMenu }) {
+function BorrowerCard({ loan, onOpen, onMenu, showCollectors }) {
   const metrics = getLoanMetrics(loan);
   return (
     <article className="borrower-row" onClick={() => onOpen(loan)}>
@@ -287,6 +338,12 @@ function BorrowerCard({ loan, onOpen, onMenu }) {
       <div className="borrower-row-main">
         <h3>{loan.customer_name}</h3>
         <p>{[loan.customer_phone, loan.zone].filter(Boolean).join(' · ') || 'No phone'}</p>
+        {showCollectors && (
+          <p style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+            <UserCheck size={12} />
+            {loan.assigned_collectors?.length ? [...loan.assigned_collectors].sort(byName).join(', ') : <span style={{ color: 'var(--red)' }}>No collector assigned</span>}
+          </p>
+        )}
         <div className="borrower-row-amount">
           <span>Outstanding</span>
           <strong className={metrics.pendingAmount <= 0 ? 'settled' : ''}>{money(metrics.pendingAmount)}</strong>
@@ -363,6 +420,7 @@ function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDele
           <InfoRow icon={MapPin} label="Area" value={loan.zone} />
           <InfoRow icon={MapPin} label="Address" value={loan.customer_address} />
           <InfoRow icon={Key} label="Aadhaar" value={loan.aadhaar_number ? `XXXX XXXX ${digitsOnly(loan.aadhaar_number).slice(-4)}` : ''} />
+          <InfoRow icon={UserCheck} label="Assigned collectors" value={[...(loan.assigned_collectors || [])].sort(byName).join(', ') || 'Not assigned'} />
           <InfoRow icon={Languages} label="SMS language" value={SMS_LANGUAGES.find(l => l.value === loan.preferred_language)?.label} />
         </dl>
       </div>
@@ -470,7 +528,7 @@ function InfoRow({ icon, label, value, href }) {
 const EDIT_FIELDS = [
   'customer_name', 'shop_name', 'customer_phone', 'alternate_phone', 'zone', 'customer_email',
   'aadhaar_number', 'customer_address', 'guarantor_name', 'guarantor_phone', 'guarantor_address',
-  'preferred_language', 'photo_url',
+  'preferred_language', 'photo_url', 'assigned_collectors',
 ];
 
 function validateBorrower(form) {
@@ -484,12 +542,13 @@ function validateBorrower(form) {
   if (form.customer_email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.customer_email.trim())) errors.customer_email = 'Enter a valid email address.';
   const aadhaar = form.aadhaar_number.replace(/[\s-]/g, '');
   if (aadhaar && !/^[0-9]{12}$/.test(aadhaar)) errors.aadhaar_number = 'Aadhaar number must be 12 digits.';
+  if (!form.assigned_collectors?.length) errors.assigned_collectors = 'Assign at least one collector.';
   return errors;
 }
 
 function EditBorrowerScreen({ loan, onCancel, onSave }) {
   const { t } = useLanguage();
-  const initial = useMemo(() => Object.fromEntries(EDIT_FIELDS.map(k => [k, (k === 'photo_url' ? (loan.photo_url || loan.photo_thumb) : loan[k]) ?? (k === 'preferred_language' ? 'en' : '')])), [loan]);
+  const initial = useMemo(() => Object.fromEntries(EDIT_FIELDS.map(k => [k, (k === 'photo_url' ? (loan.photo_url || loan.photo_thumb) : k === 'assigned_collectors' ? (loan.assigned_collectors || []) : loan[k]) ?? (k === 'preferred_language' ? 'en' : '')])), [loan]);
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -499,7 +558,7 @@ function EditBorrowerScreen({ loan, onCancel, onSave }) {
 
   const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); setErrors(e => ({ ...e, [k]: undefined })); };
   const field = key => ({ value: form[key] ?? '', onChange: e => set(key, e.target.value), 'aria-invalid': Boolean(errors[key]) });
-  const changed = EDIT_FIELDS.filter(k => (form[k] ?? '') !== (initial[k] ?? ''));
+  const changed = EDIT_FIELDS.filter(k => JSON.stringify(form[k] ?? '') !== JSON.stringify(initial[k] ?? ''));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -561,6 +620,7 @@ function EditBorrowerScreen({ loan, onCancel, onSave }) {
         </IconInput>
         <datalist id="zones-datalist-edit">{ZONES.map(z => <option key={z} value={z} />)}</datalist>
       </div>
+      <CollectorPicker value={form.assigned_collectors} onChange={v => set('assigned_collectors', v)} error={errors.assigned_collectors} />
       <div className="form-group">
         <label className="form-label" htmlFor="eb-email">{t('email')}</label>
         <IconInput icon={<Mail size={16} />}><input id="eb-email" type="email" inputMode="email" className="form-input" {...field('customer_email')} /></IconInput>
@@ -659,6 +719,8 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [sortBy, setSortBy] = useState('newest');
   const [zoneFilter, setZoneFilter] = useState('all');
+  const [collectorFilter, setCollectorFilter] = useState('all');
+  const collectorNames = useCollectorNames();
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [signature, setSignature] = useState(null);
@@ -774,7 +836,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
   };
 
   const [formData, setFormData] = useState({
-    name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '',
+    name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '', assigned_collectors: [],
     shop_name: '', aadhaar_number: '',
     guarantor_name: '', guarantor_phone: '', guarantor_address: '',
     amount: '', interest_rate: '18', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
@@ -841,7 +903,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
     setShowOtpSection(false);
     setDisburseResult(null);
     setFormData({
-      name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '',
+      name: '', email: '', phone: '', alternate_phone: '', zone: '', address: '', assigned_collectors: [],
       shop_name: '', aadhaar_number: '',
       guarantor_name: '', guarantor_phone: '', guarantor_address: '',
       amount: '', interest_rate: '18', monthly_interest_amount: '', field_visit_charge: '', document_fee: '', processing_fee: '',
@@ -856,6 +918,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
     if (!formData.name || !formData.phone || !formData.zone || !formData.amount || !formData.closeDate) {
       showToast('Name, Phone, Coimbatore area, Amount and Due Date are required.', 'error'); return;
     }
+    if (!formData.assigned_collectors.length) { showToast('Assign at least one collector to this borrower.', 'error'); return; }
     if (!termsAccepted) { showToast(t('termsRequired'), 'error'); return; }
     // One key per borrower being added, reused on retry, so a double tap never creates two loans
     if (!createKeyRef.current) createKeyRef.current = newIdempotencyKey();
@@ -868,6 +931,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
       customer_address: formData.address,
       alternate_phone: formData.alternate_phone,
       zone: formData.zone,
+      assigned_collectors: formData.assigned_collectors,
       photo_url: photoPreview || '',
       signature_url: signature || '',
       terms_accepted: termsAccepted,
@@ -925,8 +989,9 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
       l.zone, l.customer_address, l.account_number,
     ].filter(Boolean).some(v => String(v).toLowerCase().includes(q));
     const matchesZone = zoneFilter === 'all' || l.zone === zoneFilter;
+    const matchesCollector = collectorFilter === 'all' || (collectorFilter === 'none' ? !l.assigned_collectors?.length : (l.assigned_collectors || []).includes(collectorFilter));
     const matchesStatus = statusFilter === 'all' || metrics.status === statusFilter;
-    return matchesSearch && matchesZone && matchesStatus;
+    return matchesSearch && matchesZone && matchesCollector && matchesStatus;
   });
   const sortedLoans = [...visibleLoans].sort((a, b) => {
     if (sortBy === 'name') return a.customer_name.localeCompare(b.customer_name);
@@ -1074,6 +1139,16 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
               {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
             </select>
           </label>
+          {user?.role === 'admin' && (
+            <label className="select-field">
+              <UserCheck size={15} />
+              <select value={collectorFilter} onChange={e => { setCollectorFilter(e.target.value); resetPaging(); }} aria-label="Collector filter">
+                <option value="all">All collectors</option>
+                {collectorNames.map(n => <option key={n} value={n}>{n}</option>)}
+                <option value="none">Unassigned</option>
+              </select>
+            </label>
+          )}
           <label className="select-field">
             <ArrowUpDown size={15} />
             <select value={sortBy} onChange={e => updateSortBy(e.target.value)} aria-label="Sort borrowers">
@@ -1102,7 +1177,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
       ) : (
         <div className="borrower-list">
           {shownLoans.map(loan => (
-            <BorrowerCard key={loan.id} loan={loan} onOpen={openDetails} onMenu={canManage ? setMenuLoan : null} />
+            <BorrowerCard key={loan.id} loan={loan} onOpen={openDetails} onMenu={canManage ? setMenuLoan : null} showCollectors={user?.role === 'admin'} />
           ))}
           {sortedLoans.length > shownLoans.length && (
             <button type="button" className="btn btn-secondary show-more" onClick={() => setVisibleCount(c => c + PAGE_SIZE)}>
@@ -1164,6 +1239,8 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
                   {ZONES.map(z => <option key={z} value={z} />)}
                 </datalist>
               </div>
+
+              <CollectorPicker value={formData.assigned_collectors} onChange={v => set('assigned_collectors', v)} />
 
               {/* OTP Section */}
               <div style={{ marginBottom: 12 }}>

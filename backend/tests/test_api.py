@@ -55,6 +55,7 @@ NEW_LOAN = {
     "customer_email": "", "customer_address": "1 Main St", "zone": "Peelamedu",
     "loan_amount": 12500, "terms_accepted": True, "monthly_interest_amount": 500, "start_date": "2026-09-01",
     "closing_date": "2026-12-01", "repayment_frequency": "daily", "repayment_amount": 250,
+    "assigned_collectors": ["Collector 1"],
 }
 
 
@@ -352,3 +353,34 @@ def test_app_data_returns_everything_in_one_call():
     assert any(e["amount"] == 7 for e in body["expenses"])
     assert any(s["name"] == "Test Admin" for s in body["staff"])
     assert client.get("/api/admin/app-data", headers=COLLECTOR).status_code == 403
+
+
+def test_collector_assignment_rules():
+    other = login("collector", "+919000000003", collector_name="Collector 2")
+    mine = create_loan(customer_name="Assigned To One")
+    shared = create_loan(customer_name="Assigned To Two", assigned_collectors=["Collector 1", "Collector 2"])
+    assert mine["assigned_collectors"] == ["Collector 1"]
+
+    # Collectors only see their own borrowers; admin sees everyone
+    ids1 = {l["id"] for l in client.get("/api/loans/", headers=COLLECTOR).json()}
+    ids2 = {l["id"] for l in client.get("/api/loans/", headers=other).json()}
+    assert mine["id"] in ids1 and shared["id"] in ids1
+    assert mine["id"] not in ids2 and shared["id"] in ids2
+    assert {mine["id"], shared["id"]} <= {l["id"] for l in client.get("/api/loans/", headers=ADMIN).json()}
+
+    # An unassigned collector cannot collect or look at the borrower
+    pay = {"amount": 100, "payment_method": "Cash"}
+    assert client.post(f"/api/loans/{mine['id']}/payments", headers=other, json=pay).status_code == 403
+    assert client.get(f"/api/loans/{mine['id']}/payments", headers=other).status_code == 403
+    assert client.post(f"/api/loans/{shared['id']}/payments", headers=other, json=pay).status_code == 200
+
+    # At least one and at most three, registered collectors only
+    assert client.post("/api/loans/", headers=ADMIN, json={**NEW_LOAN, "assigned_collectors": []}).status_code == 400
+    assert client.post("/api/loans/", headers=ADMIN, json={**NEW_LOAN, "assigned_collectors": ["Nobody"]}).status_code == 400
+    four = ["Collector 1", "Collector 2", "C3", "C4"]
+    assert client.post("/api/loans/", headers=ADMIN, json={**NEW_LOAN, "assigned_collectors": four}).status_code == 422
+
+    # Admin can reassign
+    r = client.patch(f"/api/loans/{mine['id']}", headers=ADMIN, json={"assigned_collectors": ["Collector 2"]})
+    assert r.status_code == 200 and r.json()["assigned_collectors"] == ["Collector 2"]
+    assert client.patch(f"/api/loans/{mine['id']}", headers=ADMIN, json={"assigned_collectors": []}).status_code == 400

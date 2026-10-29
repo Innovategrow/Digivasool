@@ -212,6 +212,8 @@ class LoanCreate(BorrowerFieldsMixin, BaseModel):
     repayment_amount: Optional[float] = 0.0
     # Preferred language for the post-disbursement SMS
     preferred_language: LanguageCode = "en"
+    # Collectors responsible for this borrower (1 to 3, by name)
+    assigned_collectors: List[str] = Field(default_factory=list, max_length=3)
 
 
 class LoanPaymentCreate(BaseModel):
@@ -282,6 +284,7 @@ class LoanRecord(BaseModel):
     # Unique borrower account number, assigned at disbursement
     account_number: Optional[str] = None
     preferred_language: Optional[str] = "en"
+    assigned_collectors: List[str] = []
     # Amounts
     loan_amount: float
     monthly_interest_amount: Optional[float] = 0.0
@@ -386,6 +389,7 @@ class LoanUpdate(BorrowerFieldsMixin, BaseModel):
     guarantor_phone: Optional[str] = None
     guarantor_address: Optional[str] = None
     preferred_language: Optional[LanguageCode] = None
+    assigned_collectors: Optional[List[str]] = Field(default=None, max_length=3)
 
 
 class ExpenseCreate(BaseModel):

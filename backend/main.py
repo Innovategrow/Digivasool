@@ -294,6 +294,38 @@ def _assert_borrower_owns_loan(user: Dict[str, Any], loan_id: str):
         raise HTTPException(status_code=403, detail="You can only view your own loan")
 
 
+MAX_COLLECTORS_PER_BORROWER = 3
+
+
+def _clean_collectors(names: Optional[List[str]], required: bool = False) -> List[str]:
+    """Validate a borrower's collector assignment: known collectors only, no repeats, at most 3."""
+    known = {c["name"].strip().lower(): c["name"] for c in _all_collectors()}
+    cleaned: List[str] = []
+    for raw in names or []:
+        key = (raw or "").strip().lower()
+        if not key:
+            continue
+        if key not in known:
+            raise HTTPException(status_code=400, detail=f"'{raw}' is not a registered collector")
+        if known[key] not in cleaned:
+            cleaned.append(known[key])
+    if len(cleaned) > MAX_COLLECTORS_PER_BORROWER:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_COLLECTORS_PER_BORROWER} collectors can be assigned to a borrower")
+    if required and not cleaned:
+        raise HTTPException(status_code=400, detail="Assign at least one collector to this borrower")
+    return sorted(cleaned, key=str.lower)
+
+
+def _is_assigned(loan: Dict[str, Any], user: Dict[str, Any]) -> bool:
+    mine = (user.get("name") or "").strip().lower()
+    return mine in {(n or "").strip().lower() for n in loan.get("assigned_collectors") or []}
+
+
+def _assert_collector_assigned(user: Dict[str, Any], loan: Dict[str, Any]):
+    if user["role"] == "collector" and not _is_assigned(loan, user):
+        raise HTTPException(status_code=403, detail="This borrower is not assigned to you")
+
+
 def _has_loans_in_any_book(contact: str) -> bool:
     """A borrower may hold loans in Finance or Fund; any of them lets them log in."""
     for book in (x["id"] for x in list_books()):
@@ -608,7 +640,7 @@ async def get_admin_lending_view(admin_user=Depends(require_admin)):
 @app.get("/api/collectors/")
 async def get_collectors():
     """Registered collector names (public, used for the login dropdown — phone numbers are not exposed)."""
-    return [{"name": c["name"]} for c in _all_collectors()]
+    return sorted(({"name": c["name"]} for c in _all_collectors()), key=lambda c: c["name"].lower())
 
 
 @app.get("/api/admin/audit-log")
@@ -703,6 +735,7 @@ def _loan_out(l: Dict[str, Any], doc_id: str, reminders: Optional[List[Dict[str,
     l.setdefault("repayment_amount", 0.0)
     l.setdefault("total_days_paid", 0)
     l.setdefault("total_days_not_paid", 0)
+    l.setdefault("assigned_collectors", [])
     for key in ("alternate_phone", "shop_name", "zone", "aadhaar_number", "photo_url", "signature_url",
                 "guarantor_name", "guarantor_phone", "guarantor_address"):
         l.setdefault(key, "")
@@ -812,6 +845,7 @@ async def create_loan(
         raise HTTPException(status_code=400, detail="Closing date is required")
     if loan.closing_date < loan.start_date:
         raise HTTPException(status_code=400, detail="Due date cannot be before the start date")
+    assigned_collectors = _clean_collectors(loan.assigned_collectors, required=True)
 
     with db_lock:
         if idempotency_key:
@@ -853,6 +887,7 @@ async def create_loan(
                 "guarantor_address": loan.guarantor_address or "",
                 "account_number": account_number,
                 "preferred_language": loan.preferred_language,
+                "assigned_collectors": assigned_collectors,
                 "loan_amount": loan.loan_amount,
                 "monthly_interest_amount": loan.monthly_interest_amount,
                 "field_visit_charge": loan.field_visit_charge,
@@ -998,6 +1033,8 @@ async def update_loan(loan_id: str, updates: LoanUpdate, user=Depends(require_ad
             raise HTTPException(status_code=400, detail="Full name cannot be empty")
         if "customer_phone" in update_data and not update_data["customer_phone"]:
             raise HTTPException(status_code=400, detail="Primary mobile cannot be empty")
+        if "assigned_collectors" in update_data:
+            update_data["assigned_collectors"] = _clean_collectors(update_data["assigned_collectors"], required=True)
         update_data = {k: v for k, v in update_data.items() if v is not None}
 
         flags = {"photo_url": "has_photo", "signature_url": "has_signature"}
@@ -1116,6 +1153,8 @@ def get_loans(background_tasks: BackgroundTasks, user=Depends(require_role("admi
     reminders = _reminders_by_loan()
     loans, legacy = _loans_out_from_docs(get_firestore_client().collection("loans").get(), reminders)
     _schedule_media_migration(background_tasks, legacy)
+    if user["role"] == "collector":  # collectors only see the borrowers assigned to them
+        loans = [l for l in loans if _is_assigned(l.model_dump(), user)]
     return loans
 
 
@@ -1123,6 +1162,7 @@ def get_loans(background_tasks: BackgroundTasks, user=Depends(require_role("admi
 def get_loan_media(loan_id: str, user=Depends(require_role("admin", "collector"))):
     """Full-size photo and signature for one borrower (kept out of the list for speed)."""
     db = get_firestore_client()
+    _assert_collector_assigned(user, _get_loan_or_404(loan_id)[1])
     media_doc = db.collection("loan_media").document(loan_id).get()
     media = media_doc.to_dict() if media_doc.exists else {}
     out = {"photo_url": media.get("photo_url") or "", "signature_url": media.get("signature_url") or ""}
@@ -1191,6 +1231,7 @@ async def record_payment(
         loan_ref, loan = _get_loan_or_404(loan_id)
         if _is_archived(loan):
             raise HTTPException(status_code=400, detail="This borrower has been deleted. Payments cannot be recorded.")
+        _assert_collector_assigned(user, loan)
 
         payment_date = payment.payment_date or _now()
         # Collectors always record under their own identity
@@ -1325,6 +1366,8 @@ async def record_payment(
 async def get_loan_payment_history(loan_id: str, user=Depends(require_role("admin", "collector", "borrower"))):
     """Return full payment history for a loan."""
     _assert_borrower_owns_loan(user, loan_id)
+    if user["role"] == "collector":
+        _assert_collector_assigned(user, _get_loan_or_404(loan_id)[1])
     return [LoanPaymentRecord(**p) for p in get_loan_payments_db(loan_id)]
 
 
@@ -1363,6 +1406,8 @@ async def get_loans_overview(user=Depends(require_role("admin", "collector"))):
         status = l.get("status", "active")
         if status == "merged":
             continue  # its amounts were folded into the primary loan
+        if user["role"] == "collector" and not _is_assigned(l, user):
+            continue
         collected = l.get("collected_amount", 0) or 0
         pending = l.get("pending_amount", 0) or 0
         total_collected += collected
@@ -1391,6 +1436,7 @@ async def get_loans_overview(user=Depends(require_role("admin", "collector"))):
 async def get_loan_stats(loan_id: str, user=Depends(require_role("admin", "collector", "borrower"))):
     _assert_borrower_owns_loan(user, loan_id)
     _, loan = _get_loan_or_404(loan_id)
+    _assert_collector_assigned(user, loan)
     return LoanStatsResponse(
         total_days_paid=loan.get("total_days_paid", 0),
         total_days_not_paid=loan.get("total_days_not_paid", 0),
