@@ -284,23 +284,49 @@ const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
 
 function useCollectorNames() {
   const [names, setNames] = useState([]);
+  const [failed, setFailed] = useState(false);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let live = true;
     apiFetch('/api/collectors/')
-      .then(res => (res.ok ? res.json() : []))
-      .then(rows => { if (live) setNames(rows.map(r => r.name).sort(byName)); })
-      .catch(() => {});
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error('load failed'))))
+      .then(rows => { if (live) { setNames(rows.map(r => r.name).sort(byName)); setFailed(false); } })
+      .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
-  }, []);
-  return names;
+  }, [tick]);
+  return { names, failed, reload: () => setTick(n => n + 1) };
 }
 
 function CollectorPicker({ value, onChange, error }) {
-  const names = useCollectorNames();
+  const { names, failed, reload } = useCollectorNames();
+  const { user } = useAuth();
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [addError, setAddError] = useState('');
   const chosen = value || [];
   const toggle = name => {
     if (chosen.includes(name)) onChange(chosen.filter(n => n !== name));
     else if (chosen.length < MAX_COLLECTORS) onChange([...chosen, name]);
+  };
+  const addCollector = async () => {
+    if (saving) return;
+    if (newName.trim().length < 2) { setAddError('Enter the collector name.'); return; }
+    if (!newPhone.trim()) { setAddError('Enter the collector mobile number (used to log in).'); return; }
+    setSaving(true); setAddError('');
+    try {
+      const res = await apiFetch('/api/staff/', { method: 'POST', body: JSON.stringify({ name: newName.trim(), phone: newPhone.trim(), role: 'collector', target: 0 }) });
+      if (!res.ok) throw new Error(await readError(res));
+      const row = await res.json();
+      reload();
+      if (chosen.length < MAX_COLLECTORS) onChange([...chosen, row.name]);
+      setNewName(''); setNewPhone(''); setAdding(false);
+    } catch (err) {
+      setAddError(err.message || 'Could not add the collector.');
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <div className="form-group">
@@ -321,8 +347,29 @@ function CollectorPicker({ value, onChange, error }) {
             </button>
           );
         })}
-        {names.length === 0 && <span className="text-muted" style={{ fontSize: 13 }}>No collectors yet — add one in Staff first.</span>}
+        {user?.role === 'admin' && !adding && (
+          <button type="button" onClick={() => setAdding(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: '1px dashed var(--brand)', background: 'transparent', color: 'var(--brand-light)' }}>
+            <UserPlus size={14} /> Add new collector
+          </button>
+        )}
       </div>
+      {names.length === 0 && !adding && (
+        <div className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>
+          {failed ? <>Could not load collectors. <button type="button" onClick={reload} style={{ background: 'none', border: 'none', color: 'var(--brand-light)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>Retry</button></> : 'No collectors yet — tap “Add new collector”.'}
+        </div>
+      )}
+      {adding && (
+        <div style={{ marginTop: 10, padding: 12, border: '1px solid var(--border)', borderRadius: 12 }}>
+          <input className="form-input" placeholder="Collector name" value={newName} onChange={e => setNewName(e.target.value)} style={{ marginBottom: 8 }} />
+          <input className="form-input" type="tel" inputMode="tel" placeholder="Mobile number (collector logs in with it)" value={newPhone} onChange={e => setNewPhone(e.target.value)} />
+          {addError && <div className="field-error">{addError}</div>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button type="button" className="btn btn-primary" onClick={addCollector} disabled={saving}>{saving ? 'Adding…' : 'Add collector'}</button>
+            <button type="button" className="btn btn-secondary" onClick={() => { setAdding(false); setAddError(''); }} disabled={saving}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>Pick 1 to {MAX_COLLECTORS}. Any assigned collector can collect from this borrower.</div>
       {error && <div className="field-error">{error}</div>}
     </div>
@@ -720,7 +767,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
   const [sortBy, setSortBy] = useState('newest');
   const [zoneFilter, setZoneFilter] = useState('all');
   const [collectorFilter, setCollectorFilter] = useState('all');
-  const collectorNames = useCollectorNames();
+  const { names: collectorNames } = useCollectorNames();
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [signature, setSignature] = useState(null);
