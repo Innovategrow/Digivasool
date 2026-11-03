@@ -1,0 +1,16 @@
+# Render's free plan puts the API to sleep after ~15 idle minutes, making the next request take
+# 30-60s. Pinging the health check every 10 minutes keeps it awake.
+# Setup: GitHub repo > Settings > Secrets and variables > Actions > Variables > New variable
+#   BACKEND_URL = https://<your-service>.onrender.com
+name: Keep API awake
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: vars.BACKEND_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS --max-time 60 --retry 2 "${{ vars.BACKEND_URL }}/api/health"

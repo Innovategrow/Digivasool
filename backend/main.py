@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
@@ -116,6 +117,19 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
+# The loan list is read on nearly every screen and costs a full Firestore scan, so keep it for a few
+# seconds. Any successful write clears it; the TTL covers background writes (reminders, media migration).
+LOANS_CACHE_TTL = 20
+_loans_cache: Dict[str, Any] = {}
+_loans_cache_gen = 0
+
+
+def invalidate_loans_cache():
+    global _loans_cache_gen
+    _loans_cache_gen += 1
+    _loans_cache.clear()
+
+
 class BusinessMiddleware:
     """Pure-ASGI middleware: scopes every request to Finance or Fund via the X-Business header."""
 
@@ -130,6 +144,7 @@ class BusinessMiddleware:
         mutating = scope["method"] in ("POST", "PUT", "PATCH", "DELETE") and scope["path"].startswith(
             ("/api/loans", "/api/collector/payments", "/api/payments", "/api/transactions")
         )
+        writes = scope["method"] in ("POST", "PUT", "PATCH", "DELETE")
         ok = {"v": False}
 
         async def watch(message):
@@ -138,9 +153,11 @@ class BusinessMiddleware:
             await send(message)
 
         try:
-            await self.inner(scope, receive, watch if mutating else send)
-            if mutating and ok["v"]:
-                sheets_backup.request_sync()
+            await self.inner(scope, receive, watch if writes else send)
+            if writes and ok["v"]:
+                invalidate_loans_cache()
+                if mutating:
+                    sheets_backup.request_sync()
         finally:
             reset_current_business(token)
 
@@ -1219,9 +1236,17 @@ async def permanently_delete_loan(loan_id: str, user=Depends(require_admin)):
 
 @app.get("/api/loans/", response_model=List[LoanRecord])
 def get_loans(background_tasks: BackgroundTasks, user=Depends(require_role("admin", "collector"))):
-    reminders = _reminders_by_loan()
-    loans, legacy = _loans_out_from_docs(get_firestore_client().collection("loans").get(), reminders)
-    _schedule_media_migration(background_tasks, legacy)
+    business = get_current_business()
+    hit = _loans_cache.get(business)
+    if hit and time.monotonic() - hit[0] < LOANS_CACHE_TTL:
+        loans = hit[1]
+    else:
+        gen = _loans_cache_gen
+        reminders = _reminders_by_loan()
+        loans, legacy = _loans_out_from_docs(get_firestore_client().collection("loans").get(), reminders)
+        _schedule_media_migration(background_tasks, legacy)
+        if gen == _loans_cache_gen:  # nothing was written while we were reading
+            _loans_cache[business] = (time.monotonic(), loans)
     if user["role"] == "collector":  # collectors only see the borrowers assigned to them
         loans = [l for l in loans if _is_assigned(l.model_dump(), user)]
     return loans
