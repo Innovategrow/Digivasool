@@ -3,7 +3,7 @@ import { useAppData } from '../../context/AppDataContext';
 import { useToast } from '../../components/Toast';
 import { apiFetch } from '../../utils/api';
 import { useLanguage } from '../../context/LanguageContext';
-import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList, Pencil } from 'lucide-react';
+import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList, Pencil, Users } from 'lucide-react';
 
 const ACTION_LABELS = {
   LOAN_CREATED: 'created a loan', PAYMENT_RECORDED: 'recorded a payment', BORROWER_UPDATED: 'edited a borrower',
@@ -68,6 +68,66 @@ function AddStaffModal({ onClose, onAdd, member }) {
   );
 }
 
+// Lists the borrowers assigned to a collector and lets the admin hand any of them to another collector.
+function CollectorBorrowersModal({ member, collectors, onClose, onChanged }) {
+  const { showToast } = useToast();
+  const [loans, setLoans] = useState(null);
+  const [busyId, setBusyId] = useState('');
+  const [error, setError] = useState('');
+  const mine = l => (l.assigned_collectors || []).some(n => n.toLowerCase() === member.name.toLowerCase());
+  useEffect(() => {
+    apiFetch('/api/loans/')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error('Could not load borrowers.'))))
+      .then(rows => setLoans(rows.filter(l => l.status !== 'archived')))
+      .catch(err => { setError(err.message); setLoans([]); });
+  }, []);
+  const others = collectors.filter(c => c.name.toLowerCase() !== member.name.toLowerCase());
+  const reassign = async (loan, target) => {
+    if (!target || busyId) return;
+    const next = [...new Set((loan.assigned_collectors || []).map(n => (n.toLowerCase() === member.name.toLowerCase() ? target : n)))];
+    setBusyId(loan.id); setError('');
+    try {
+      const res = await apiFetch(`/api/loans/${loan.id}`, { method: 'PATCH', body: JSON.stringify({ assigned_collectors: next }) });
+      if (!res.ok) { let msg = ''; try { msg = (await res.json()).detail; } catch { /* ignore */ } throw new Error(msg || 'Could not change the collector.'); }
+      const data = await res.json();
+      setLoans(cur => cur.map(l => (l.id === loan.id ? { ...l, ...data } : l)));
+      showToast(`${loan.customer_name} moved to ${target}`);
+      onChanged();
+    } catch (err) {
+      setError(err.message || 'Could not change the collector.');
+    } finally {
+      setBusyId('');
+    }
+  };
+  const list = (loans || []).filter(mine);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">{member.name}'s borrowers</div>
+          <button className="modal-close" onClick={onClose}><X size={16} /></button>
+        </div>
+        {error && <div className="form-alert" role="alert">{error}</div>}
+        {loans === null && <div className="muted-note">Loading…</div>}
+        {loans !== null && list.length === 0 && <div className="muted-note">No borrowers assigned to this collector.</div>}
+        {list.map(l => (
+          <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{l.customer_name}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{(l.assigned_collectors || []).join(', ')}</div>
+            </div>
+            <select className="form-input" style={{ width: 140 }} value="" disabled={busyId === l.id || others.length === 0}
+              onChange={e => reassign(l, e.target.value)} aria-label={`Change collector for ${l.customer_name}`}>
+              <option value="">{busyId === l.id ? 'Saving…' : 'Change to…'}</option>
+              {others.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Staff() {
   const { state, actions } = useAppData();
   const { showToast } = useToast();
@@ -82,6 +142,7 @@ export default function Staff() {
   const { t } = useLanguage();
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
 
   const ROLE_CONFIG = {
     admin:     { label: t('roleAdmin'),     cls: 'badge-indigo', icon: <Shield size={11} /> },
@@ -117,6 +178,9 @@ export default function Staff() {
                     <span className={`badge ${rc.cls}`}>{rc.icon} {rc.label}</span>
                   </div>
                 </div>
+                {s.role === 'collector' && (
+                  <button type="button" className="icon-btn" onClick={() => setViewing(s)} aria-label={`Borrowers of ${s.name}`} title="Borrowers / change collector"><Users size={16} /></button>
+                )}
                 {s.source === 'app' && (
                   <button type="button" className="icon-btn" onClick={() => setEditing(s)} aria-label={`Edit ${s.name}`} title="Edit"><Pencil size={16} /></button>
                 )}
@@ -210,6 +274,7 @@ export default function Staff() {
         ))}
       </div>
 
+      {viewing && <CollectorBorrowersModal member={viewing} collectors={state.staff.filter(x => x.role === 'collector')} onClose={() => setViewing(null)} onChanged={() => actions.refresh()} />}
       {editing && <AddStaffModal member={editing} onClose={() => setEditing(null)} onAdd={async payload => {
         const { name, phone, email, target } = payload;
         await actions.updateStaff(editing.id, { name, phone, email, target });

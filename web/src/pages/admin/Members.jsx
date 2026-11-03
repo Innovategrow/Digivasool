@@ -414,7 +414,7 @@ function BorrowerCard({ loan, onOpen, onMenu, showCollectors }) {
 // ── Borrower details screen ─────────────────────────────────────────────────
 const pct = (part, whole) => (whole > 0 ? Math.round(((part || 0) / whole) * 1000) / 10 : 0);
 
-function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDelete, onCloseLoan, onOpenLoan }) {
+function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onReassign, onDelete, onCloseLoan, onOpenLoan }) {
   const { t } = useLanguage();
   const metrics = getLoanMetrics(loan);
   const cashDisbursed = Math.max(0, (loan.loan_amount || 0) - (loan.monthly_interest_amount || 0));
@@ -453,6 +453,7 @@ function BorrowerDetails({ loan, relatedLoans, canManage, onBack, onEdit, onDele
       {canManage && (
         <div className="detail-actions">
           <button type="button" className="btn btn-secondary" onClick={() => onEdit(loan)}><Pencil size={16} /> Edit</button>
+          <button type="button" className="btn btn-secondary" onClick={() => onReassign(loan)}><UserCheck size={16} /> Change Collector</button>
           <button type="button" className="btn btn-danger-soft" onClick={() => onDelete(loan)}><Trash2 size={16} /> Delete</button>
         </div>
       )}
@@ -567,6 +568,38 @@ function InfoRow({ icon, label, value, href }) {
     <div className="info-row">
       <dt>{React.createElement(icon, { size: 14 })} {label}</dt>
       <dd>{value ? (href ? <a href={href}>{value}</a> : value) : <span className="text-muted">—</span>}</dd>
+    </div>
+  );
+}
+
+// Quick re-assignment of an existing borrower's collectors, without opening the full edit form.
+function ReassignCollectorsSheet({ loan, onClose, onSave }) {
+  return (
+    <BottomSheet open={Boolean(loan)} onClose={onClose} title="Change Collector">
+      {loan && <ReassignCollectorsForm key={loan.id} loan={loan} onClose={onClose} onSave={onSave} />}
+    </BottomSheet>
+  );
+}
+
+function ReassignCollectorsForm({ loan, onClose, onSave }) {
+  const [value, setValue] = useState(loan.assigned_collectors || []);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const unchanged = JSON.stringify([...value].sort()) === JSON.stringify([...(loan.assigned_collectors || [])].sort());
+  const save = async () => {
+    if (saving) return;
+    if (!value.length) { setError('Assign at least one collector.'); return; }
+    setSaving(true); setError('');
+    try { await onSave(loan.id, value); } catch (err) { setError(err.message || 'Could not change the collector.'); setSaving(false); }
+  };
+  return (
+    <div style={{ padding: '0 4px 8px' }}>
+          <div className="text-muted" style={{ fontSize: 13, marginBottom: 10 }}>{loan.customer_name} — tap a collector to remove or add.</div>
+          <CollectorPicker value={value} onChange={v => { setValue(v); setError(''); }} error={error} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button type="button" className="btn btn-primary" onClick={save} disabled={saving || unchanged}>{saving ? 'Saving…' : 'Save'}</button>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          </div>
     </div>
   );
 }
@@ -779,6 +812,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
   const [deleteAck, setDeleteAck] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [closeTarget, setCloseTarget] = useState(null);
+  const [reassignLoan, setReassignLoan] = useState(null);
   const createKeyRef = useRef(null);
   const listScrollRef = useRef(0);
 
@@ -861,6 +895,20 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
     setLoans(current => current.map(item => item.id === loanId ? { ...item, ...data } : item));
     showToast('Borrower updated successfully');
     navigate(`${basePath}/${loanId}`, { replace: true });
+  };
+
+  const handleReassign = async (loanId, assigned_collectors) => {
+    let res;
+    try {
+      res = await apiFetch(`/api/loans/${loanId}`, { method: 'PATCH', body: JSON.stringify({ assigned_collectors }) });
+    } catch {
+      throw new Error('Check your internet connection.');
+    }
+    if (!res.ok) throw new Error(await readError(res, 'Could not change the collector.'));
+    const data = await res.json();
+    setLoans(current => current.map(item => item.id === loanId ? { ...item, ...data } : item));
+    setReassignLoan(null);
+    showToast('Collector updated');
   };
 
   const confirmCloseLoan = async () => {
@@ -1069,10 +1117,13 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
             <button type="button" onClick={() => openDetails(menuLoan)}><Eye size={20} /> View Borrower</button>
             <button type="button" onClick={() => { downloadBorrowerPdf(menuLoan, t); setMenuLoan(null); }}><FileDown size={20} /> {t('downloadPdf')}</button>
             {canManage && <button type="button" onClick={() => openEdit(menuLoan)}><Pencil size={20} /> Edit Borrower</button>}
+            {canManage && <button type="button" onClick={() => { setReassignLoan(menuLoan); setMenuLoan(null); }}><UserCheck size={20} /> Change Collector</button>}
             {canManage && <button type="button" className="danger" onClick={() => askDelete(menuLoan)}><Trash2 size={20} /> Delete Borrower</button>}
           </div>
         )}
       </BottomSheet>
+
+      <ReassignCollectorsSheet loan={reassignLoan} onClose={() => setReassignLoan(null)} onSave={handleReassign} />
 
       <ConfirmDialog
         open={Boolean(deleteLoan)}
@@ -1140,6 +1191,7 @@ export default function Members({ readOnly = false, basePath = '/borrowers' }) {
           canManage={canManage}
           onBack={() => navigate(basePath)}
           onEdit={openEdit}
+          onReassign={setReassignLoan}
           onDelete={askDelete}
           onCloseLoan={setCloseTarget}
           onOpenLoan={l => navigate(`${basePath}/${l.id}`)}
