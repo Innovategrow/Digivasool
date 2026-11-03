@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
 import { useToast } from '../../components/Toast';
 import { apiFetch } from '../../utils/api';
+import ConfirmDialog from '../../components/ConfirmDialog';
 import { useLanguage } from '../../context/LanguageContext';
-import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList, Pencil, Users } from 'lucide-react';
+import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList, Pencil, Users, Trash2 } from 'lucide-react';
 
 const ACTION_LABELS = {
   LOAN_CREATED: 'created a loan', PAYMENT_RECORDED: 'recorded a payment', BORROWER_UPDATED: 'edited a borrower',
   BORROWER_DELETED: 'deleted a borrower', LOAN_RESTORED: 'restored a borrower', LOAN_CLOSED: 'closed a loan',
-  LOAN_MERGED: 'merged borrowers', LOGIN: 'logged in', STAFF_ADDED: 'added staff', EXPENSE_ADDED: 'logged an expense',
+  LOAN_MERGED: 'merged borrowers', LOGIN: 'logged in', STAFF_ADDED: 'added staff', STAFF_DELETED: 'removed staff', EXPENSE_ADDED: 'logged an expense',
   CAPITAL_ADDED: 'logged capital', PAYMENT_PROOF_UPLOADED: 'uploaded payment proof',
 };
 
@@ -143,6 +144,9 @@ export default function Staff() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [removing, setRemoving] = useState(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState('');
 
   const ROLE_CONFIG = {
     admin:     { label: t('roleAdmin'),     cls: 'badge-indigo', icon: <Shield size={11} /> },
@@ -183,6 +187,9 @@ export default function Staff() {
                 )}
                 {s.source === 'app' && (
                   <button type="button" className="icon-btn" onClick={() => setEditing(s)} aria-label={`Edit ${s.name}`} title="Edit"><Pencil size={16} /></button>
+                )}
+                {s.source === 'app' && (
+                  <button type="button" className="icon-btn" onClick={() => { setRemoving(s); setRemoveError(''); }} aria-label={`Delete ${s.name}`} title="Delete"><Trash2 size={16} /></button>
                 )}
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 22, fontWeight: 900, color: barColor }}>{pct}%</div>
@@ -275,6 +282,23 @@ export default function Staff() {
       </div>
 
       {viewing && <CollectorBorrowersModal member={viewing} collectors={state.staff.filter(x => x.role === 'collector')} onClose={() => setViewing(null)} onChanged={() => actions.refresh()} />}
+      <ConfirmDialog
+        open={Boolean(removing)}
+        title={`Delete ${removing?.role || 'staff member'}?`}
+        confirmLabel="Delete"
+        busyLabel="Deleting..."
+        busy={removeBusy}
+        onCancel={() => setRemoving(null)}
+        onConfirm={async () => {
+          setRemoveBusy(true); setRemoveError('');
+          try { await actions.deleteStaff(removing.id); showToast(`${removing.name} deleted`); setRemoving(null); }
+          catch (err) { setRemoveError(err.message || 'Could not delete.'); }
+          finally { setRemoveBusy(false); }
+        }}
+      >
+        <p>{removing?.name} will no longer be able to log in. Their past collections stay on record.</p>
+        {removeError && <div className="form-alert" role="alert">{removeError}</div>}
+      </ConfirmDialog>
       {editing && <AddStaffModal member={editing} onClose={() => setEditing(null)} onAdd={async payload => {
         const { name, phone, email, target } = payload;
         await actions.updateStaff(editing.id, { name, phone, email, target });

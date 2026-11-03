@@ -727,6 +727,37 @@ async def update_staff(staff_id: str, body: StaffUpdate, user=Depends(require_ad
     return {**member, **updates, "source": "app"}
 
 
+@app.delete("/api/staff/{staff_id}")
+async def delete_staff(staff_id: str, user=Depends(require_admin)):
+    """Remove a staff member added in the app. A collector who is the only one on a borrower can't be removed until that borrower is reassigned."""
+    if staff_id.startswith("cfg-"):
+        raise HTTPException(status_code=400, detail="This person is set up in the server configuration and can't be removed here")
+    with db_lock:
+        ref = get_firestore_client().collection("staff").document(staff_id)
+        doc = ref.get()
+        if not doc.exists or not doc.to_dict().get("is_active", True):
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        member = doc.to_dict()
+        if member.get("name") == user["name"] and normalize_phone(member.get("phone", "")) == normalize_phone(user.get("phone", "") or ""):
+            raise HTTPException(status_code=400, detail="You can't remove your own account")
+        name_key = (member.get("name") or "").strip().lower()
+        affected = []
+        if member.get("role") == "collector":
+            for loan_doc in get_firestore_client().collection("loans").get():
+                names = loan_doc.to_dict().get("assigned_collectors") or []
+                if any((n or "").strip().lower() == name_key for n in names):
+                    affected.append((loan_doc, names))
+            stuck = [d.to_dict().get("customer_name", d.id) for d, names in affected if len(names) == 1]
+            if stuck:
+                shown = ", ".join(stuck[:3]) + (f" and {len(stuck) - 3} more" if len(stuck) > 3 else "")
+                raise HTTPException(status_code=400, detail=f"Reassign these borrowers to another collector first: {shown}")
+            for loan_doc, names in affected:
+                loan_doc.reference.update({"assigned_collectors": [n for n in names if (n or "").strip().lower() != name_key]})
+        ref.update({"is_active": False, "deleted_at": _now(), "deleted_by": user["name"]})
+    _write_audit(user["name"], "STAFF_DELETED", f"Removed {member.get('role', 'staff')} {member.get('name', '')}")
+    return {"status": "success", "message": "Staff member removed"}
+
+
 def _list_collection(name: str, sort_field: str) -> List[Dict[str, Any]]:
     rows = []
     for doc in get_firestore_client().collection(name).get():
