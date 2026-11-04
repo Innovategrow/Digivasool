@@ -294,11 +294,13 @@ function useCollectorNames() {
       .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
   }, [tick]);
-  return { names, failed, reload: () => setTick(n => n + 1) };
+  // Show a just-added collector immediately, without waiting for the list to reload.
+  const addName = name => setNames(prev => (prev.includes(name) ? prev : [...prev, name].sort(byName)));
+  return { names, failed, reload: () => setTick(n => n + 1), addName };
 }
 
 function CollectorPicker({ value, onChange, error }) {
-  const { names, failed, reload } = useCollectorNames();
+  const { names, failed, reload, addName } = useCollectorNames();
   const { user } = useAuth();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
@@ -319,8 +321,8 @@ function CollectorPicker({ value, onChange, error }) {
       const res = await apiFetch('/api/staff/', { method: 'POST', body: JSON.stringify({ name: newName.trim(), phone: newPhone.trim(), role: 'collector', target: 0 }) });
       if (!res.ok) throw new Error(await readError(res));
       const row = await res.json();
-      reload();
-      if (chosen.length < MAX_COLLECTORS) onChange([...chosen, row.name]);
+      addName(row.name);
+      if (chosen.length < MAX_COLLECTORS && !chosen.includes(row.name)) onChange([...chosen, row.name]);
       setNewName(''); setNewPhone(''); setAdding(false);
     } catch (err) {
       setAddError(err.message || 'Could not add the collector.');
