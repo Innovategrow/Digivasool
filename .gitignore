@@ -31,9 +31,11 @@ mobile/.expo/
 *.log
 
 # App Data
+*firebase*adminsdk*.json
 backend/firebase-service-account.json
 backend/uploads/
 backend/data/
 *.db
 *.db-wal
 *.db-shm
+backend/backups/

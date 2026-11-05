@@ -43,9 +43,9 @@ calls the real backend and reads/writes the real database.
 
 ## Data and security
 
-- **Storage.** SQLite by default (`backend/data/digivasool.db`). Set
-  `DB_BACKEND=firestore` and `FIREBASE_SERVICE_ACCOUNT_PATH` to use Firebase
-  Firestore instead. Nothing is kept only in memory, so data survives restarts.
+- **Storage.** Supabase Postgres (`DB_BACKEND=supabase` + `DATABASE_URL`, the
+  Session pooler connection string). `DB_BACKEND=sqlite` is only for tests and
+  throwaway local databases. Nothing is kept only in memory, so data survives restarts.
 - **Sessions.** Login issues a signed session token (`AUTH_SECRET`). Every
   endpoint checks the role on the server.
 - **Deleting a borrower.** This is a soft delete (`is_deleted`, `deleted_at`,
@@ -65,7 +65,8 @@ calls the real backend and reads/writes the real database.
 | `SEED_DEMO_DATA` | `false` |
 | `ADMIN_USERS` / `COLLECTOR_USERS` | real names and numbers |
 | `CORS_ORIGINS` | your domain |
-| `DB_BACKEND` | `sqlite` on a persistent disk, or `firestore` |
+| `DB_BACKEND` | `supabase` |
+| `DATABASE_URL` | Supabase Session pooler URI (keep secret) |
 | `UPLOAD_DIR` | a persistent folder (payment proofs) |
 
 Serve over HTTPS. Back up `backend/data/` and `UPLOAD_DIR` regularly.
@@ -95,8 +96,8 @@ service.
   auto-sleep/wake cycle wipes the SQLite file, i.e. all loans/payments are
   lost. Fine for testing today; before trusting it with real money, either
   attach a paid Render disk (`DB_PATH` already points at a mountable folder)
-  or set `DB_BACKEND=firestore` with a Firebase service account so data lives
-  outside the container.
+  or use `DB_BACKEND=supabase` with `DATABASE_URL` so data lives outside the
+  container.
 - `OTP_DEV_MODE=true` is required until a real SMS gateway is wired into
   `backend/services/sms.py → send_otp_sms()` — until then the OTP is
   returned directly in the API response instead of texted.

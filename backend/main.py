@@ -1,5 +1,6 @@
 import contextvars
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -15,7 +16,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPExcepti
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
@@ -30,7 +31,9 @@ from db import (
     get_admin_lendings_db,
     get_backend_name,
     get_dashboard_summary_db,
-    get_firestore_client,
+    get_db_client,
+    load_file,
+    save_file,
     set_current_business,
     reset_current_business,
     get_current_business,
@@ -114,10 +117,22 @@ app.add_middleware(
 )
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
-# The loan list is read on nearly every screen and costs a full Firestore scan, so keep it for a few
+@app.get("/uploads/{file_path:path}", include_in_schema=False)
+def serve_upload(file_path: str):
+    """Serve an uploaded file: from Supabase first, then (SQLite/dev) from disk."""
+    stored = load_file(file_path)
+    if stored:
+        data, content_type = stored
+        return Response(content=data, media_type=content_type, headers={"Cache-Control": "private, max-age=3600"})
+    candidate = os.path.abspath(os.path.join(UPLOAD_DIR, file_path))
+    if candidate.startswith(os.path.abspath(UPLOAD_DIR) + os.sep) and os.path.isfile(candidate):
+        return FileResponse(candidate)
+    raise HTTPException(status_code=404, detail="Not found")
+
+
+# The loan list is read on nearly every screen and costs a full database scan, so keep it for a few
 # seconds. Any successful write clears it; the TTL covers background writes (reminders, media migration).
 LOANS_CACHE_TTL = 20
 _loans_cache: Dict[str, Any] = {}
@@ -228,7 +243,7 @@ def require_role(*allowed_roles: str):
 
 
 def _write_audit(actor: str, action: str, detail: str = ""):
-    db = get_firestore_client()
+    db = get_db_client()
     db.collection("audit_log").add({
         "actor": actor or "system",
         "action": action,
@@ -261,7 +276,7 @@ def _generate_unique_account_number(db) -> str:
 
 def _staff_members(role: Optional[str] = None) -> List[Dict[str, Any]]:
     rows = []
-    for doc in get_firestore_client().collection("staff").get():
+    for doc in get_db_client().collection("staff").get():
         s = doc.to_dict()
         s.setdefault("id", doc.id)
         if s.get("is_active", True) and (role is None or s.get("role") == role):
@@ -297,7 +312,7 @@ def _borrower_loans_for_phone(phone: str) -> List[Dict[str, Any]]:
     if not target:
         return []
     matches = []
-    for doc in get_firestore_client().collection("loans").get():
+    for doc in get_db_client().collection("loans").get():
         l = doc.to_dict()
         l.setdefault("id", doc.id)
         if _is_archived(l):
@@ -477,14 +492,17 @@ def _save_upload(file: UploadFile, folder: str) -> str:
     filename = f"{uuid4().hex[:8]}_{safe}"
     if get_current_business() != "finance":  # other books' uploads are stored apart from Finance
         folder = f"{get_current_business()}/{folder}"
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="File is too large (maximum 10 MB)")
+    content_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    if save_file(f"{folder}/{filename}", data, content_type):
+        return f"/uploads/{folder}/{filename}"
     target_dir = os.path.join(UPLOAD_DIR, folder)
     os.makedirs(target_dir, exist_ok=True)
     path = os.path.join(target_dir, filename)
     with open(path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    if os.path.getsize(path) > MAX_UPLOAD_BYTES:
-        os.remove(path)
-        raise HTTPException(status_code=400, detail="File is too large (maximum 10 MB)")
+        buffer.write(data)
     return f"/uploads/{folder}/{filename}"
 
 
@@ -501,7 +519,7 @@ async def upload_proof(loan_id: str, file: UploadFile = File(...), user=Depends(
 @app.post("/api/payments/{payment_id}/proof")
 async def upload_payment_proof(payment_id: str, file: UploadFile = File(...), user=Depends(require_role("admin", "collector"))):
     """Attach a proof image/PDF (e.g. a GPay screenshot the borrower shared) to a specific payment."""
-    db = get_firestore_client()
+    db = get_db_client()
     payment_ref = db.collection("loan_payments").document(payment_id)
     payment_doc = payment_ref.get()
     if not payment_doc.exists:
@@ -664,7 +682,7 @@ async def get_collectors():
 @app.get("/api/admin/audit-log")
 async def get_audit_log(limit: int = 30, user=Depends(require_admin)):
     """Most recent audit entries (who did what, when)."""
-    rows = [d.to_dict() for d in get_firestore_client().collection("audit_log").get()]
+    rows = [d.to_dict() for d in get_db_client().collection("audit_log").get()]
     rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
     return rows[: max(1, min(limit, 200))]
 
@@ -702,7 +720,7 @@ async def create_staff(body: StaffCreate, user=Depends(require_admin)):
         "created_at": _now(),
         "created_by": user["name"],
     }
-    get_firestore_client().collection("staff").document(record["id"]).set(record)
+    get_db_client().collection("staff").document(record["id"]).set(record)
     _write_audit(user["name"], "STAFF_ADDED", f"Added {body.role} {record['name']}")
     return {**record, "source": "app"}
 
@@ -713,7 +731,7 @@ async def update_staff(staff_id: str, body: StaffUpdate, user=Depends(require_ad
     if staff_id.startswith("cfg-"):
         raise HTTPException(status_code=400, detail="This person is set up in the server configuration and can't be edited here")
     with db_lock:
-        ref = get_firestore_client().collection("staff").document(staff_id)
+        ref = get_db_client().collection("staff").document(staff_id)
         doc = ref.get()
         if not doc.exists or not doc.to_dict().get("is_active", True):
             raise HTTPException(status_code=404, detail="Staff member not found")
@@ -736,7 +754,7 @@ async def update_staff(staff_id: str, body: StaffUpdate, user=Depends(require_ad
             updates["updated_by"] = user["name"]
             ref.update(updates)
         if renamed:
-            for loan_doc in get_firestore_client().collection("loans").get():
+            for loan_doc in get_db_client().collection("loans").get():
                 names = loan_doc.to_dict().get("assigned_collectors") or []
                 if old_name in names:
                     loan_doc.reference.update({"assigned_collectors": sorted({new_name if n == old_name else n for n in names}, key=str.lower)})
@@ -750,7 +768,7 @@ async def delete_staff(staff_id: str, user=Depends(require_admin)):
     if staff_id.startswith("cfg-"):
         raise HTTPException(status_code=400, detail="This person is set up in the server configuration and can't be removed here")
     with db_lock:
-        ref = get_firestore_client().collection("staff").document(staff_id)
+        ref = get_db_client().collection("staff").document(staff_id)
         doc = ref.get()
         if not doc.exists or not doc.to_dict().get("is_active", True):
             raise HTTPException(status_code=404, detail="Staff member not found")
@@ -760,7 +778,7 @@ async def delete_staff(staff_id: str, user=Depends(require_admin)):
         name_key = (member.get("name") or "").strip().lower()
         affected = []
         if member.get("role") == "collector":
-            for loan_doc in get_firestore_client().collection("loans").get():
+            for loan_doc in get_db_client().collection("loans").get():
                 names = loan_doc.to_dict().get("assigned_collectors") or []
                 if any((n or "").strip().lower() == name_key for n in names):
                     affected.append((loan_doc, names))
@@ -777,7 +795,7 @@ async def delete_staff(staff_id: str, user=Depends(require_admin)):
 
 def _list_collection(name: str, sort_field: str) -> List[Dict[str, Any]]:
     rows = []
-    for doc in get_firestore_client().collection(name).get():
+    for doc in get_db_client().collection(name).get():
         r = doc.to_dict()
         r.setdefault("id", doc.id)
         rows.append(r)
@@ -792,7 +810,7 @@ def list_expenses(user=Depends(require_admin)):
 @app.post("/api/expenses/")
 async def create_expense(body: ExpenseCreate, user=Depends(require_admin)):
     record = {"id": str(uuid4()), **body.model_dump(), "created_at": _now(), "created_by": user["name"]}
-    get_firestore_client().collection("expenses").document(record["id"]).set(record)
+    get_db_client().collection("expenses").document(record["id"]).set(record)
     _write_audit(user["name"], "EXPENSE_ADDED", f"₹{body.amount} {body.category}")
     return record
 
@@ -805,7 +823,7 @@ def list_capital(user=Depends(require_admin)):
 @app.post("/api/capital/")
 async def create_capital(body: CapitalCreate, user=Depends(require_admin)):
     record = {"id": str(uuid4()), **body.model_dump(), "created_at": _now(), "created_by": user["name"]}
-    get_firestore_client().collection("capital").document(record["id"]).set(record)
+    get_db_client().collection("capital").document(record["id"]).set(record)
     _write_audit(user["name"], "CAPITAL_ADDED", f"₹{body.amount}")
     return record
 
@@ -847,7 +865,7 @@ _migrating_lock = threading.Lock()
 
 def _migrate_loan_media(business: str, loan_ids: List[str]):
     """One-time move of legacy inline base64 photos/signatures into `loan_media` (+ a small thumbnail)."""
-    db = get_firestore_client(business)
+    db = get_db_client(business)
     for loan_id in loan_ids:
         try:
             with db_lock:
@@ -880,7 +898,7 @@ def _schedule_media_migration(background_tasks: BackgroundTasks, legacy_ids: Lis
 
 def _loans_out_from_docs(docs, reminders) -> tuple:
     """Build LoanRecords from loan docs. Returns (records, ids of legacy docs still holding inline images)."""
-    db = get_firestore_client()
+    db = get_db_client()
     loans, legacy = [], []
     for doc in docs:
         l = doc.to_dict()
@@ -898,14 +916,14 @@ def _loans_out_from_docs(docs, reminders) -> tuple:
 
 def _reminders_by_loan() -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
-    for doc in get_firestore_client().collection("reminders").get():
+    for doc in get_db_client().collection("reminders").get():
         r = doc.to_dict()
         grouped.setdefault(r.get("transaction_id"), []).append(r)
     return grouped
 
 
 def _get_loan_or_404(loan_id: str):
-    ref = get_firestore_client().collection("loans").document(loan_id)
+    ref = get_db_client().collection("loans").document(loan_id)
     doc = ref.get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Loan not found")
@@ -939,7 +957,7 @@ async def create_loan(
             if cached:
                 return cached
         try:
-            db = get_firestore_client()
+            db = get_db_client()
             loan_id = str(uuid4())
             create_time = datetime.now(timezone.utc)
             created_at = create_time.isoformat()
@@ -1051,7 +1069,7 @@ async def create_loan(
 async def merge_loans(body: LoanMergeRequest, user=Depends(require_admin)):
     if body.primary_loan_id == body.secondary_loan_id:
         raise HTTPException(status_code=400, detail="Choose two different borrowers to merge")
-    db = get_firestore_client()
+    db = get_db_client()
     with db_lock:
         primary_ref = db.collection("loans").document(body.primary_loan_id)
         primary_doc = primary_ref.get()
@@ -1138,7 +1156,7 @@ async def update_loan(loan_id: str, updates: LoanUpdate, user=Depends(require_ad
         update_data["updated_at"] = _now()
         update_data["updated_by"] = user["name"]
         if media:
-            get_firestore_client().collection("loan_media").document(loan_id).set(media, merge=True)
+            get_db_client().collection("loan_media").document(loan_id).set(media, merge=True)
         loan_ref.update(update_data)
 
     _write_audit(
@@ -1179,7 +1197,7 @@ async def delete_loan(loan_id: str, user=Depends(require_admin)):
 async def get_deleted_loans(user=Depends(require_admin)):
     """List loans currently in the recycle bin."""
     loans = []
-    for doc in get_firestore_client().collection("loans").get():
+    for doc in get_db_client().collection("loans").get():
         l = doc.to_dict()
         if l.get("status") == "deleted":
             loans.append(_loan_out(l, doc.id))
@@ -1214,7 +1232,7 @@ async def restore_loan(loan_id: str, user=Depends(require_admin)):
 async def permanently_delete_loan(loan_id: str, user=Depends(require_admin)):
     """Erase a recycle-bin record that has no financial history (e.g. created by mistake).
     Records with payments are kept forever so money history can never be destroyed."""
-    db = get_firestore_client()
+    db = get_db_client()
     with db_lock:
         loan_ref, loan = _get_loan_or_404(loan_id)
         if loan.get("status") != "deleted":
@@ -1243,7 +1261,7 @@ def get_loans(background_tasks: BackgroundTasks, user=Depends(require_role("admi
     else:
         gen = _loans_cache_gen
         reminders = _reminders_by_loan()
-        loans, legacy = _loans_out_from_docs(get_firestore_client().collection("loans").get(), reminders)
+        loans, legacy = _loans_out_from_docs(get_db_client().collection("loans").get(), reminders)
         _schedule_media_migration(background_tasks, legacy)
         if gen == _loans_cache_gen:  # nothing was written while we were reading
             _loans_cache[business] = (time.monotonic(), loans)
@@ -1255,7 +1273,7 @@ def get_loans(background_tasks: BackgroundTasks, user=Depends(require_role("admi
 @app.get("/api/loans/{loan_id}/media")
 def get_loan_media(loan_id: str, user=Depends(require_role("admin", "collector"))):
     """Full-size photo and signature for one borrower (kept out of the list for speed)."""
-    db = get_firestore_client()
+    db = get_db_client()
     _assert_collector_assigned(user, _get_loan_or_404(loan_id)[1])
     media_doc = db.collection("loan_media").document(loan_id).get()
     media = media_doc.to_dict() if media_doc.exists else {}
@@ -1280,7 +1298,7 @@ def _run_parallel(*fns):
 @app.get("/api/admin/app-data")
 def get_admin_app_data(background_tasks: BackgroundTasks, user=Depends(require_admin)):
     """Everything the admin app needs on load, in one request (loans, payments, expenses, capital, staff)."""
-    db = get_firestore_client()
+    db = get_db_client()
     loan_docs, reminders, payment_rows, expenses, capital, staff = _run_parallel(
         lambda: db.collection("loans").get(),
         _reminders_by_loan,
@@ -1313,7 +1331,7 @@ async def record_payment(
     user=Depends(require_role("admin", "collector")),
     idempotency_key: Optional[str] = Header(default=None),
 ):
-    db = get_firestore_client()
+    db = get_db_client()
 
     with db_lock:
         # A repeated tap / network retry with the same key returns the original result
@@ -1474,7 +1492,7 @@ async def get_loans_by_customer(name: Optional[str] = None, user=Depends(require
     else:
         target = (name or "").strip()
         loans = []
-        for doc in get_firestore_client().collection("loans").where("customer_name", "==", target).get():
+        for doc in get_db_client().collection("loans").where("customer_name", "==", target).get():
             l = doc.to_dict()
             l.setdefault("id", doc.id)
             if not _is_archived(l):
@@ -1495,7 +1513,7 @@ async def get_loans_overview(user=Depends(require_role("admin", "collector"))):
     total_due = 0.0
     closed_loans = 0
 
-    for doc in get_firestore_client().collection("loans").get():
+    for doc in get_db_client().collection("loans").get():
         l = doc.to_dict()
         status = l.get("status", "active")
         if status == "merged":
@@ -1555,7 +1573,7 @@ async def update_collector_payment(
     user=Depends(require_role("admin", "collector")),
 ):
     """Correct a mis-entered collection (wrong amount/date/method). Recomputes the loan's totals."""
-    db = get_firestore_client()
+    db = get_db_client()
     with db_lock:
         payment_ref = db.collection("loan_payments").document(payment_id)
         payment_doc = payment_ref.get()
@@ -1616,7 +1634,7 @@ async def delete_collector_payment(
     user=Depends(require_role("admin", "collector")),
 ):
     """Remove a wrongly recorded collection. Recomputes the loan's totals."""
-    db = get_firestore_client()
+    db = get_db_client()
     with db_lock:
         payment_ref = db.collection("loan_payments").document(payment_id)
         payment_doc = payment_ref.get()

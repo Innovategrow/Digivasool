@@ -1,15 +1,15 @@
 """
 Persistent storage layer.
 
-Two interchangeable backends expose the same small Firestore-style API that
-main.py uses (collection -> document -> get/set/update/delete, where/limit/add):
+Two interchangeable backends expose the same small document API that main.py
+uses (collection -> document -> get/set/update/delete, where/limit/add):
 
-* Firestore - the default, and the only backend used in production. Requires
-  FIREBASE_SERVICE_ACCOUNT_PATH to point at a valid service-account file; if
-  it doesn't, startup fails loudly instead of silently falling back to a
-  local file that disappears on every redeploy/sleep cycle.
+* Supabase Postgres - the default and the only backend used in production.
+  Requires DATABASE_URL (Supabase "Session pooler" connection string). If it is
+  missing, startup fails loudly instead of silently falling back to a local
+  file that disappears on every redeploy/sleep cycle.
 * SQLite    - opt-in only, via DB_BACKEND=sqlite. Used by the test suite for
-  a throwaway, isolated database — never used unless explicitly requested.
+  a throwaway, isolated database - never used unless explicitly requested.
 
 Nothing here keeps business data only in process memory.
 """
@@ -102,7 +102,7 @@ class _Query:
                     break
         return results
 
-    # Firestore-compatible alias
+    # Convenience alias
     stream = get
 
 
@@ -176,15 +176,94 @@ class SQLiteStore:
         return [(doc_id, json.loads(data)) for doc_id, data in rows]
 
 
+class PostgresStore:
+    """Same document API on Postgres (Supabase). One shared `documents` table;
+    non-Finance books are separated by a "<book>_" collection prefix."""
+
+    def __init__(self, url: str):
+        self.url = url
+        self.lock = threading.RLock()
+        self._conn = None
+        self._ensure()
+        with self.lock:
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS documents ("
+                " collection text NOT NULL, id text NOT NULL, data jsonb NOT NULL,"
+                " seq bigserial, PRIMARY KEY (collection, id))"
+            )
+            # Supabase exposes public tables over its REST API (with a public key).
+            # RLS on + no policies = only this backend's direct connection can access data.
+            self._conn.execute("ALTER TABLE documents ENABLE ROW LEVEL SECURITY")
+            # Uploaded files (payment proofs, documents) live in Postgres too, so they
+            # survive Render redeploys. Same RLS lock-down as above.
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS files ("
+                " path text PRIMARY KEY, content_type text NOT NULL DEFAULT 'application/octet-stream',"
+                " data bytea NOT NULL, created_at timestamptz NOT NULL DEFAULT now())"
+            )
+            self._conn.execute("ALTER TABLE files ENABLE ROW LEVEL SECURITY")
+
+    def _ensure(self):
+        import psycopg
+
+        if self._conn is None or self._conn.closed:
+            self._conn = psycopg.connect(self.url, autocommit=True, prepare_threshold=None)
+
+    def _run(self, sql: str, params=()):
+        """Execute with one reconnect attempt (Supabase pooler drops idle connections)."""
+        import psycopg
+
+        with self.lock:
+            for attempt in (0, 1):
+                try:
+                    self._ensure()
+                    return self._conn.execute(sql, params)
+                except psycopg.OperationalError:
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
+                    self._conn = None
+                    if attempt:
+                        raise
+
+    def collection(self, name: str) -> _Collection:
+        return _Collection(self, name)
+
+    def _read(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+        row = self._run("SELECT data FROM documents WHERE collection=%s AND id=%s", (collection, doc_id)).fetchone()
+        return row[0] if row else None
+
+    def _write(self, collection: str, doc_id: str, data: Dict[str, Any]):
+        self._run(
+            "INSERT INTO documents (collection, id, data) VALUES (%s, %s, %s::jsonb) "
+            "ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data",
+            (collection, doc_id, json.dumps(data, default=str)),
+        )
+
+    def _delete(self, collection: str, doc_id: str):
+        self._run("DELETE FROM documents WHERE collection=%s AND id=%s", (collection, doc_id))
+
+    def _scan(self, collection: str):
+        rows = self._run("SELECT id, data FROM documents WHERE collection=%s ORDER BY seq", (collection,)).fetchall()
+        return [(doc_id, data) for doc_id, data in rows]
+
+    def put_file(self, path: str, data: bytes, content_type: str):
+        self._run(
+            "INSERT INTO files (path, content_type, data) VALUES (%s, %s, %s) "
+            "ON CONFLICT (path) DO UPDATE SET content_type=EXCLUDED.content_type, data=EXCLUDED.data",
+            (path, content_type, data),
+        )
+
+    def get_file(self, path: str):
+        row = self._run("SELECT data, content_type FROM files WHERE path=%s", (path,)).fetchone()
+        return (bytes(row[0]), row[1]) if row else None
+
+
 # ── Backend selection ────────────────────────────────────────────────────────
 
 _raw_stores: Dict[str, Any] = {}
 _backend_name = None
-
-
-def _service_account_path() -> str:
-    path = os.environ.get("FIREBASE_SERVICE_ACCOUNT_PATH", "firebase-service-account.json")
-    return path if os.path.isabs(path) else os.path.join(BACKEND_DIR, path)
 
 
 def _sqlite_path(business: str) -> str:
@@ -207,26 +286,23 @@ def _connect(business: str):
         print(f"Storage [{business}]: SQLite ({path})")
         return
 
-    # Firestore is the only non-sqlite option, and the default when
-    # DB_BACKEND isn't "sqlite" — including when it's unset or mistyped, so a
-    # misconfigured deploy fails loudly here instead of quietly running on an
-    # ephemeral local file. Fund lives in the same project under "fund_*" collections.
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-
-    sa_path = _service_account_path()
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(credentials.Certificate(sa_path))
-    _raw_stores[business] = _raw_stores.get("_firestore") or firestore.client()
-    _raw_stores["_firestore"] = _raw_stores[business]
-    _backend_name = "firestore"
-    print(f"Storage [{business}]: Firebase Firestore")
+    # Supabase Postgres is the default - including when DB_BACKEND is unset or
+    # mistyped - so a misconfigured deploy fails loudly here instead of quietly
+    # running on an ephemeral local file.
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is required (Supabase Session pooler connection string)")
+    if "_postgres" not in _raw_stores:
+        _raw_stores["_postgres"] = PostgresStore(url)
+    _raw_stores[business] = _raw_stores["_postgres"]
+    _backend_name = "postgres"
+    print(f"Storage [{business}]: Supabase Postgres")
 
 
 # ── Business scoping (Finance vs Fund) ───────────────────────────────────────
 
 # active business is set per request (X-Business header). SQLite uses one
-# database file per book; Firestore prefixes non-Finance collections with "<book>_".
+# database file per book; Postgres prefixes non-Finance collections with "<book>_".
 
 # Books: "finance" always exists; "fund" is the original second book; admins can
 # create more, each with its own storage. Only the book registry is shared.
@@ -291,7 +367,7 @@ class _ScopedClient:
         if name in _SHARED_COLLECTIONS:
             return _store(DEFAULT_BUSINESS).collection(name)
         store = _store(self._business)
-        if self._business != DEFAULT_BUSINESS and _backend_name == "firestore":
+        if self._business != DEFAULT_BUSINESS and _backend_name == "postgres":
             name = f"{self._business}_{name}"
         return store.collection(name)
 
@@ -304,9 +380,24 @@ def _store(business: str):
     return _raw_stores[business]
 
 
-def get_firestore_client(business: Optional[str] = None):
+def get_db_client(business: Optional[str] = None):
     """Return the document store scoped to the active (or given) business."""
     return _ScopedClient(normalize_business(business) if business else get_current_business())
+
+
+def save_file(path: str, data: bytes, content_type: str = "application/octet-stream") -> bool:
+    """Store an uploaded file in Supabase. Returns False on SQLite (caller saves to disk instead)."""
+    store = _store("finance")
+    if isinstance(store, PostgresStore):
+        store.put_file(path, data, content_type)
+        return True
+    return False
+
+
+def load_file(path: str):
+    """Return (bytes, content_type) for a stored upload, or None."""
+    store = _store("finance")
+    return store.get_file(path) if isinstance(store, PostgresStore) else None
 
 
 def get_backend_name() -> str:
@@ -315,7 +406,7 @@ def get_backend_name() -> str:
 
 
 def get_db_connection():
-    return get_firestore_client()
+    return get_db_client()
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -325,7 +416,7 @@ def _env_flag(name: str, default: bool = False) -> bool:
 def init_db():
     """Called on app startup — connects storage and optionally seeds demo data."""
     _store("fund")  # connect Fund storage at startup so misconfiguration fails loudly
-    db = get_firestore_client("finance")
+    db = get_db_client("finance")
     if _env_flag("SEED_DEMO_DATA") and len(db.collection("loans").limit(1).get()) == 0:
         seed_db()
 
@@ -333,7 +424,7 @@ def init_db():
 # ── Demo seed (only when SEED_DEMO_DATA=true and the store is empty) ────────
 
 def seed_db():
-    db = get_firestore_client()
+    db = get_db_client()
     from services.reminders import build_whatsapp_reminder_schedule
 
     transactions = [
@@ -395,13 +486,13 @@ def seed_db():
 # ── Transaction Helpers ──────────────────────────────────────────────────────
 
 def append_transaction_db(record: Dict[str, Any]):
-    db = get_firestore_client()
+    db = get_db_client()
     record.setdefault("id", str(uuid4()))
     db.collection("transactions").document(record["id"]).set(record)
 
 
 def append_reminders_db(reminders: List[Dict[str, Any]]):
-    db = get_firestore_client()
+    db = get_db_client()
     for r in reminders:
         r.setdefault("id", str(uuid4()))
         db.collection("reminders").document(r["id"]).set(r)
@@ -410,7 +501,7 @@ def append_reminders_db(reminders: List[Dict[str, Any]]):
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
 def get_dashboard_summary_db() -> Dict[str, Any]:
-    db = get_firestore_client()
+    db = get_db_client()
     txs = [d.to_dict() for d in db.collection("transactions").get()]
     gave = [t for t in txs if t.get("type") == "GAVE"]
     got = [t for t in txs if t.get("type") == "GOT"]
@@ -443,7 +534,7 @@ def get_dashboard_summary_db() -> Dict[str, Any]:
 # ── Admin Lendings ───────────────────────────────────────────────────────────
 
 def get_admin_lendings_db() -> List[Dict[str, Any]]:
-    db = get_firestore_client()
+    db = get_db_client()
     lendings = []
     for doc in db.collection("transactions").where("type", "==", "GAVE").get():
         tx = doc.to_dict()
@@ -467,7 +558,7 @@ def get_admin_lendings_db() -> List[Dict[str, Any]]:
 # ── Loan Payments ────────────────────────────────────────────────────────────
 
 def get_loan_payments_db(loan_id: str) -> List[Dict[str, Any]]:
-    db = get_firestore_client()
+    db = get_db_client()
     rows = []
     for doc in db.collection("loan_payments").where("loan_id", "==", loan_id).get():
         p = doc.to_dict()
@@ -478,7 +569,7 @@ def get_loan_payments_db(loan_id: str) -> List[Dict[str, Any]]:
 
 def get_collector_payments_db(collector_name: Optional[str], loans: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Payments logged by one collector (or all payments when collector_name is None), newest first."""
-    db = get_firestore_client()
+    db = get_db_client()
     query = db.collection("loan_payments")
     if collector_name:
         query = query.where("collector_name", "==", collector_name)
@@ -512,7 +603,7 @@ normalize_phone = _normalize_phone
 
 
 def _access_requests() -> List[Dict[str, Any]]:
-    db = get_firestore_client()
+    db = get_db_client()
     rows = []
     for d in db.collection("admin_access_requests").get():
         r = d.to_dict()
@@ -554,7 +645,7 @@ def create_admin_access_request_db(name: str, phone: str) -> Dict[str, Any]:
         "status": "pending",
         "requested_at": datetime.utcnow().isoformat(),
     }
-    get_firestore_client().collection("admin_access_requests").document(record["id"]).set(record)
+    get_db_client().collection("admin_access_requests").document(record["id"]).set(record)
     return record
 
 
@@ -563,7 +654,7 @@ def get_pending_admin_access_requests_db() -> List[Dict[str, Any]]:
 
 
 def resolve_admin_access_request_db(request_id: str, approve: bool, resolved_by: str = "") -> Optional[Dict[str, Any]]:
-    ref = get_firestore_client().collection("admin_access_requests").document(request_id)
+    ref = get_db_client().collection("admin_access_requests").document(request_id)
     snap = ref.get()
     if not snap.exists:
         return None
@@ -581,12 +672,12 @@ def resolve_admin_access_request_db(request_id: str, approve: bool, resolved_by:
 # ── Idempotency (duplicate-submit protection) ────────────────────────────────
 
 def get_idempotent_response(scope: str, key: str) -> Optional[Dict[str, Any]]:
-    snap = get_firestore_client().collection("idempotency_keys").document(f"{scope}:{key}").get()
+    snap = get_db_client().collection("idempotency_keys").document(f"{scope}:{key}").get()
     return snap.to_dict().get("response") if snap.exists else None
 
 
 def save_idempotent_response(scope: str, key: str, response: Dict[str, Any]):
-    get_firestore_client().collection("idempotency_keys").document(f"{scope}:{key}").set({
+    get_db_client().collection("idempotency_keys").document(f"{scope}:{key}").set({
         "scope": scope,
         "key": key,
         "response": response,

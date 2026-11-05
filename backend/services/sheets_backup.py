@@ -103,14 +103,14 @@ def _write(sh, title: str, rows: List[List[Any]], force: bool = False) -> None:
 
 def sync_now(force: bool = False) -> Dict[str, Any]:
     """Rewrite every book's tabs from the database. Safe to call from any thread."""
-    from db import get_firestore_client, list_books
+    from db import get_db_client, list_books
 
     with _lock:
         try:
             sh = _client().open_by_key(os.environ["GOOGLE_SHEET_ID"])
             counts = {}
             for book in list_books():
-                db = get_firestore_client(book["id"])
+                db = get_db_client(book["id"])
                 loans = [d.to_dict() for d in db.collection("loans").get()]
                 pays = [d.to_dict() for d in db.collection("loan_payments").get()]
                 name = book["name"]
@@ -152,9 +152,9 @@ def export_workbook_bytes(book_id: str | None = None) -> bytes:
     from io import BytesIO
 
     from openpyxl import Workbook
-    from db import get_firestore_client
+    from db import get_db_client
 
-    db = get_firestore_client(book_id)
+    db = get_db_client(book_id)
     loans = [d.to_dict() for d in db.collection("loans").get()]
     pays = [d.to_dict() for d in db.collection("loan_payments").get()]
     wb = Workbook()

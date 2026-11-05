@@ -334,10 +334,10 @@ def test_legacy_inline_photo_is_migrated_in_background():
     import db as dbmod
     loan = create_loan(customer_name="Legacy Photo")
     photo = _photo_data_url()
-    dbmod.get_firestore_client().collection("loans").document(loan["id"]).update({"photo_url": photo})
+    dbmod.get_db_client().collection("loans").document(loan["id"]).update({"photo_url": photo})
     listed = next(l for l in client.get("/api/loans/", headers=ADMIN).json() if l["id"] == loan["id"])
     assert listed["photo_url"] == ""  # never sent inline, even before migration
-    stored = dbmod.get_firestore_client().collection("loans").document(loan["id"]).get().to_dict()
+    stored = dbmod.get_db_client().collection("loans").document(loan["id"]).get().to_dict()
     assert stored["photo_url"] == "" and stored["photo_thumb"] and stored["has_photo"]
     assert client.get(f"/api/loans/{loan['id']}/media", headers=ADMIN).json()["photo_url"] == photo
 
