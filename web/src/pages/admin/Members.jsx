@@ -595,13 +595,13 @@ function ReassignCollectorsForm({ loan, onClose, onSave }) {
     try { await onSave(loan.id, value); } catch (err) { setError(err.message || 'Could not change the collector.'); setSaving(false); }
   };
   return (
-    <div style={{ padding: '0 4px 8px' }}>
-          <div className="text-muted" style={{ fontSize: 13, marginBottom: 10 }}>{loan.customer_name} — tap a collector to remove or add.</div>
-          <CollectorPicker value={value} onChange={v => { setValue(v); setError(''); }} error={error} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <button type="button" className="btn btn-primary" onClick={save} disabled={saving || unchanged}>{saving ? 'Saving…' : 'Save'}</button>
-            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-          </div>
+    <div style={{ paddingBottom: 8 }}>
+      <div className="text-muted" style={{ fontSize: 13, marginBottom: 10 }}>{loan.customer_name} — tap a collector to remove or add.</div>
+      <CollectorPicker value={value} onChange={v => { setValue(v); setError(''); }} error={error} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button type="button" className="btn btn-primary" onClick={save} disabled={saving || unchanged}>{saving ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+      </div>
     </div>
   );
 }
