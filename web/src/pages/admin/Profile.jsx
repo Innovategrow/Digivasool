@@ -1,175 +1,181 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { User, Mail, ShieldCheck, LogOut, Clock, Smartphone, MapPin, Building, FileText, Upload, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '../../utils/api';
+import { useToast } from '../../components/Toast';
+import BottomSheet from '../../components/BottomSheet';
+import ConfirmDialog from '../../components/ConfirmDialog';
+import { apiFetch, readError } from '../../utils/api';
+import {
+  User, LogOut, Clock, Smartphone, Building2, CheckCircle2, Repeat, ShieldCheck, FileText,
+  Trash2, ChevronRight, Check, UserMinus,
+} from 'lucide-react';
 
+const ROLE_LABEL = { OWNER: 'Owner', ADMIN: 'Admin', COLLECTOR: 'Collector', BORROWER: 'Borrower' };
+
+// Account: who you are, which organisation you are in, switching, legal, and the two deletion paths.
 export default function Profile() {
-  const { user, logout } = useAuth();
+  const { user, login, logout } = useAuth();
   const { t } = useLanguage();
-  const [profileData, setProfileData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
+  const [memberships, setMemberships] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [uploading, setUploading] = useState(false);
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [confirm, setConfirm] = useState(null);          // 'leave' | 'org'
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isOwner = user.member_role === 'OWNER';
+  const orgName = user.organization?.name || '';
 
   useEffect(() => {
-    // The signed-in user's own details
-    setProfileData({
-      customer_name: user.name,
-      customer_email: '',
-      customer_phone: user.phone || '',
-      customer_address: '',
-    });
-    setLoading(false);
-
-    if (user.role !== 'admin') return;
-    apiFetch('/api/admin/audit-log?limit=100')
-      .then(r => (r.ok ? r.json() : []))
-      .then(rows => setAuditLogs((Array.isArray(rows) ? rows : [])
-        .filter(r => r.actor === user.name)
-        .slice(0, 10)
-        .map((r, i) => ({ id: i, action: r.action, detail: r.detail, time: r.created_at }))))
-      .catch(() => setAuditLogs([]));
-  }, [user]);
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file || !profileData?.id) return;
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-      const res = await apiFetch(`/api/loans/upload-proof?loan_id=${encodeURIComponent(profileData.id)}`, {
-        method: 'POST',
-        body: formData,
-      });
-      if (res.ok) alert('Proof document uploaded successfully!');
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setUploading(false);
+    let cancelled = false;
+    apiFetch('/api/organizations/my-memberships').then(r => (r.ok ? r.json() : [])).then(rows => { if (!cancelled) setMemberships(Array.isArray(rows) ? rows : []); }).catch(() => {});
+    if (user.role === 'admin') {
+      apiFetch('/api/admin/audit-log?limit=100').then(r => (r.ok ? r.json() : [])).then(rows => {
+        if (!cancelled) setAuditLogs((Array.isArray(rows) ? rows : []).filter(r => r.actor === user.name).slice(0, 8));
+      }).catch(() => {});
     }
+    return () => { cancelled = true; };
+  }, [user.name, user.role]);
+
+  const switchTo = async (m) => {
+    setBusy(true);
+    try {
+      const res = await apiFetch('/api/organizations/switch', { method: 'POST', body: JSON.stringify({ organization_id: m.organization_id, role: m.role }) });
+      if (!res.ok) throw new Error(await readError(res));
+      login(await res.json());
+      window.location.assign('/');          // reload so nothing from the previous organisation stays on screen
+    } catch (err) { showToast(err.message, 'error'); setBusy(false); }
   };
 
-  if (loading) return <div className="screen-container pt-8 text-center text-muted">{t('loadingProfile')}</div>;
+  const closeConfirm = () => { setConfirm(null); setTyped(''); };
+  const doDelete = async () => {
+    setBusy(true);
+    try {
+      const res = await apiFetch(confirm === 'org' ? '/api/organizations/request-deletion' : '/api/account/delete', { method: 'POST' });
+      if (!res.ok) throw new Error(await readError(res));
+      await logout();
+    } catch (err) { showToast(err.message, 'error'); setBusy(false); closeConfirm(); }
+  };
 
   return (
     <div className="screen-container pt-4 pb-12">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 800 }}>{t('myProfile')}</h2>
-      </div>
+      <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 16 }}>{t('myProfile')}</h2>
 
-      {/* Header Card */}
-      <div className="card" style={{ padding: '24px', marginBottom: '24px', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '80px', background: 'linear-gradient(135deg, var(--brand), var(--violet))', opacity: 0.12 }}></div>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center', position: 'relative', zIndex: 1 }}>
-          <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '4px solid var(--surface)', boxShadow: '0 4px 12px rgba(15,23,42,.12)' }}>
-            <User size={40} className="text-brand" />
+      <div className="card" style={{ padding: 20 }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+            <User size={30} className="text-brand" />
           </div>
-          <div>
-            <h3 style={{ fontSize: '24px', fontWeight: 900 }}>{profileData.customer_name}</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', background: user.role === 'admin' ? 'var(--brand-soft)' : 'var(--green-soft)', color: user.role === 'admin' ? 'var(--brand-light)' : 'var(--green)', padding: '2px 8px', borderRadius: '6px' }}>
-                {user.role}
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ fontSize: 20, fontWeight: 900, overflowWrap: 'anywhere' }}>{user.name}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+              <span className={`role-pill${user.role === 'collector' ? ' amber' : user.role === 'borrower' ? ' green' : ''}`}>
+                {ROLE_LABEL[user.member_role] || user.role}
               </span>
-              <span style={{ fontSize: '13px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <CheckCircle2 size={14} className="text-positive" /> {t('verified')}
               </span>
             </div>
           </div>
         </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '20px' }}>
-        {/* Contact Info */}
-        <div>
-          <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>{t('contactInformation')}</h3>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Mail size={20} className="text-muted" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('emailAddress')}</div>
-                <div style={{ fontSize: '15px', fontWeight: 600 }}>{profileData.customer_email || '—'}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Smartphone size={20} className="text-muted" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('phoneNumber')}</div>
-                <div style={{ fontSize: '15px', fontWeight: 600 }}>{profileData.customer_phone || '—'}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <MapPin size={20} className="text-muted" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('homeAddress')}</div>
-                <div style={{ fontSize: '14px', fontWeight: 600, lineHeight: 1.4 }}>{profileData.customer_address || '—'}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Documents & Bank */}
-        <div>
-          <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>{t('financeAndProofs')}</h3>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Building size={20} className="text-muted" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('linkedBankAccount')}</div>
-                <div style={{ fontSize: '15px', fontWeight: 600 }}>SBI ···· 4291</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <FileText size={20} className="text-muted" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-2)' }}>{t('mandatoryProofKyc')}</div>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>{t('notYetUploaded')}</div>
-              </div>
-              <label style={{ background: 'var(--brand)', color: 'white', padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Upload size={14} /> {uploading ? '...' : t('upload')}
-                <input type="file" hidden onChange={handleFileUpload} disabled={uploading} />
-              </label>
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+          <Smartphone size={18} className="text-muted" style={{ flex: 'none' }} />
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{t('phoneNumber')}</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{user.phone || '—'}</div>
           </div>
         </div>
       </div>
 
-      {/* Activity Log */}
-      <h3 style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-2)', textTransform: 'uppercase', marginTop: '32px', marginBottom: '12px', letterSpacing: '0.5px' }}>{t('loginHistory')}</h3>
+      <div className="acct-section">Organisation</div>
       <div className="card">
-        {auditLogs.map((log, i) => (
-          <div key={log.id} style={{ display: 'flex', gap: '12px', marginBottom: i === auditLogs.length - 1 ? 0 : '16px', borderBottom: i === auditLogs.length - 1 ? 'none' : '1px solid var(--border)', paddingBottom: i === auditLogs.length - 1 ? 0 : '16px' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Clock size={18} className="text-muted" />
-            </div>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 600 }}>{log.detail}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-2)', marginTop: '4px' }}>
-                {new Date(log.time).toLocaleString()}
-              </div>
-            </div>
+        <div className="acct-org">
+          <div className="acct-org-icon"><Building2 size={24} /></div>
+          <div style={{ minWidth: 0 }}>
+            <div className="acct-org-name">{orgName}</div>
+            <div className="acct-org-sub">{user.organization?.id} · Your role: {ROLE_LABEL[user.member_role] || user.role}</div>
           </div>
-        ))}
+        </div>
+      </div>
+      {memberships.length > 1 && (
+        <div className="card acct-list" style={{ marginTop: 10 }}>
+          <button type="button" className="acct-item" onClick={() => setSwitchOpen(true)}>
+            <Repeat size={20} /> Switch organisation <span className="acct-note" style={{ margin: '0 0 0 auto' }}>{memberships.length} available</span>
+            <ChevronRight size={18} className="acct-chevron" style={{ marginLeft: 8 }} />
+          </button>
+        </div>
+      )}
+
+      <div className="acct-section">Privacy &amp; legal</div>
+      <div className="card acct-list">
+        <a className="acct-item" href="/privacy.html" target="_blank" rel="noreferrer"><ShieldCheck size={20} /> Privacy Policy <ChevronRight size={18} className="acct-chevron" /></a>
+        <a className="acct-item" href="/terms.html" target="_blank" rel="noreferrer"><FileText size={20} /> Terms of Service <ChevronRight size={18} className="acct-chevron" /></a>
       </div>
 
-      <button onClick={logout} style={{ width: '100%', marginTop: '40px', padding: '16px', borderRadius: '18px', background: 'var(--red-soft)', border: '2px solid rgba(239, 68, 68, 0.1)', color: 'var(--red)', fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer' }}>
-        <LogOut size={20} /> {t('signOutSafely')}
+      {user.role === 'admin' && auditLogs.length > 0 && (
+        <>
+          <div className="acct-section">{t('loginHistory')}</div>
+          <div className="card">
+            {auditLogs.map((log, i) => (
+              <div key={`${log.created_at}-${i}`} style={{ display: 'flex', gap: 12, paddingBottom: i === auditLogs.length - 1 ? 0 : 14, marginBottom: i === auditLogs.length - 1 ? 0 : 14, borderBottom: i === auditLogs.length - 1 ? 'none' : '1px solid var(--border)' }}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}><Clock size={16} className="text-muted" /></div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, overflowWrap: 'anywhere' }}>{log.detail}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>{new Date(log.created_at).toLocaleString()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <button type="button" onClick={logout} className="btn btn-secondary" style={{ width: '100%', marginTop: 28, color: 'var(--red)' }}>
+        <LogOut size={18} /> {t('signOutSafely')}
       </button>
+
+      {user.role !== 'borrower' && (
+        <>
+          <div className="acct-section">Delete</div>
+          <div className="card acct-list">
+            {!isOwner && (
+              <button type="button" className="acct-item is-danger" onClick={() => setConfirm('leave')}>
+                <UserMinus size={20} /> Delete my account <ChevronRight size={18} className="acct-chevron" />
+              </button>
+            )}
+            {isOwner && (
+              <button type="button" className="acct-item is-danger" onClick={() => setConfirm('org')}>
+                <Trash2 size={20} /> Delete organisation <ChevronRight size={18} className="acct-chevron" />
+              </button>
+            )}
+          </div>
+          <p className="acct-note">
+            {isOwner
+              ? 'As the owner you can lock and delete the whole organisation. Nothing is erased immediately.'
+              : 'This removes your access to this organisation. Loans and payments you recorded stay with the organisation.'}
+          </p>
+        </>
+      )}
+
+      <BottomSheet open={switchOpen} title="Switch organisation" onClose={() => !busy && setSwitchOpen(false)}>
+        {memberships.map(m => (
+          <button key={`${m.organization_id}-${m.role}`} type="button" disabled={busy} className={`org-row${m.current ? ' is-current' : ''}`}
+            onClick={() => (m.current ? setSwitchOpen(false) : switchTo(m))}>
+            <span className="org-row-icon"><Building2 size={20} /></span>
+            <span className="org-row-text"><span className="org-row-name">{m.organization_name}</span><span className="org-row-role">{ROLE_LABEL[m.role] || m.role}</span></span>
+            {m.current && <Check size={18} style={{ color: 'var(--brand)' }} />}
+          </button>
+        ))}
+      </BottomSheet>
+
+      <ConfirmDialog open={confirm === 'leave'} title="Delete your account?" confirmLabel="Delete my account" busy={busy}
+        onConfirm={doDelete} onCancel={closeConfirm}>
+        You will lose access to <strong>{orgName}</strong> and be signed out. The organisation&apos;s records are not deleted.
+      </ConfirmDialog>
+      <ConfirmDialog open={confirm === 'org'} title="Delete this organisation?" confirmLabel="Lock and delete" busy={busy}
+        confirmDisabled={typed.trim().toLowerCase() !== orgName.trim().toLowerCase()} onConfirm={doDelete} onCancel={closeConfirm}>
+        <p style={{ marginBottom: 10 }}>Everyone in <strong>{orgName}</strong> will be locked out. Your data is kept for 30 days, then erased. Type the organisation name to confirm.</p>
+        <input className="form-input" value={typed} onChange={e => setTyped(e.target.value)} placeholder={orgName} aria-label="Organisation name" />
+      </ConfirmDialog>
     </div>
   );
 }

@@ -161,6 +161,7 @@ export default function MyLoan() {
             <div>
               <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '2px' }}>Welcome back,</p>
               <h1 style={{ fontSize: '20px', fontWeight: 800 }}>{user.name}</h1>
+              {user.organization?.name && <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>Loan from {user.organization.name}</p>}
             </div>
           </div>
           <button onClick={logout} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: '12px', padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}>

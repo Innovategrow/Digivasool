@@ -145,10 +145,10 @@ export default function Dashboard() {
         <div className="section-card">
           <div className="section-card-title"><CalendarRange size={15} /> Collected in date range</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-            <label style={{ flex: 1, fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>From
+            <label style={{ flex: 1, minWidth: 0, fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>From
               <input type="date" className="form-input" value={fromDate} max={toDate} onChange={e => setFromDate(e.target.value)} />
             </label>
-            <label style={{ flex: 1, fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>To
+            <label style={{ flex: 1, minWidth: 0, fontSize: 11, color: 'var(--text-2)', fontWeight: 700 }}>To
               <input type="date" className="form-input" value={toDate} min={fromDate} onChange={e => setToDate(e.target.value)} />
             </label>
           </div>

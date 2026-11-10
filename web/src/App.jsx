@@ -51,6 +51,7 @@ const PAGE_TITLES = {
   '/reports': 'reports', '/staff': 'staff', '/recycle-bin': 'recycleBin', '/collection': 'collection',
   '/profile': 'profile', '/transactions': 'ledgerBook',
   '/collector': 'collectPayment', '/collector/borrowers': 'borrowers', '/collector/history': 'history',
+  '/collector/account': 'profile',
 };
 
 function ProtectedRoute({ children, roles }) {
@@ -158,7 +159,7 @@ function MobileShell({ collectorMode = false }) {
         <div className="app-bar-brand"><Wallet size={16} /></div>
         <div className="app-bar-titles">
           <div className="app-bar-title">{pageTitle}</div>
-          <div className="app-bar-sub">{t('appName')} · {bookName}</div>
+          <div className="app-bar-sub">{user?.organization?.name || t('appName')} · {bookName}</div>
         </div>
         <div className="app-bar-actions">
           {!collectorMode && (
@@ -223,6 +224,7 @@ function MobileShell({ collectorMode = false }) {
               <Route path="/"            element={<CollectPayment />} />
               <Route path="/borrowers/*" element={<Members readOnly basePath="/collector/borrowers" />} />
               <Route path="/history"     element={<CollectorHistory />} />
+              <Route path="/account"     element={<Profile />} />
               <Route path="*"            element={<Navigate to="/collector" replace />} />
             </>
           )}

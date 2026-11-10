@@ -12,8 +12,14 @@ web/       React + Vite mobile web app (the app you deploy)
 mobile/    Earlier Expo prototype (not maintained; uses the old header auth)
 ```
 
+Multi-tenant: many independent finance organisations share one app, one backend and one database,
+with every record scoped to its organisation (application filters + Postgres row-level security).
+See [docs/MULTI_TENANT_MIGRATION.md](docs/MULTI_TENANT_MIGRATION.md) for the architecture, the
+production migration runbook and what is still manual.
+
 Roles:
 
+- **Owner**: the organisation's first admin; also adds admins, transfers ownership, deletes the organisation.
 - **Admin**: dashboard, borrowers (add / view / edit / delete), loans, collections,
   ledger, expenses, reports, staff, recycle bin, and approval of access requests.
 - **Collector**: customer list, record payments (including ₹0 / not paid), GPay

@@ -22,8 +22,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from auth import decode_token, issue_token
+from auth import decode_token, issue_short_token, issue_token
+import identity
 from db import (
+    LEGACY_ORG_ID,
+    OrgContextError,
+    as_org,
+    get_current_org,
+    reset_current_org,
+    set_current_org,
     db_lock,
     init_db,
     append_transaction_db,
@@ -70,6 +77,9 @@ from schemas import (
     LoanRecord,
     LoanUpdate,
     OTPRequest,
+    RegisterOrgRequest,
+    SelectOrgRequest,
+    SwitchOrgRequest,
     OTPVerify,
     PaymentResponse,
     WhatsAppLinks,
@@ -87,7 +97,6 @@ from services import sheets_backup
 from services.media import is_data_url, make_thumb, split_media
 from services.sms import build_disbursement_sms, queue_disbursement_sms_batch, send_otp_sms
 import otp_store
-from config_admins import ADMIN_USERS, COLLECTOR_USERS
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -119,16 +128,61 @@ app.add_middleware(
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
+# ── Private uploads ──────────────────────────────────────────────────────────
+# Files are never public. A request must carry EITHER a valid session token whose organisation
+# owns the file, OR a short-lived signed link (?o=<org>&e=<expiry>&s=<signature>) that the API
+# attaches to every upload URL it returns (needed because <img src> cannot send headers).
+
+import hashlib
+import hmac as _hmac
+
+import auth as _auth
+
+UPLOAD_LINK_TTL = 3600
+_UPLOAD_URL_RE = re.compile(rb'(/uploads/[A-Za-z0-9_\-./]+)(\?[A-Za-z0-9_=&.\-]*)?')
+
+
+def _upload_sig(org: str, path: str, exp: int) -> str:
+    return _hmac.new(_auth._SECRET.encode(), f"upload|{org}|{path}|{exp}".encode(), hashlib.sha256).hexdigest()[:40]
+
+
+def sign_upload_url(url_path: str, org: str) -> str:
+    """`/uploads/x/y.png` -> same path plus a signed, expiring query string for `org`."""
+    path = url_path[len("/uploads/"):]
+    exp = int(time.time()) + UPLOAD_LINK_TTL
+    return f"{url_path}?o={org}&e={exp}&s={_upload_sig(org, path, exp)}"
+
+
+def _path_belongs_to(org: str, path: str) -> bool:
+    """New uploads live under <org_id>/...; legacy un-prefixed files belong to the legacy organisation."""
+    first = path.split("/", 1)[0]
+    if re.fullmatch(r"ORG_\d{3,}", first):
+        return first == org
+    return org == LEGACY_ORG_ID
+
+
 @app.get("/uploads/{file_path:path}", include_in_schema=False)
-def serve_upload(file_path: str):
-    """Serve an uploaded file: from Supabase first, then (SQLite/dev) from disk."""
-    stored = load_file(file_path)
+def serve_upload(file_path: str, request: Request):
+    org = None
+    q = request.query_params
+    if q.get("s") and q.get("o") and q.get("e", "").isdigit():
+        if int(q["e"]) >= time.time() and _hmac.compare_digest(q["s"], _upload_sig(q["o"], file_path, int(q["e"]))):
+            org = q["o"]
+    if org is None:
+        try:
+            org = get_current_org()  # set by TenantMiddleware from a verified Bearer token
+        except OrgContextError:
+            raise HTTPException(status_code=401, detail="Please log in to view this file.")
+    if not _path_belongs_to(org, file_path):
+        raise HTTPException(status_code=404, detail="Not found")
+    with as_org(org):
+        stored = load_file(file_path)
     if stored:
         data, content_type = stored
-        return Response(content=data, media_type=content_type, headers={"Cache-Control": "private, max-age=3600"})
+        return Response(content=data, media_type=content_type, headers={"Cache-Control": "private, max-age=600"})
     candidate = os.path.abspath(os.path.join(UPLOAD_DIR, file_path))
     if candidate.startswith(os.path.abspath(UPLOAD_DIR) + os.sep) and os.path.isfile(candidate):
-        return FileResponse(candidate)
+        return FileResponse(candidate, headers={"Cache-Control": "private, max-age=600"})
     raise HTTPException(status_code=404, detail="Not found")
 
 
@@ -145,8 +199,75 @@ def invalidate_loans_cache():
     _loans_cache.clear()
 
 
+def _forbidden(detail: str, status: int = 403):
+    return JSONResponse(status_code=status, content={"detail": detail})
+
+
+class TenantMiddleware:
+    """Pure-ASGI middleware. The ONLY place the active organisation is chosen: from the verified
+    session token. An organisation id supplied by the client (header or query string) is never
+    used - if it disagrees with the token the request is rejected."""
+
+    def __init__(self, app):
+        self.inner = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.inner(scope, receive, send)
+        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        auth_header = headers.get("authorization", "")
+        claims = decode_token(auth_header.split(" ", 1)[1].strip()) if auth_header.lower().startswith("bearer ") else None
+        if claims:
+            query = urllib.parse.parse_qs(scope.get("query_string", b"").decode())
+            supplied = [headers.get("x-org-id", "")] + [v for k in ("org_id", "organization_id", "org") for v in query.get(k, [])]
+            if any(v and v != claims["org_id"] for v in supplied):
+                return await _forbidden("Organisation mismatch: the request names a different organisation than your session.")(scope, receive, send)
+        token = set_current_org(claims["org_id"] if claims else None)
+        try:
+            await self.inner(scope, receive, send)
+        finally:
+            reset_current_org(token)
+
+
+class UploadSigningMiddleware:
+    """Adds a short-lived signed query string to every /uploads/... URL in JSON API responses,
+    so the app can show private images/PDFs. Runs inside TenantMiddleware (the org is known)."""
+
+    def __init__(self, app):
+        self.inner = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+            return await self.inner(scope, receive, send)
+        try:
+            org = get_current_org()
+        except OrgContextError:
+            return await self.inner(scope, receive, send)
+        start, chunks = {}, []
+
+        async def capture(message):
+            if message["type"] == "http.response.start":
+                start["m"] = message
+                return
+            if message["type"] == "http.response.body":
+                chunks.append(message.get("body", b""))
+                if message.get("more_body"):
+                    return
+                body = b"".join(chunks)
+                ctype = dict(start["m"].get("headers", [])).get(b"content-type", b"")
+                if b"json" in ctype and b"/uploads/" in body:
+                    body = _UPLOAD_URL_RE.sub(lambda m: sign_upload_url(m.group(1).decode(), org).encode(), body)
+                headers = [(k, v) for k, v in start["m"].get("headers", []) if k.lower() != b"content-length"]
+                headers.append((b"content-length", str(len(body)).encode()))
+                await send({**start["m"], "headers": headers})
+                await send({"type": "http.response.body", "body": body})
+
+        await self.inner(scope, receive, capture)
+
+
 class BusinessMiddleware:
-    """Pure-ASGI middleware: scopes every request to Finance or Fund via the X-Business header."""
+    """Pure-ASGI middleware: scopes every request to Finance or Fund via the X-Business header
+    (a secondary filter inside the authenticated organisation)."""
 
     def __init__(self, app):
         self.inner = app
@@ -171,19 +292,31 @@ class BusinessMiddleware:
             await self.inner(scope, receive, watch if writes else send)
             if writes and ok["v"]:
                 invalidate_loans_cache()
-                if mutating:
+                if mutating and sheets_backup.backup_org() == _safe_org():
                     sheets_backup.request_sync()
         finally:
             reset_current_business(token)
 
 
+def _safe_org():
+    try:
+        return get_current_org()
+    except OrgContextError:
+        return None
+
+
+app.add_middleware(UploadSigningMiddleware)
 app.add_middleware(BusinessMiddleware)
+app.add_middleware(TenantMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.on_event("startup")
 def on_startup():
+    if _env_flag("OTP_DEV_MODE") and os.environ.get("ENVIRONMENT", "").lower() == "production":
+        raise RuntimeError("OTP_DEV_MODE must be false when ENVIRONMENT=production (it returns OTPs to the caller).")
     init_db()
+    identity.seed_legacy_org()  # idempotent: gives every existing admin/collector a membership in ORG_001
     sheets_backup.request_sync()  # fill/refresh the Google Sheet backup shortly after every start
     print(f"DigiVasool API ready — storage={get_backend_name()} otp_dev_mode={OTP_DEV_MODE}")
 
@@ -210,23 +343,39 @@ def _now() -> str:
 # ==============================
 
 def get_current_user(authorization: Optional[str] = Header(default=None)):
-    """Identify the caller from the signed session token issued at OTP login."""
+    """Identify the caller from the signed, organisation-scoped session token. Also re-checks that the
+    membership and organisation are still active, so removing a collector takes effect immediately."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Please log in to continue.")
     data = decode_token(authorization.split(" ", 1)[1].strip())
     if not data:
         raise HTTPException(status_code=401, detail="Your session has expired. Please log in again.")
+    if data["org_id"] != _safe_org():  # the middleware sets the org from this same token
+        raise HTTPException(status_code=403, detail="Organisation mismatch")
+    state = identity.membership_state(data)
+    if state is None:
+        raise HTTPException(status_code=401, detail="Your access has been removed or your session ended. Please log in again.")
     return {
-        "merchant_id": "00000000-0000-0000-0000-000000000000",
+        "merchant_id": data["org_id"],
+        "org_id": data["org_id"],
+        "membership_id": data.get("membership_id", ""),
+        "member_role": state["role"],   # from the database, not the token
         "role": data.get("role", ""),
         "name": data.get("name", ""),
-        "phone": data.get("phone", ""),
+        "phone": data.get("phone_number", ""),
+        "iat": data.get("iat", 0),
     }
 
 
 def require_admin(user=Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def require_owner(user=Depends(get_current_user)):
+    if user["member_role"] != identity.OWNER:
+        raise HTTPException(status_code=403, detail="Only the organisation owner can do this")
     return user
 
 
@@ -275,6 +424,7 @@ def _generate_unique_account_number(db) -> str:
 
 
 def _staff_members(role: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Profile rows (email, monthly target) added from the Staff screen for the active book."""
     rows = []
     for doc in get_db_client().collection("staff").get():
         s = doc.to_dict()
@@ -284,23 +434,18 @@ def _staff_members(role: Optional[str] = None) -> List[Dict[str, Any]]:
     return rows
 
 
-def _merge_people(configured: List[Dict[str, Any]], stored: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    people, seen = [], set()
-    for p in list(configured) + list(stored):
-        key = normalize_phone(p.get("phone", "")) or p.get("name", "").lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        people.append({"name": p["name"], "phone": p.get("phone", ""), "email": p.get("email", "")})
-    return people
+def _people(roles) -> List[Dict[str, Any]]:
+    """People of the CURRENT organisation, from its memberships (the database, not environment variables)."""
+    return [{"name": m["name"], "phone": m.get("phone", ""), "email": ""}
+            for m in identity.org_memberships(get_current_org()) if m["role"] in roles]
 
 
 def _all_admins() -> List[Dict[str, Any]]:
-    return _merge_people(ADMIN_USERS, _staff_members("admin"))
+    return _people((identity.OWNER, identity.ADMIN))
 
 
 def _all_collectors() -> List[Dict[str, Any]]:
-    return _merge_people(COLLECTOR_USERS, _staff_members("collector"))
+    return _people((identity.COLLECTOR,))
 
 
 def _is_archived(loan: Dict[str, Any]) -> bool:
@@ -359,20 +504,8 @@ def _assert_collector_assigned(user: Dict[str, Any], loan: Dict[str, Any]):
         raise HTTPException(status_code=403, detail="This borrower is not assigned to you")
 
 
-def _has_loans_in_any_book(contact: str) -> bool:
-    """A borrower may hold loans in Finance or Fund; any of them lets them log in."""
-    for book in (x["id"] for x in list_books()):
-        tok = set_current_business(book)
-        try:
-            if _borrower_loans_for_phone(contact):
-                return True
-        finally:
-            reset_current_business(tok)
-    return False
-
-
-def _otp_key(role: str, contact: str) -> str:
-    return f"{role}:{normalize_phone(contact) or contact.strip().lower()}"
+def _otp_key(purpose: str, contact: str) -> str:
+    return f"{purpose}:{normalize_phone(contact) or contact.strip().lower()}"
 
 
 def _otp_response(otp: str, contact: str, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -385,80 +518,162 @@ def _otp_response(otp: str, contact: str, extra: Optional[Dict[str, Any]] = None
     return body
 
 
-def _find_collector(contact: str) -> Optional[Dict[str, Any]]:
-    target = normalize_phone(contact)
-    if not target:
-        return None
-    return next((c for c in _all_collectors() if normalize_phone(c.get("phone", "")) == target), None)
+# ==============================
+# OTP LOGIN, ORGANISATIONS & MEMBERSHIPS
+# ==============================
+# Phone -> OTP -> (one organisation: straight in | several: choose | none: register a new organisation).
+# The session token is organisation-scoped; the organisation is only ever taken from it.
+
+def _org_summary(m: Dict[str, Any]) -> Dict[str, Any]:
+    return {"organization_id": m["org_id"], "organization_name": m["organization_name"],
+            "role": m["role"], "name": m.get("name", "")}
 
 
-# ==============================
-# OTP AUTH ROUTES
-# ==============================
+def _login_response(member: Dict[str, Any], phone: str) -> Dict[str, Any]:
+    """Issue the org-scoped session for one verified membership."""
+    role = identity.app_role(member["role"])
+    org_id = member["org_id"]
+    name = member.get("name") or "User"
+    token = issue_token(role, name, phone, org_id=org_id, membership_id=member["id"],
+                        user_id=f"u_{identity.phone_key(phone)}", member_role=member["role"])
+    with as_org(org_id):
+        _write_audit(name, "LOGIN", f"{member['role'].title()} logged in")
+    out = {"status": "ok", "role": role, "member_role": member["role"], "name": name, "phone": phone,
+           "token": token, "organization": {"id": org_id, "name": member["organization_name"]}}
+    if role == "borrower":
+        out["business"] = member.get("business", "finance")
+    return out
+
+
+def _matching_member(phone: str, organization_id: str, role: Optional[str]) -> Dict[str, Any]:
+    """Backend membership check: the phone must really belong to that organisation (and role)."""
+    matches = [m for m in identity.all_memberships_for_phone(phone) if m["org_id"] == organization_id
+               and (not role or m["role"] == role.upper())]
+    if not matches:
+        raise HTTPException(status_code=403, detail="You are not a member of that organisation.")
+    if len(matches) > 1:
+        raise HTTPException(status_code=400, detail="Choose which role to continue as.")
+    return matches[0]
+
 
 @app.post("/api/auth/request-otp")
-async def request_otp(body: OTPRequest):
-    """Step 1 of login: generate OTP (returned in the response only when OTP_DEV_MODE is on)."""
+async def request_otp(body: OTPRequest, request: Request):
+    """Step 1: send an OTP to any valid mobile number (an unknown number may register a new organisation)."""
     contact = body.contact.strip()
-
-    if body.role == "collector":
-        collector = _find_collector(contact)
-        if not collector:
-            raise HTTPException(status_code=404, detail="Collector not found. Check your phone number.")
-        if body.collector_name and body.collector_name.strip().lower() != collector["name"].lower():
-            raise HTTPException(status_code=400, detail="This phone number is not registered to the selected collector.")
-
-    elif body.role == "borrower":
-        if not _has_loans_in_any_book(contact):
-            raise HTTPException(status_code=404, detail="No loan account found for this mobile number.")
-
-    otp = otp_store.generate_and_store(_otp_key(body.role, contact))
+    if len(normalize_phone(contact)) != 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
+    ip = request.client.host if request.client else "?"
+    if not (otp_store.allow(f"otp-phone:{normalize_phone(contact)}", 5) and otp_store.allow(f"otp-ip:{ip}", 150)):
+        raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait a few minutes and try again.")
+    otp = otp_store.generate_and_store(_otp_key("login", contact))
     return _otp_response(otp, contact)
 
 
 @app.post("/api/auth/verify-otp")
-async def verify_otp(body: OTPVerify):
-    """Step 2 of login: verify OTP and return a signed session token."""
+async def verify_otp(body: OTPVerify, request: Request):
+    """Step 2: verify the OTP. Returns a session (one membership), an organisation choice (several),
+    or a registration token (none)."""
     contact = body.contact.strip()
-    if not otp_store.verify(_otp_key(body.role, contact), body.otp):
+    ip = request.client.host if request.client else "?"
+    if not otp_store.allow(f"verify-ip:{ip}", 300):
+        raise HTTPException(status_code=429, detail="Too many attempts. Please wait a few minutes.")
+    if not otp_store.verify(_otp_key("login", contact), body.otp):
         raise HTTPException(status_code=401, detail="Wrong or expired OTP. Please try again.")
+    members = identity.all_memberships_for_phone(contact)
+    if not members:
+        return {"status": "register", "registration_token": issue_short_token("register", contact)}
+    if len(members) == 1:
+        return _login_response(members[0], contact)
+    return {"status": "select_org", "selection_token": issue_short_token("select", contact),
+            "organizations": [_org_summary(m) for m in members]}
 
-    if body.role == "admin":
-        admins = _all_admins()
-        name = get_admin_display_name_db(contact, admins) or (body.admin_name or "Admin").strip()
-        _write_audit(name, "LOGIN", f"Admin logged in via {contact}")
-        return {"role": "admin", "name": name, "phone": contact, "token": issue_token("admin", name, contact)}
 
-    if body.role == "borrower":
-        # A borrower may hold loans in Finance or Fund; land them in whichever has theirs.
-        business, loans = get_current_business(), []
-        for candidate in (get_current_business(), *[b for b in (x['id'] for x in list_books()) if b != get_current_business()]):
-            tok = set_current_business(candidate)
-            try:
-                loans = _borrower_loans_for_phone(contact)
-            finally:
-                reset_current_business(tok)
-            if loans:
-                business = candidate
-                break
-        if not loans:
-            raise HTTPException(status_code=404, detail="No loan account found for this mobile number.")
-        name = loans[0]["customer_name"]
-        _write_audit(name, "LOGIN", f"Borrower logged in via {contact}")
-        return {"role": "borrower", "name": name, "phone": contact, "business": business,
-                "token": issue_token("borrower", name, contact)}
+@app.post("/api/organizations/select")
+async def select_organization(body: SelectOrgRequest):
+    """Choose one of the organisations the verified phone belongs to (membership re-checked here)."""
+    claims = decode_token(body.selection_token, "select")
+    if not claims:
+        raise HTTPException(status_code=401, detail="This step expired. Please log in again.")
+    phone = claims["phone_number"]
+    return _login_response(_matching_member(phone, body.organization_id, body.role), phone)
 
-    collector = _find_collector(contact)
-    if not collector:
-        raise HTTPException(status_code=404, detail="Collector not found")
-    name = collector["name"]
-    _write_audit(name, "LOGIN", f"Collector logged in via {contact}")
-    return {
-        "role": "collector",
-        "name": name,
-        "phone": collector["phone"],
-        "token": issue_token("collector", name, collector["phone"]),
-    }
+
+@app.post("/api/organizations/register")
+async def register_organization(body: RegisterOrgRequest):
+    """Create a new organisation; the verified phone becomes its OWNER (first admin)."""
+    claims = decode_token(body.registration_token, "register") or decode_token(body.registration_token, "select")
+    if not claims:
+        raise HTTPException(status_code=401, detail="This step expired. Please verify your number again.")
+    phone = claims["phone_number"]
+    try:
+        org = identity.create_org(body.organization_name, phone, body.admin_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    member = identity.get_membership(identity.membership_id(org["id"], phone))
+    return _login_response({**member, "organization_name": org["organization_name"]}, phone)
+
+
+@app.get("/api/organizations/my-memberships")
+async def my_memberships(user=Depends(get_current_user)):
+    """Every organisation this phone belongs to (powers the Switch organisation screen)."""
+    return [{**_org_summary(m), "current": m["org_id"] == user["org_id"] and identity.app_role(m["role"]) == user["role"]}
+            for m in identity.all_memberships_for_phone(user["phone"])]
+
+
+@app.post("/api/organizations/switch")
+async def switch_organization(body: SwitchOrgRequest, user=Depends(get_current_user)):
+    """Move to another organisation you belong to - verified on the server from your session's phone."""
+    return _login_response(_matching_member(user["phone"], body.organization_id, body.role), user["phone"])
+
+
+@app.get("/api/organizations/current")
+async def current_organization(user=Depends(get_current_user)):
+    org = identity.get_org(user["org_id"]) or {}
+    return {"id": user["org_id"], "organization_name": org.get("organization_name", ""),
+            "status": org.get("status", ""), "role": user["role"], "member_role": user["member_role"],
+            "name": user["name"], "phone": user["phone"]}
+
+
+@app.post("/api/auth/refresh")
+async def refresh_session(user=Depends(get_current_user)):
+    """Swap a still-valid session for a fresh one (sliding expiry); membership is re-verified."""
+    member = _matching_member(user["phone"], user["org_id"], user["member_role"])
+    org = identity.get_org(user["org_id"]) or {}
+    return _login_response({**member, "organization_name": org.get("organization_name", "")}, user["phone"])
+
+
+@app.post("/api/auth/logout")
+async def logout(user=Depends(get_current_user)):
+    """End this membership's sessions on the server (every device signed in as it)."""
+    if user["role"] != "borrower" and user["membership_id"]:
+        identity.revoke_sessions(user["membership_id"])
+        identity.clear_cache()
+    _write_audit(user["name"], "LOGOUT", "Logged out")
+    return {"status": "ok"}
+
+
+@app.post("/api/organizations/request-deletion")
+async def request_organization_deletion(user=Depends(require_owner)):
+    """Owner asks for the organisation to be deleted. Nothing is erased: the organisation is locked
+    (nobody can log in) and the operator completes the deletion after the retention period."""
+    identity.set_org_status(user["org_id"], "deletion_requested")
+    _write_audit(user["name"], "ORG_DELETION_REQUESTED", "Organisation locked pending deletion")
+    return {"status": "deletion_requested",
+            "message": "Your organisation is locked. Contact support to restore it within 30 days, after which its data is erased."}
+
+
+@app.post("/api/account/delete")
+async def delete_my_account(user=Depends(get_current_user)):
+    """Remove YOUR access to this organisation (Play Store account-deletion path). The owner must
+    transfer ownership or delete the organisation instead. Business records are kept (they belong to the organisation)."""
+    if user["member_role"] == identity.OWNER:
+        raise HTTPException(status_code=400, detail="You are the owner. Delete the organisation instead, or make someone else the owner first.")
+    if user["role"] == "borrower":
+        raise HTTPException(status_code=400, detail="Borrower records belong to the lender. Ask them to remove your data.")
+    identity.update_membership(user["membership_id"], status="inactive", removed_at=_now(), removed_by="self")
+    identity.clear_cache()
+    _write_audit(user["name"], "ACCOUNT_DELETED", "Member removed their own access")
+    return {"status": "ok"}
 
 
 @app.post("/api/auth/borrower/send-otp")
@@ -492,6 +707,7 @@ def _save_upload(file: UploadFile, folder: str) -> str:
     filename = f"{uuid4().hex[:8]}_{safe}"
     if get_current_business() != "finance":  # other books' uploads are stored apart from Finance
         folder = f"{get_current_business()}/{folder}"
+    folder = f"{get_current_org()}/{folder}"  # every upload lives under its organisation
     data = file.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="File is too large (maximum 10 MB)")
@@ -563,14 +779,14 @@ def export_excel(user=Depends(require_admin)):
 
 @app.get("/api/admin/sheet-backup")
 def sheet_backup_status(user=Depends(require_admin)):
-    return sheets_backup.status()
+    return {**sheets_backup.status(), "enabled": sheets_backup.is_enabled() and sheets_backup.backup_org() == user["org_id"]}
 
 
 @app.post("/api/admin/sheet-backup/sync")
 def sheet_backup_sync(force: bool = False, user=Depends(require_admin)):
     """Rewrite the Google Sheet from the database right now."""
-    if not sheets_backup.is_enabled():
-        raise HTTPException(status_code=400, detail="Google Sheets backup is not configured")
+    if not sheets_backup.is_enabled() or sheets_backup.backup_org() != user["org_id"]:
+        raise HTTPException(status_code=400, detail="Google Sheets backup is not configured for your organisation")
     return sheets_backup.sync_now(force=force)
 
 
@@ -674,8 +890,8 @@ async def get_admin_lending_view(admin_user=Depends(require_admin)):
 
 
 @app.get("/api/collectors/")
-async def get_collectors():
-    """Registered collector names (public, used for the login dropdown — phone numbers are not exposed)."""
+async def get_collectors(user=Depends(require_role("admin", "collector"))):
+    """Collector names in your organisation (phone numbers are not exposed)."""
     return sorted(({"name": c["name"]} for c in _all_collectors()), key=lambda c: c["name"].lower())
 
 
@@ -691,106 +907,157 @@ async def get_audit_log(limit: int = 30, user=Depends(require_admin)):
 # STAFF, EXPENSES & CAPITAL
 # ==============================
 
+def _profile_for(m: Dict[str, Any], profiles: List[Dict[str, Any]]) -> Dict[str, Any]:
+    key = identity.phone_key(m.get("phone", ""))
+    return next((p for p in profiles if p.get("id") == m["id"] or (key and identity.phone_key(p.get("phone", "")) == key)), {})
+
+
+def _staff_row(m: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+    return {"id": m["id"], "name": m["name"], "role": identity.app_role(m["role"]), "member_role": m["role"],
+            "phone": m.get("phone", ""), "email": profile.get("email", ""), "target": profile.get("target", 0),
+            "created_at": m.get("created_at", ""), "source": "app"}
+
+
 @app.get("/api/staff/")
 def list_staff(user=Depends(require_admin)):
-    """Admins and collectors from configuration plus staff added in the app."""
-    configured = (
-        [{"id": f"cfg-admin-{i}", "name": a["name"], "role": "admin", "phone": a.get("phone", ""), "email": a.get("email", ""), "target": 0, "source": "config"}
-         for i, a in enumerate(ADMIN_USERS)]
-        + [{"id": f"cfg-collector-{i}", "name": c["name"], "role": "collector", "phone": c.get("phone", ""), "email": "", "target": 0, "source": "config"}
-           for i, c in enumerate(COLLECTOR_USERS)]
-    )
-    stored = [{**s, "source": "app"} for s in _staff_members()]
-    return configured + sorted(stored, key=lambda s: s.get("created_at", ""))
+    """Everyone in YOUR organisation: owner, admins, collectors (from memberships) plus profile-only managers."""
+    profiles = _staff_members()
+    rows = [_staff_row(m, _profile_for(m, profiles)) for m in identity.org_memberships(get_current_org())]
+    rows.sort(key=lambda r: ({"OWNER": 0, "ADMIN": 1, "COLLECTOR": 2}[r["member_role"]], r.get("created_at", "")))
+    managers = [{**p, "member_role": "MANAGER", "source": "app"} for p in profiles if p.get("role") == "manager"]
+    return rows + sorted(managers, key=lambda s: s.get("created_at", ""))
+
+
+def _member_in_org(staff_id: str) -> Optional[Dict[str, Any]]:
+    m = identity.get_membership(staff_id)
+    return m if m and m.get("org_id") == get_current_org() and m.get("status") == "active" else None
+
+
+def _assert_can_manage(user: Dict[str, Any], target_role: str):
+    """Owners manage everyone; admins manage collectors only."""
+    if user["member_role"] != identity.OWNER and target_role in (identity.OWNER, identity.ADMIN):
+        raise HTTPException(status_code=403, detail="Only the organisation owner can add, edit or remove admins")
 
 
 @app.post("/api/staff/")
 async def create_staff(body: StaffCreate, user=Depends(require_admin)):
-    target_phone = normalize_phone(body.phone or "")
-    if target_phone and any(normalize_phone(p.get("phone", "")) == target_phone for p in _all_admins() + _all_collectors()):
+    phone = body.phone or ""
+    role = {"admin": identity.ADMIN, "collector": identity.COLLECTOR}.get(body.role)
+    record = {"id": str(uuid4()), "name": body.name.strip(), "role": body.role, "phone": phone,
+              "email": (body.email or "").strip(), "target": body.target, "is_active": True,
+              "created_at": _now(), "created_by": user["name"]}
+    if role is None:  # "manager": a profile entry only - managers have never had a login
+        get_db_client().collection("staff").document(record["id"]).set(record)
+        _write_audit(user["name"], "STAFF_ADDED", f"Added manager {record['name']}")
+        return {**record, "member_role": "MANAGER", "source": "app"}
+    _assert_can_manage(user, role)
+    if not identity.phone_key(phone):
+        raise HTTPException(status_code=400, detail="A phone number is required - they log in with it")
+    existing = identity.get_membership(identity.membership_id(get_current_org(), phone))
+    if existing and existing.get("status") == "active":
         raise HTTPException(status_code=400, detail="A staff member with this phone number already exists")
-    record = {
-        "id": str(uuid4()),
-        "name": body.name.strip(),
-        "role": body.role,
-        "phone": body.phone or "",
-        "email": (body.email or "").strip(),
-        "target": body.target,
-        "is_active": True,
-        "created_at": _now(),
-        "created_by": user["name"],
-    }
-    get_db_client().collection("staff").document(record["id"]).set(record)
+    member = identity.add_membership(get_current_org(), phone, record["name"], role, created_by=user["name"])
+    get_db_client().collection("staff").document(member["id"]).set({**record, "id": member["id"]})
     _write_audit(user["name"], "STAFF_ADDED", f"Added {body.role} {record['name']}")
-    return {**record, "source": "app"}
+    return {**_staff_row(member, record)}
 
 
 @app.patch("/api/staff/{staff_id}")
 async def update_staff(staff_id: str, body: StaffUpdate, user=Depends(require_admin)):
-    """Edit a staff member added in the app. Renaming a collector moves their borrower assignments to the new name."""
-    if staff_id.startswith("cfg-"):
-        raise HTTPException(status_code=400, detail="This person is set up in the server configuration and can't be edited here")
+    """Edit a staff member. Renaming a collector moves their borrower assignments to the new name."""
     with db_lock:
-        ref = get_db_client().collection("staff").document(staff_id)
-        doc = ref.get()
-        if not doc.exists or not doc.to_dict().get("is_active", True):
-            raise HTTPException(status_code=404, detail="Staff member not found")
-        member = doc.to_dict()
-        updates = body.model_dump(exclude_unset=True)
-        updates = {k: v for k, v in updates.items() if v is not None}
+        member = _member_in_org(staff_id)
+        updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
         if "name" in updates:
             updates["name"] = updates["name"].strip()
-        others = [p for p in _all_admins() + _all_collectors()
-                  if not (p["name"] == member.get("name") and normalize_phone(p.get("phone", "")) == normalize_phone(member.get("phone", "")))]
-        phone = normalize_phone(updates.get("phone", "") or "")
-        if phone and any(normalize_phone(p.get("phone", "")) == phone for p in others):
-            raise HTTPException(status_code=400, detail="A staff member with this phone number already exists")
-        old_name, new_name = member.get("name", ""), updates.get("name", member.get("name", ""))
-        renamed = member.get("role") == "collector" and new_name != old_name
+        if member is None:  # profile-only manager
+            ref = get_db_client().collection("staff").document(staff_id)
+            doc = ref.get()
+            if not doc.exists or not doc.to_dict().get("is_active", True):
+                raise HTTPException(status_code=404, detail="Staff member not found")
+            ref.update({**updates, "updated_at": _now(), "updated_by": user["name"]})
+            return {**doc.to_dict(), **updates, "member_role": "MANAGER", "source": "app"}
+        if member["id"] != user["membership_id"]:
+            _assert_can_manage(user, member["role"])
+        old_name, new_name = member["name"], updates.get("name", member["name"])
+        renamed = member["role"] == identity.COLLECTOR and new_name != old_name
         if renamed and any(p["name"].strip().lower() == new_name.lower() for p in _all_collectors() if p["name"] != old_name):
             raise HTTPException(status_code=400, detail="Another collector already has this name")
-        if updates:
-            updates["updated_at"] = _now()
-            updates["updated_by"] = user["name"]
-            ref.update(updates)
+        new_phone = updates.get("phone")
+        if new_phone and identity.phone_key(new_phone) != identity.phone_key(member["phone"]):
+            clash = identity.get_membership(identity.membership_id(get_current_org(), new_phone))
+            if clash and clash.get("status") == "active":
+                raise HTTPException(status_code=400, detail="A staff member with this phone number already exists")
+            if member["id"] == user["membership_id"]:
+                raise HTTPException(status_code=400, detail="Change your own phone number by asking the owner to add the new number")
+            moved = identity.add_membership(get_current_org(), new_phone, new_name, member["role"], created_by=user["name"])
+            identity.update_membership(member["id"], status="inactive", removed_at=_now(), removed_by=user["name"])
+            member = moved
+        else:
+            identity.update_membership(member["id"], name=new_name)
+            member = {**member, "name": new_name}
+        identity.clear_cache()
+        profile = {"id": member["id"], "role": "admin" if member["role"] != identity.COLLECTOR else "collector", "is_active": True,
+                   "name": new_name, "phone": member.get("phone", ""), "email": updates.get("email", ""),
+                   "target": updates.get("target", 0), "updated_at": _now(), "updated_by": user["name"]}
+        get_db_client().collection("staff").document(member["id"]).set(profile, merge=True)
         if renamed:
             for loan_doc in get_db_client().collection("loans").get():
                 names = loan_doc.to_dict().get("assigned_collectors") or []
                 if old_name in names:
                     loan_doc.reference.update({"assigned_collectors": sorted({new_name if n == old_name else n for n in names}, key=str.lower)})
-    _write_audit(user["name"], "STAFF_UPDATED", f"Updated {member.get('role', 'staff')} {old_name}" + (f" (now {new_name})" if renamed else ""))
-    return {**member, **updates, "source": "app"}
+    _write_audit(user["name"], "STAFF_UPDATED", f"Updated {member['role'].lower()} {old_name}" + (f" (now {new_name})" if renamed else ""))
+    return _staff_row({**member, "name": new_name}, profile)
 
 
 @app.delete("/api/staff/{staff_id}")
 async def delete_staff(staff_id: str, user=Depends(require_admin)):
-    """Remove a staff member added in the app. A collector who is the only one on a borrower can't be removed until that borrower is reassigned."""
-    if staff_id.startswith("cfg-"):
-        raise HTTPException(status_code=400, detail="This person is set up in the server configuration and can't be removed here")
+    """Remove someone's access. A collector who is the only one on a borrower can't be removed until that borrower is reassigned."""
     with db_lock:
-        ref = get_db_client().collection("staff").document(staff_id)
-        doc = ref.get()
-        if not doc.exists or not doc.to_dict().get("is_active", True):
-            raise HTTPException(status_code=404, detail="Staff member not found")
-        member = doc.to_dict()
-        if member.get("name") == user["name"] and normalize_phone(member.get("phone", "")) == normalize_phone(user.get("phone", "") or ""):
+        member = _member_in_org(staff_id)
+        if member is None:  # profile-only manager
+            ref = get_db_client().collection("staff").document(staff_id)
+            doc = ref.get()
+            if not doc.exists or not doc.to_dict().get("is_active", True):
+                raise HTTPException(status_code=404, detail="Staff member not found")
+            ref.update({"is_active": False, "deleted_at": _now(), "deleted_by": user["name"]})
+            return {"status": "success", "message": "Staff member removed"}
+        if member["id"] == user["membership_id"]:
             raise HTTPException(status_code=400, detail="You can't remove your own account")
-        name_key = (member.get("name") or "").strip().lower()
-        affected = []
-        if member.get("role") == "collector":
-            for loan_doc in get_db_client().collection("loans").get():
-                names = loan_doc.to_dict().get("assigned_collectors") or []
-                if any((n or "").strip().lower() == name_key for n in names):
-                    affected.append((loan_doc, names))
+        if member["role"] == identity.OWNER:
+            raise HTTPException(status_code=400, detail="The owner can't be removed. Transfer ownership first.")
+        _assert_can_manage(user, member["role"])
+        name_key = member["name"].strip().lower()
+        if member["role"] == identity.COLLECTOR:
+            affected = [(d, d.to_dict().get("assigned_collectors") or []) for d in get_db_client().collection("loans").get()]
+            affected = [(d, names) for d, names in affected if any((n or "").strip().lower() == name_key for n in names)]
             stuck = [d.to_dict().get("customer_name", d.id) for d, names in affected if len(names) == 1]
             if stuck:
                 shown = ", ".join(stuck[:3]) + (f" and {len(stuck) - 3} more" if len(stuck) > 3 else "")
                 raise HTTPException(status_code=400, detail=f"Reassign these borrowers to another collector first: {shown}")
             for loan_doc, names in affected:
                 loan_doc.reference.update({"assigned_collectors": [n for n in names if (n or "").strip().lower() != name_key]})
-        ref.update({"is_active": False, "deleted_at": _now(), "deleted_by": user["name"]})
-    _write_audit(user["name"], "STAFF_DELETED", f"Removed {member.get('role', 'staff')} {member.get('name', '')}")
+        identity.update_membership(member["id"], status="inactive", removed_at=_now(), removed_by=user["name"])
+        identity.revoke_sessions(member["id"])
+        identity.clear_cache()
+        pref = get_db_client().collection("staff").document(member["id"])
+        if pref.get().exists:
+            pref.update({"is_active": False, "deleted_at": _now(), "deleted_by": user["name"]})
+    _write_audit(user["name"], "STAFF_DELETED", f"Removed {member['role'].lower()} {member['name']}")
     return {"status": "success", "message": "Staff member removed"}
+
+
+@app.post("/api/staff/{staff_id}/make-owner")
+async def transfer_ownership(staff_id: str, user=Depends(require_owner)):
+    """Owner hands ownership to another ADMIN of the organisation (the previous owner becomes an admin)."""
+    target = _member_in_org(staff_id)
+    if target is None or target["role"] != identity.ADMIN:
+        raise HTTPException(status_code=400, detail="Ownership can only be given to one of your admins")
+    identity.update_membership(target["id"], role=identity.OWNER)
+    identity.update_membership(user["membership_id"], role=identity.ADMIN)
+    identity.clear_cache()
+    _write_audit(user["name"], "OWNERSHIP_TRANSFERRED", f"Ownership given to {target['name']}")
+    return {"status": "ok", "message": f"{target['name']} is now the owner. Sign in again to refresh your permissions."}
 
 
 def _list_collection(name: str, sort_field: str) -> List[Dict[str, Any]]:
@@ -863,8 +1130,13 @@ _migrating: set = set()
 _migrating_lock = threading.Lock()
 
 
-def _migrate_loan_media(business: str, loan_ids: List[str]):
+def _migrate_loan_media(org: str, business: str, loan_ids: List[str]):
     """One-time move of legacy inline base64 photos/signatures into `loan_media` (+ a small thumbnail)."""
+    with as_org(org):
+        _migrate_loan_media_in_org(org, business, loan_ids)
+
+
+def _migrate_loan_media_in_org(org: str, business: str, loan_ids: List[str]):
     db = get_db_client(business)
     for loan_id in loan_ids:
         try:
@@ -884,16 +1156,16 @@ def _migrate_loan_media(business: str, loan_ids: List[str]):
             logging.getLogger(__name__).exception("Could not migrate media for loan %s", loan_id)
         finally:
             with _migrating_lock:
-                _migrating.discard((business, loan_id))
+                _migrating.discard((org, business, loan_id))
 
 
 def _schedule_media_migration(background_tasks: BackgroundTasks, legacy_ids: List[str]):
-    business = get_current_business()
+    org, business = get_current_org(), get_current_business()
     with _migrating_lock:
-        fresh = [i for i in legacy_ids if (business, i) not in _migrating]
-        _migrating.update((business, i) for i in fresh)
+        fresh = [i for i in legacy_ids if (org, business, i) not in _migrating]
+        _migrating.update((org, business, i) for i in fresh)
     if fresh:
-        background_tasks.add_task(_migrate_loan_media, business, fresh)
+        background_tasks.add_task(_migrate_loan_media, org, business, fresh)
 
 
 def _loans_out_from_docs(docs, reminders) -> tuple:
@@ -1254,7 +1526,7 @@ async def permanently_delete_loan(loan_id: str, user=Depends(require_admin)):
 
 @app.get("/api/loans/", response_model=List[LoanRecord])
 def get_loans(background_tasks: BackgroundTasks, user=Depends(require_role("admin", "collector"))):
-    business = get_current_business()
+    business = (get_current_org(), get_current_business())   # never share a cache entry between organisations
     hit = _loans_cache.get(business)
     if hit and time.monotonic() - hit[0] < LOANS_CACHE_TTL:
         loans = hit[1]

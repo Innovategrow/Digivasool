@@ -39,3 +39,18 @@ def cleanup_expired():
     now = time.time()
     for k in [k for k, v in _store.items() if now > v[1]]:
         _store.pop(k, None)
+
+
+_hits: Dict[str, List[float]] = {}
+
+
+def allow(key: str, limit: int, window: int = 600) -> bool:
+    """Sliding-window limiter (e.g. 5 OTP requests per phone per 10 minutes). True = allowed."""
+    now = time.time()
+    recent = [t for t in _hits.get(key, []) if now - t < window]
+    if len(recent) >= limit:
+        _hits[key] = recent
+        return False
+    recent.append(now)
+    _hits[key] = recent
+    return True

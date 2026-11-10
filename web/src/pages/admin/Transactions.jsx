@@ -26,7 +26,7 @@ export default function Transactions() {
       </div>
 
       <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
-        {loans.map((loan, idx) => (
+        {loans.map(loan => (
           <div key={loan.id} className="party-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
               <span style={{ fontWeight: 800, fontSize: '16px' }}>{loan.customer_name}</span>

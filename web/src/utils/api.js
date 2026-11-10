@@ -33,6 +33,11 @@ export function setBusiness(id) {
   window.location.reload();
 }
 
+// Forget everything tied to the signed-in organisation (session, chosen book, cached books).
+export function clearSession() {
+  ['dk_user', 'dk_business', 'dk_books'].forEach(k => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
+}
+
 export function getAuthHeaders() {
   const headers = { 'Content-Type': 'application/json', 'X-Business': getBusiness() };
   const token = savedUser()?.token;
@@ -64,7 +69,7 @@ export async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   if (res.status === 401 && !path.startsWith('/api/auth/')) {
     // Session missing or expired — send the user back to the login screen.
-    localStorage.removeItem('dk_user');
+    clearSession();
     if (!window.location.pathname.startsWith('/login')) window.location.assign('/login');
   }
   return res;

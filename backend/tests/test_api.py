@@ -28,8 +28,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 def _fresh_client():
     import db
+    import identity
     import main
     importlib.reload(db)
+    importlib.reload(identity)
     importlib.reload(main)
     return TestClient(main.app)
 
@@ -72,11 +74,12 @@ def test_requires_login():
     assert client.get("/api/loans/", headers={"Authorization": "Bearer forged.token"}).status_code == 401
 
 
-def test_collector_login_requires_registered_phone():
-    r = client.post("/api/auth/request-otp", json={"contact": "+919999999999", "role": "collector", "collector_name": "Collector 1"})
-    assert r.status_code == 404
-    r = client.post("/api/auth/request-otp", json={"contact": "+919000000003", "role": "collector", "collector_name": "Collector 1"})
-    assert r.status_code == 400
+def test_unregistered_phone_gets_registration_not_access():
+    """An unknown number is no longer an admin: it can only register its own, empty organisation."""
+    phone = "+919999999999"
+    otp = client.post("/api/auth/request-otp", json={"contact": phone}).json()["dev_otp"]
+    r = client.post("/api/auth/verify-otp", json={"contact": phone, "otp": otp}).json()
+    assert r["status"] == "register" and "token" not in r
 
 
 def test_otp_attempt_limit():
@@ -250,12 +253,14 @@ def test_fund_and_finance_are_isolated():
     assert len(client.get("/api/loans/", headers=ADMIN).json()) == fin_before
     assert os.path.exists(os.path.join(TMP, "test_fund.db"))  # Fund has its own database file
     client.post("/api/staff/", headers=FUND, json={"name": "Fund Collector", "phone": "+919111111111", "role": "collector"})
-    assert not any(x.get("name") == "Fund Collector" for x in client.get("/api/staff/", headers=ADMIN).json())
+    # staff belong to the ORGANISATION (shared by its Finance and Fund books)
+    assert any(x.get("name") == "Fund Collector" for x in client.get("/api/staff/", headers=ADMIN).json())
     import db
-    db.create_admin_access_request_db("Fund Only", "+919222222222")  # runs in Finance context
-    tok = db.set_current_business("fund")
-    db.create_admin_access_request_db("Fund Admin", "+919333333333")
-    db.reset_current_business(tok)
+    with db.as_org("ORG_001"):
+        db.create_admin_access_request_db("Fund Only", "+919222222222")  # runs in Finance context
+        tok = db.set_current_business("fund")
+        db.create_admin_access_request_db("Fund Admin", "+919333333333")
+        db.reset_current_business(tok)
     names = lambda h: {r["name"] for r in client.get("/api/admin/access-requests", headers=h).json()}  # noqa: E731
     assert "Fund Admin" in names(FUND) and "Fund Admin" not in names(ADMIN)
     client.post("/api/expenses/", headers=FUND, json={"category": "FundOnly", "amount": 7, "date": "2026-09-21"})
@@ -334,10 +339,14 @@ def test_legacy_inline_photo_is_migrated_in_background():
     import db as dbmod
     loan = create_loan(customer_name="Legacy Photo")
     photo = _photo_data_url()
+    org = dbmod.as_org("ORG_001")
+    org.__enter__()
     dbmod.get_db_client().collection("loans").document(loan["id"]).update({"photo_url": photo})
+    org.__exit__(None, None, None)
     listed = next(l for l in client.get("/api/loans/", headers=ADMIN).json() if l["id"] == loan["id"])
     assert listed["photo_url"] == ""  # never sent inline, even before migration
-    stored = dbmod.get_db_client().collection("loans").document(loan["id"]).get().to_dict()
+    with dbmod.as_org("ORG_001"):
+        stored = dbmod.get_db_client().collection("loans").document(loan["id"]).get().to_dict()
     assert stored["photo_url"] == "" and stored["photo_thumb"] and stored["has_photo"]
     assert client.get(f"/api/loans/{loan['id']}/media", headers=ADMIN).json()["photo_url"] == photo
 
@@ -396,5 +405,5 @@ def test_edit_collector_renames_assignments():
     # duplicate name / phone and config staff are rejected; collectors cannot edit staff
     assert client.patch(f"/api/staff/{s['id']}", headers=ADMIN, json={"name": "Collector 1"}).status_code == 400
     assert client.patch(f"/api/staff/{s['id']}", headers=ADMIN, json={"phone": "+919000000002"}).status_code == 400
-    assert client.patch("/api/staff/cfg-collector-0", headers=ADMIN, json={"name": "X Y"}).status_code == 400
+    assert client.patch("/api/staff/ORG_999:9000000099", headers=ADMIN, json={"name": "X Y"}).status_code == 404  # not in your org
     assert client.patch(f"/api/staff/{s['id']}", headers=COLLECTOR, json={"name": "Hacker"}).status_code == 403

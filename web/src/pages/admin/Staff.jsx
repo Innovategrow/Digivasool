@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useAppData } from '../../context/AppDataContext';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/Toast';
 import { apiFetch } from '../../utils/api';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { useLanguage } from '../../context/LanguageContext';
-import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList, Pencil, Users, Trash2 } from 'lucide-react';
+import { Plus, X, Shield, UserCog, User, Phone, Mail, Lock, Check, ClipboardList, Pencil, Users, Trash2, Crown } from 'lucide-react';
 
 const ACTION_LABELS = {
   LOAN_CREATED: 'created a loan', PAYMENT_RECORDED: 'recorded a payment', BORROWER_UPDATED: 'edited a borrower',
@@ -13,7 +14,7 @@ const ACTION_LABELS = {
   CAPITAL_ADDED: 'logged capital', PAYMENT_PROOF_UPLOADED: 'uploaded payment proof',
 };
 
-function AddStaffModal({ onClose, onAdd, member }) {
+function AddStaffModal({ onClose, onAdd, member, canAddAdmin }) {
   const { t } = useLanguage();
   const [form, setForm] = useState(member
     ? { name: member.name, role: member.role, phone: member.phone || '', email: member.email || '', target: member.target || 0 }
@@ -42,10 +43,11 @@ function AddStaffModal({ onClose, onAdd, member }) {
           <div className="form-group">
             <label className="form-label">{t('role')}</label>
             <select className="form-input" value={form.role} disabled={Boolean(member)} onChange={e => set('role', e.target.value)}>
-              <option value="admin">{t('roleAdmin')}</option>
+              {(canAddAdmin || form.role === 'admin') && <option value="admin">{t('roleAdmin')}</option>}
               <option value="manager">{t('roleManager')}</option>
               <option value="collector">{t('roleCollector')}</option>
             </select>
+            {!canAddAdmin && !member && <p className="muted-note">Only the organisation owner can add admins.</p>}
           </div>
         </div>
         <div className="form-row">
@@ -58,6 +60,7 @@ function AddStaffModal({ onClose, onAdd, member }) {
             <input className="form-input" type="number" value={form.target} onChange={e => set('target', Number(e.target.value))} />
           </div>
         </div>
+        {form.role !== 'manager' && <p className="muted-note">A phone number is required: {form.role === 'admin' ? 'admins' : 'collectors'} sign in with it and an OTP.</p>}
         {member && form.role === 'collector' && <p className="muted-note">Renaming a collector also updates the borrowers assigned to them.</p>}
         {form.role === 'collector' && <p className="muted-note">Collectors log in with this phone number and an OTP.</p>}
         {error && <div className="form-alert" role="alert">{error}</div>}
@@ -131,7 +134,11 @@ function CollectorBorrowersModal({ member, collectors, onClose, onChanged }) {
 
 export default function Staff() {
   const { state, actions } = useAppData();
+  const { user } = useAuth();
   const { showToast } = useToast();
+  const isOwner = user?.member_role === 'OWNER';
+  const [transfer, setTransfer] = useState(null);
+  const [transferBusy, setTransferBusy] = useState(false);
   const [auditLog, setAuditLog] = useState([]);
   useEffect(() => {
     actions.refresh();
@@ -149,6 +156,7 @@ export default function Staff() {
   const [removeError, setRemoveError] = useState('');
 
   const ROLE_CONFIG = {
+    owner:     { label: 'Owner',              cls: 'badge-indigo', icon: <Crown size={11} /> },
     admin:     { label: t('roleAdmin'),     cls: 'badge-indigo', icon: <Shield size={11} /> },
     manager:   { label: t('roleManager'),   cls: 'badge-cyan',   icon: <UserCog size={11} /> },
     collector: { label: t('roleCollector'), cls: 'badge-amber',  icon: <User size={11} /> },
@@ -168,30 +176,37 @@ export default function Staff() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 32 }}>
         {state.staff.map(s => {
           const pct = s.target > 0 ? Math.min(100, Math.round((s.collected / s.target) * 100)) : 0;
-          const rc = ROLE_CONFIG[s.role] || ROLE_CONFIG.collector;
+          const rc = ROLE_CONFIG[s.member_role === 'OWNER' ? 'owner' : s.role] || ROLE_CONFIG.collector;
+          const isSelf = s.phone && user?.phone && s.phone.replace(/\D/g, '').slice(-10) === user.phone.replace(/\D/g, '').slice(-10);
+          const canManage = isOwner || (s.member_role !== 'OWNER' && s.member_role !== 'ADMIN') || isSelf;
           const barColor = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
           return (
             <div key={s.id} className="card">
-              <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', marginBottom: 16 }}>
-                <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg, var(--brand), var(--pink))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 800, color: '#fff' }}>
+              <div className="staff-head">
+                <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg, var(--brand), var(--pink))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 800, color: '#fff', flex: 'none' }}>
                   {s.name.charAt(0)}
                 </div>
-                <div style={{ flex: 1 }}>
+                <div className="staff-head-main">
                   <div style={{ fontWeight: 800, fontSize: 16 }}>{s.name}</div>
                   <div style={{ marginTop: 4 }}>
                     <span className={`badge ${rc.cls}`}>{rc.icon} {rc.label}</span>
                   </div>
                 </div>
+                <div className="staff-head-actions">
                 {s.role === 'collector' && (
                   <button type="button" className="icon-btn" onClick={() => setViewing(s)} aria-label={`Borrowers of ${s.name}`} title="Borrowers / change collector"><Users size={16} /></button>
                 )}
-                {s.source === 'app' && (
+                {isOwner && s.member_role === 'ADMIN' && (
+                  <button type="button" className="icon-btn" onClick={() => setTransfer(s)} aria-label={`Make ${s.name} the owner`} title="Make owner"><Crown size={16} /></button>
+                )}
+                {s.source === 'app' && canManage && (
                   <button type="button" className="icon-btn" onClick={() => setEditing(s)} aria-label={`Edit ${s.name}`} title="Edit"><Pencil size={16} /></button>
                 )}
-                {s.source === 'app' && (
+                {s.source === 'app' && canManage && s.member_role !== 'OWNER' && !isSelf && (
                   <button type="button" className="icon-btn" onClick={() => { setRemoving(s); setRemoveError(''); }} aria-label={`Delete ${s.name}`} title="Delete"><Trash2 size={16} /></button>
                 )}
-                <div style={{ textAlign: 'right' }}>
+                </div>
+                <div className="staff-head-eff">
                   <div style={{ fontSize: 22, fontWeight: 900, color: barColor }}>{pct}%</div>
                   <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{t('efficiency')}</div>
                 </div>
@@ -299,12 +314,30 @@ export default function Staff() {
         <p>{removing?.name} will no longer be able to log in. Their past collections stay on record.</p>
         {removeError && <div className="form-alert" role="alert">{removeError}</div>}
       </ConfirmDialog>
+      <ConfirmDialog
+        open={Boolean(transfer)} tone="primary" title={`Make ${transfer?.name} the owner?`} confirmLabel="Transfer ownership"
+        busyLabel="Transferring..." busy={transferBusy} onCancel={() => setTransfer(null)}
+        onConfirm={async () => {
+          setTransferBusy(true);
+          try {
+            const res = await apiFetch(`/api/staff/${encodeURIComponent(transfer.id)}/make-owner`, { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Could not transfer ownership');
+            showToast(`${transfer.name} is now the owner`);
+            setTransfer(null);
+            setTimeout(() => window.location.assign('/login'), 900);   // sign in again to refresh your role
+          } catch (err) { showToast(err.message, 'error'); setTransfer(null); }
+          finally { setTransferBusy(false); }
+        }}
+      >
+        <p>{transfer?.name} will be the organisation owner. You become an admin and will be asked to sign in again.</p>
+      </ConfirmDialog>
       {editing && <AddStaffModal member={editing} onClose={() => setEditing(null)} onAdd={async payload => {
         const { name, phone, email, target } = payload;
         await actions.updateStaff(editing.id, { name, phone, email, target });
         showToast('Staff member updated');
       }} />}
-      {showAdd && <AddStaffModal onClose={() => setShowAdd(false)} onAdd={async payload => { await actions.addStaff(payload); showToast('Staff member added'); }} />}
+      {showAdd && <AddStaffModal canAddAdmin={isOwner} onClose={() => setShowAdd(false)} onAdd={async payload => { await actions.addStaff(payload); showToast('Staff member added'); }} />}
     </div>
   );
 }

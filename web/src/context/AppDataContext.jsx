@@ -265,14 +265,14 @@ export function AppDataProvider({ children }) {
       return row;
     },
     async updateStaff(id, payload) {
-      const res = await apiFetch(`/api/staff/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      const res = await apiFetch(`/api/staff/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
       if (!res.ok) throw new Error(await readError(res));
       const row = await res.json();
       setRaw(r => ({ ...r, staff: r.staff.map(s => (s.id === id ? { ...s, ...row } : s)) }));
       return row;
     },
     async deleteStaff(id) {
-      const res = await apiFetch(`/api/staff/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/staff/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(await readError(res));
       setRaw(r => ({ ...r, staff: r.staff.filter(s => s.id !== id) }));
     },

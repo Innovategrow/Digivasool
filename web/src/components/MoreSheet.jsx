@@ -24,6 +24,7 @@ const COLLECTOR_NAV = [
   { to: '/collector',           icon: CreditCard, labelKey: 'collectPayment' },
   { to: '/collector/borrowers', icon: Users,      labelKey: 'borrowers' },
   { to: '/collector/history',   icon: BookOpen,   labelKey: 'history' },
+  { to: '/collector/account',   icon: UserRound,  labelKey: 'profile' },
 ];
 
 // "More" menu: every destination that doesn't fit in the bottom tab bar.
@@ -39,7 +40,7 @@ export default function MoreSheet({ open, onClose, collectorMode = false }) {
         <div className="more-avatar">{user?.name?.charAt(0)?.toUpperCase()}</div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="more-user-name">{user?.name}</div>
-          <div className="more-user-role">{user?.role?.toUpperCase()}</div>
+          <div className="more-user-role">{(user?.member_role || user?.role || '').toUpperCase()} · {user?.organization?.name}</div>
         </div>
       </div>
 

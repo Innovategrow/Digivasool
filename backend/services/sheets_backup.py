@@ -101,8 +101,21 @@ def _write(sh, title: str, rows: List[List[Any]], force: bool = False) -> None:
     ws.freeze(rows=1)
 
 
+def backup_org() -> str:
+    """The ONE organisation mirrored into the Google Sheet (the operator's own, ORG_001 by default).
+    Other organisations' data is never written to it."""
+    return os.environ.get("SHEETS_BACKUP_ORG_ID", "ORG_001")
+
+
 def sync_now(force: bool = False) -> Dict[str, Any]:
     """Rewrite every book's tabs from the database. Safe to call from any thread."""
+    from db import as_org
+
+    with as_org(backup_org()):
+        return _sync_now(force)
+
+
+def _sync_now(force: bool = False) -> Dict[str, Any]:
     from db import get_db_client, list_books
 
     with _lock:

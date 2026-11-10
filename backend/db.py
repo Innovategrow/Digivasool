@@ -35,6 +35,58 @@ BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 db_lock = threading.RLock()
 
 
+# ── Tenant (organisation) context ────────────────────────────────────────────
+# Every record belongs to exactly one organisation. The active organisation lives in
+# a ContextVar (safe across concurrent async requests and worker threads - never a
+# plain global). It is set ONLY from a verified session token (see TenantMiddleware in
+# main.py) or explicitly by trusted server code via as_org()/platform_scope().
+# Touching tenant data with no organisation selected fails closed.
+
+LEGACY_ORG_ID = "ORG_001"          # the pre-multi-tenant business; all old data lives here
+PLATFORM_ORG = "__platform__"      # organisations / users / memberships (identity.py only)
+
+
+class OrgContextError(RuntimeError):
+    """Raised when tenant data is touched without an authenticated organisation."""
+
+
+_current_org: ContextVar[Optional[str]] = ContextVar("current_org", default=None)
+
+
+def get_current_org() -> str:
+    org = _current_org.get()
+    if not org:
+        raise OrgContextError("No organisation selected for this request")
+    return org
+
+
+def set_current_org(org_id: Optional[str]):
+    return _current_org.set(org_id or None)
+
+
+def reset_current_org(token):
+    _current_org.reset(token)
+
+
+class as_org:
+    """Context manager: run trusted server code (background jobs, login discovery) inside one organisation."""
+
+    def __init__(self, org_id: str):
+        self._org = org_id
+
+    def __enter__(self):
+        self._tok = _current_org.set(self._org)
+        return self
+
+    def __exit__(self, *exc):
+        _current_org.reset(self._tok)
+
+
+def platform_scope():
+    """Scope for identity data (organisations, users, memberships). Not reachable with a tenant token."""
+    return as_org(PLATFORM_ORG)
+
+
 # ── SQLite document store ────────────────────────────────────────────────────
 
 class _Snapshot:
@@ -52,52 +104,58 @@ class _Snapshot:
 
 
 class _DocRef:
-    def __init__(self, store: "SQLiteStore", collection: str, doc_id: str):
+    def __init__(self, store: "SQLiteStore", org: str, collection: str, doc_id: str):
         self._store = store
+        self._org = org
         self.collection_name = collection
         self.id = doc_id
 
     def get(self) -> _Snapshot:
-        return _Snapshot(self, self._store._read(self.collection_name, self.id))
+        return _Snapshot(self, self._store._read(self._org, self.collection_name, self.id))
 
     def set(self, data: Dict[str, Any], merge: bool = False):
         if merge:
-            current = self._store._read(self.collection_name, self.id) or {}
+            current = self._store._read(self._org, self.collection_name, self.id) or {}
             current.update(data)
             data = current
-        self._store._write(self.collection_name, self.id, data)
+        self._store._write(self._org, self.collection_name, self.id, data)
+
+    def create(self, data: Dict[str, Any]) -> bool:
+        """Insert only if the document does not exist yet (atomic). Returns False when it already exists."""
+        return self._store._create(self._org, self.collection_name, self.id, data)
 
     def update(self, data: Dict[str, Any]):
         with self._store.lock:
-            current = self._store._read(self.collection_name, self.id)
+            current = self._store._read(self._org, self.collection_name, self.id)
             if current is None:
                 raise KeyError(f"{self.collection_name}/{self.id} does not exist")
             current.update(data)
-            self._store._write(self.collection_name, self.id, current)
+            self._store._write(self._org, self.collection_name, self.id, current)
 
     def delete(self):
-        self._store._delete(self.collection_name, self.id)
+        self._store._delete(self._org, self.collection_name, self.id)
 
 
 class _Query:
-    def __init__(self, store: "SQLiteStore", collection: str, filters=None, limit=None):
+    def __init__(self, store: "SQLiteStore", org: str, collection: str, filters=None, limit=None):
         self._store = store
+        self._org = org
         self._collection = collection
         self._filters = list(filters or [])
         self._limit = limit
 
     def where(self, field: str, op: str, value: Any) -> "_Query":
-        return _Query(self._store, self._collection, self._filters + [(field, op, value)], self._limit)
+        return _Query(self._store, self._org, self._collection, self._filters + [(field, op, value)], self._limit)
 
     def limit(self, n: int) -> "_Query":
-        return _Query(self._store, self._collection, self._filters, n)
+        return _Query(self._store, self._org, self._collection, self._filters, n)
 
     def get(self) -> List[_Snapshot]:
-        rows = self._store._scan(self._collection)
+        rows = self._store._scan(self._org, self._collection)
         results = []
         for doc_id, data in rows:
             if all(_matches(data.get(f), op, v) for f, op, v in self._filters):
-                results.append(_Snapshot(_DocRef(self._store, self._collection, doc_id), data))
+                results.append(_Snapshot(_DocRef(self._store, self._org, self._collection, doc_id), data))
                 if self._limit is not None and len(results) >= self._limit:
                     break
         return results
@@ -117,11 +175,11 @@ def _matches(actual: Any, op: str, expected: Any) -> bool:
 
 
 class _Collection(_Query):
-    def __init__(self, store: "SQLiteStore", name: str):
-        super().__init__(store, name)
+    def __init__(self, store: "SQLiteStore", org: str, name: str):
+        super().__init__(store, org, name)
 
     def document(self, doc_id: Optional[str] = None) -> _DocRef:
-        return _DocRef(self._store, self._collection, doc_id or str(uuid4()))
+        return _DocRef(self._store, self._org, self._collection, doc_id or str(uuid4()))
 
     def add(self, data: Dict[str, Any]):
         ref = self.document()
@@ -130,6 +188,8 @@ class _Collection(_Query):
 
 
 class SQLiteStore:
+    """Throwaway/test backend. Same (org_id, collection, id) layout as Postgres."""
+
     def __init__(self, path: str):
         folder = os.path.dirname(path)
         if folder:
@@ -139,46 +199,76 @@ class SQLiteStore:
         self._conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        cols = [r[1] for r in self._conn.execute("PRAGMA table_info(documents)").fetchall()]
+        if cols and "org_id" not in cols:
+            # A pre-multi-tenant local file: keep every row, assign it to the legacy organisation.
+            self._conn.execute("ALTER TABLE documents RENAME TO documents_legacy")
+            self._create_table()
+            self._conn.execute(
+                "INSERT INTO documents (org_id, collection, id, data) "
+                "SELECT ?, collection, id, data FROM documents_legacy ORDER BY rowid", (LEGACY_ORG_ID,))
+            self._conn.execute("DROP TABLE documents_legacy")
+        else:
+            self._create_table()
+
+    def _create_table(self):
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS documents ("
-            " collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,"
-            " PRIMARY KEY (collection, id))"
+            " org_id TEXT NOT NULL, collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL,"
+            " PRIMARY KEY (org_id, collection, id))"
         )
 
-    def collection(self, name: str) -> _Collection:
-        return _Collection(self, name)
+    def collection(self, name: str, org: Optional[str] = None) -> _Collection:
+        return _Collection(self, org or get_current_org(), name)
 
-    def _read(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+    def _read(self, org: str, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         with self.lock:
             row = self._conn.execute(
-                "SELECT data FROM documents WHERE collection=? AND id=?", (collection, doc_id)
+                "SELECT data FROM documents WHERE org_id=? AND collection=? AND id=?", (org, collection, doc_id)
             ).fetchone()
         return json.loads(row[0]) if row else None
 
-    def _write(self, collection: str, doc_id: str, data: Dict[str, Any]):
+    def _write(self, org: str, collection: str, doc_id: str, data: Dict[str, Any]):
         payload = json.dumps(data, default=str)
         with self.lock:
             self._conn.execute(
-                "INSERT INTO documents (collection, id, data) VALUES (?, ?, ?) "
-                "ON CONFLICT(collection, id) DO UPDATE SET data=excluded.data",
-                (collection, doc_id, payload),
+                "INSERT INTO documents (org_id, collection, id, data) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(org_id, collection, id) DO UPDATE SET data=excluded.data",
+                (org, collection, doc_id, payload),
             )
 
-    def _delete(self, collection: str, doc_id: str):
+    def _create(self, org: str, collection: str, doc_id: str, data: Dict[str, Any]) -> bool:
         with self.lock:
-            self._conn.execute("DELETE FROM documents WHERE collection=? AND id=?", (collection, doc_id))
+            cur = self._conn.execute(
+                "INSERT OR IGNORE INTO documents (org_id, collection, id, data) VALUES (?, ?, ?, ?)",
+                (org, collection, doc_id, json.dumps(data, default=str)),
+            )
+            return cur.rowcount == 1
 
-    def _scan(self, collection: str):
+    def _delete(self, org: str, collection: str, doc_id: str):
+        with self.lock:
+            self._conn.execute(
+                "DELETE FROM documents WHERE org_id=? AND collection=? AND id=?", (org, collection, doc_id))
+
+    def _scan(self, org: str, collection: str):
         with self.lock:
             rows = self._conn.execute(
-                "SELECT id, data FROM documents WHERE collection=? ORDER BY rowid", (collection,)
+                "SELECT id, data FROM documents WHERE org_id=? AND collection=? ORDER BY rowid", (org, collection)
             ).fetchall()
         return [(doc_id, json.loads(data)) for doc_id, data in rows]
 
 
+APP_ROLE = "digivasool_app"   # restricted, non-bypass role every tenant query runs as (see migrations/)
+
+
 class PostgresStore:
-    """Same document API on Postgres (Supabase). One shared `documents` table;
-    non-Finance books are separated by a "<book>_" collection prefix."""
+    """Same document API on Postgres (Supabase). One shared `documents` table; non-Finance
+    books are separated by a "<book>_" collection prefix and every row carries its org_id.
+
+    Isolation is enforced twice: every statement filters on org_id, AND each statement runs
+    in its own transaction as the restricted APP_ROLE with `app.org_id` set, so Postgres
+    row-level security rejects any row of another organisation even if a filter were missed.
+    """
 
     def __init__(self, url: str):
         self.url = url
@@ -186,22 +276,28 @@ class PostgresStore:
         self._conn = None
         self._ensure()
         with self.lock:
-            self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS documents ("
-                " collection text NOT NULL, id text NOT NULL, data jsonb NOT NULL,"
-                " seq bigserial, PRIMARY KEY (collection, id))"
-            )
-            # Supabase exposes public tables over its REST API (with a public key).
-            # RLS on + no policies = only this backend's direct connection can access data.
-            self._conn.execute("ALTER TABLE documents ENABLE ROW LEVEL SECURITY")
-            # Uploaded files (payment proofs, documents) live in Postgres too, so they
-            # survive Render redeploys. Same RLS lock-down as above.
-            self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS files ("
-                " path text PRIMARY KEY, content_type text NOT NULL DEFAULT 'application/octet-stream',"
-                " data bytea NOT NULL, created_at timestamptz NOT NULL DEFAULT now())"
-            )
-            self._conn.execute("ALTER TABLE files ENABLE ROW LEVEL SECURITY")
+            has_table = self._conn.execute("SELECT to_regclass('public.documents')").fetchone()[0] is not None
+            if not has_table:
+                from migrations import runner  # fresh install: create the multi-tenant schema directly
+                runner.create_fresh_schema(self._conn)
+            else:
+                has_org = self._conn.execute(
+                    "SELECT 1 FROM information_schema.columns WHERE table_name='documents' AND column_name='org_id'"
+                ).fetchone()
+                if not has_org:
+                    raise RuntimeError(
+                        "The database has not been migrated to multi-tenant yet. Take a backup, then run "
+                        "`python scripts/migrate_multitenant.py apply` (see docs/MULTI_TENANT_MIGRATION.md) "
+                        "before starting this version.")
+                self._ensure_rls_ready()
+
+    def _ensure_rls_ready(self):
+        row = self._conn.execute(
+            "SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.documents')").fetchone()
+        if not row or not row[0]:
+            raise RuntimeError("Row-level security is not enabled on documents; run the multi-tenant migration.")
+        if not self._conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (APP_ROLE,)).fetchone():
+            raise RuntimeError(f"Database role {APP_ROLE} is missing; run the multi-tenant migration.")
 
     def _ensure(self):
         import psycopg
@@ -209,15 +305,28 @@ class PostgresStore:
         if self._conn is None or self._conn.closed:
             self._conn = psycopg.connect(self.url, autocommit=True, prepare_threshold=None)
 
-    def _run(self, sql: str, params=()):
-        """Execute with one reconnect attempt (Supabase pooler drops idle connections)."""
+    def _run(self, org: str, sql: str, params=(), fetch: Optional[str] = None):
+        """Run one statement as APP_ROLE inside a transaction that carries the organisation context.
+        Retries once on a dropped connection (Supabase pooler drops idle connections)."""
         import psycopg
 
+        if not org:
+            raise OrgContextError("No organisation selected for this request")
         with self.lock:
             for attempt in (0, 1):
                 try:
                     self._ensure()
-                    return self._conn.execute(sql, params)
+                    with self._conn.transaction():
+                        # set_config(..., true) = transaction-local: nothing leaks into the next request
+                        # that reuses this pooled connection.
+                        self._conn.execute(
+                            "SELECT set_config('role', %s, true), set_config('app.org_id', %s, true)", (APP_ROLE, org))
+                        cur = self._conn.execute(sql, params)
+                        if fetch == "one":
+                            return cur.fetchone()
+                        if fetch == "all":
+                            return cur.fetchall()
+                        return cur.rowcount
                 except psycopg.OperationalError:
                     try:
                         self._conn.close()
@@ -227,36 +336,49 @@ class PostgresStore:
                     if attempt:
                         raise
 
-    def collection(self, name: str) -> _Collection:
-        return _Collection(self, name)
+    def collection(self, name: str, org: Optional[str] = None) -> _Collection:
+        return _Collection(self, org or get_current_org(), name)
 
-    def _read(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
-        row = self._run("SELECT data FROM documents WHERE collection=%s AND id=%s", (collection, doc_id)).fetchone()
+    def _read(self, org: str, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+        row = self._run(org, "SELECT data FROM documents WHERE org_id=%s AND collection=%s AND id=%s",
+                        (org, collection, doc_id), "one")
         return row[0] if row else None
 
-    def _write(self, collection: str, doc_id: str, data: Dict[str, Any]):
+    def _write(self, org: str, collection: str, doc_id: str, data: Dict[str, Any]):
         self._run(
-            "INSERT INTO documents (collection, id, data) VALUES (%s, %s, %s::jsonb) "
-            "ON CONFLICT (collection, id) DO UPDATE SET data = EXCLUDED.data",
-            (collection, doc_id, json.dumps(data, default=str)),
+            org,
+            "INSERT INTO documents (org_id, collection, id, data) VALUES (%s, %s, %s, %s::jsonb) "
+            "ON CONFLICT (org_id, collection, id) DO UPDATE SET data = EXCLUDED.data",
+            (org, collection, doc_id, json.dumps(data, default=str)),
         )
 
-    def _delete(self, collection: str, doc_id: str):
-        self._run("DELETE FROM documents WHERE collection=%s AND id=%s", (collection, doc_id))
+    def _create(self, org: str, collection: str, doc_id: str, data: Dict[str, Any]) -> bool:
+        n = self._run(
+            org,
+            "INSERT INTO documents (org_id, collection, id, data) VALUES (%s, %s, %s, %s::jsonb) "
+            "ON CONFLICT (org_id, collection, id) DO NOTHING",
+            (org, collection, doc_id, json.dumps(data, default=str)),
+        )
+        return n == 1
 
-    def _scan(self, collection: str):
-        rows = self._run("SELECT id, data FROM documents WHERE collection=%s ORDER BY seq", (collection,)).fetchall()
+    def _delete(self, org: str, collection: str, doc_id: str):
+        self._run(org, "DELETE FROM documents WHERE org_id=%s AND collection=%s AND id=%s", (org, collection, doc_id))
+
+    def _scan(self, org: str, collection: str):
+        rows = self._run(org, "SELECT id, data FROM documents WHERE org_id=%s AND collection=%s ORDER BY seq",
+                         (org, collection), "all")
         return [(doc_id, data) for doc_id, data in rows]
 
-    def put_file(self, path: str, data: bytes, content_type: str):
+    def put_file(self, org: str, path: str, data: bytes, content_type: str):
         self._run(
-            "INSERT INTO files (path, content_type, data) VALUES (%s, %s, %s) "
-            "ON CONFLICT (path) DO UPDATE SET content_type=EXCLUDED.content_type, data=EXCLUDED.data",
-            (path, content_type, data),
+            org,
+            "INSERT INTO files (org_id, path, content_type, data) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (org_id, path) DO UPDATE SET content_type=EXCLUDED.content_type, data=EXCLUDED.data",
+            (org, path, content_type, data),
         )
 
-    def get_file(self, path: str):
-        row = self._run("SELECT data, content_type FROM files WHERE path=%s", (path,)).fetchone()
+    def get_file(self, org: str, path: str):
+        row = self._run(org, "SELECT data, content_type FROM files WHERE org_id=%s AND path=%s", (org, path), "one")
         return (bytes(row[0]), row[1]) if row else None
 
 
@@ -342,6 +464,10 @@ def normalize_business(value: Optional[str]) -> str:
     value = (value or "").strip().lower()
     if value in ("", DEFAULT_BUSINESS) or not re.fullmatch(r"[a-z0-9]{1,30}", value):
         return DEFAULT_BUSINESS
+    if any(b["id"] == value for b in _BUILTIN_BOOKS):
+        return value
+    if _current_org.get() in (None, PLATFORM_ORG):  # custom books are per organisation; none selected yet
+        return DEFAULT_BUSINESS
     return value if any(b["id"] == value for b in list_books()) else DEFAULT_BUSINESS
 
 
@@ -389,7 +515,7 @@ def save_file(path: str, data: bytes, content_type: str = "application/octet-str
     """Store an uploaded file in Supabase. Returns False on SQLite (caller saves to disk instead)."""
     store = _store("finance")
     if isinstance(store, PostgresStore):
-        store.put_file(path, data, content_type)
+        store.put_file(get_current_org(), path, data, content_type)
         return True
     return False
 
@@ -397,7 +523,7 @@ def save_file(path: str, data: bytes, content_type: str = "application/octet-str
 def load_file(path: str):
     """Return (bytes, content_type) for a stored upload, or None."""
     store = _store("finance")
-    return store.get_file(path) if isinstance(store, PostgresStore) else None
+    return store.get_file(get_current_org(), path) if isinstance(store, PostgresStore) else None
 
 
 def get_backend_name() -> str:
@@ -414,11 +540,12 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def init_db():
-    """Called on app startup — connects storage and optionally seeds demo data."""
+    """Called on app startup — connects storage and optionally seeds demo data (into the legacy org)."""
     _store("fund")  # connect Fund storage at startup so misconfiguration fails loudly
-    db = get_db_client("finance")
-    if _env_flag("SEED_DEMO_DATA") and len(db.collection("loans").limit(1).get()) == 0:
-        seed_db()
+    if _env_flag("SEED_DEMO_DATA"):
+        with as_org(LEGACY_ORG_ID):
+            if len(get_db_client("finance").collection("loans").limit(1).get()) == 0:
+                seed_db()
 
 
 # ── Demo seed (only when SEED_DEMO_DATA=true and the store is empty) ────────

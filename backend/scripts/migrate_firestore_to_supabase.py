@@ -99,7 +99,7 @@ def main():
         print(f"Backup written: {backup_path} ({len(source)} documents) - keep this file safe.")
 
         for i, ((coll, doc_id), data) in enumerate(source.items(), 1):
-            pg._write(coll, doc_id, data)
+            pg._write(db.LEGACY_ORG_ID, coll, doc_id, data)   # imported Firestore data belongs to the legacy organisation
             if i % 200 == 0:
                 print(f"  copied {i}/{len(source)}")
         print(f"Copied {len(source)} documents.")

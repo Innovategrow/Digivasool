@@ -113,9 +113,9 @@ def send_otp_sms(phone: str, otp: str) -> None:
     api_key = os.environ.get("FAST2SMS_API_KEY", "").strip()
     dev_mode = os.environ.get("OTP_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
     if not api_key:
-        print(f"Login OTP for {phone}: {otp}")
         if not dev_mode:
             raise HTTPException(status_code=503, detail="SMS service is not configured. Contact the admin.")
+        print(f"[dev] Login OTP for {phone}: {otp}")  # only ever printed in OTP_DEV_MODE
         return
 
     digits = "".join(ch for ch in phone if ch.isdigit())

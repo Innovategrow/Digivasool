@@ -313,18 +313,31 @@ class LoanRecord(BaseModel):
 
 
 class OTPRequest(BaseModel):
-    contact: str  # email or phone
-    role: Literal["admin", "collector", "borrower"]
-    admin_name: Optional[str] = None   # required for admin
-    collector_name: Optional[str] = None  # required for collector
+    contact: str  # mobile number
+    role: Optional[str] = None  # ignored (older app versions sent it); the role comes from the memberships
 
 
 class OTPVerify(BaseModel):
     contact: str
     otp: str
-    role: Literal["admin", "collector", "borrower"]
-    admin_name: Optional[str] = None
-    collector_name: Optional[str] = None
+    role: Optional[str] = None
+
+
+class SelectOrgRequest(BaseModel):
+    selection_token: str
+    organization_id: str
+    role: Optional[str] = None
+
+
+class SwitchOrgRequest(BaseModel):
+    organization_id: str
+    role: Optional[str] = None
+
+
+class RegisterOrgRequest(BaseModel):
+    registration_token: str
+    organization_name: str = Field(..., min_length=2, max_length=80)
+    admin_name: str = Field(..., min_length=2, max_length=100)
 
 
 class AdminNotifyLink(BaseModel):

@@ -11,34 +11,45 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
+      # Marks this as a production deploy: the server REFUSES TO START if OTP_DEV_MODE is on
+      # (dev mode returns the OTP in the API response, which would let anyone sign in as anyone).
+      - key: ENVIRONMENT
+        value: production
       - key: AUTH_SECRET
         generateValue: true
       - key: SESSION_TTL_HOURS
-        value: "720"
-      # No SMS gateway is wired yet (see backend/services/sms.py), so the OTP
-      # is returned in the API response instead of texted. Set this to
-      # "false" only after plugging a real gateway into send_otp_sms().
+        value: "168"
+      # OTPs must be delivered by SMS. Set FAST2SMS_API_KEY (Fast2SMS > Dev API) in the Render
+      # dashboard BEFORE deploying this version, otherwise nobody can sign in (the API answers 503).
       - key: OTP_DEV_MODE
-        value: "true"
+        value: "false"
+      - key: FAST2SMS_API_KEY
+        sync: false
       - key: ADMIN_SECRET_KEYWORD
         sync: false
-      # "Name:+91XXXXXXXXXX, Name:+91XXXXXXXXXX" — same format/values as
-      # backend/.env locally. Fill these in on Render's dashboard; they are
-      # not committed to git.
+      # ONE-TIME SEED ONLY. On first start these people become the owner/admins/collectors of the
+      # legacy organisation ORG_001. After that, people are managed in the app (Staff screen) and
+      # these values are no longer used for authorisation. "Name:+91XXXXXXXXXX, Name:+91XXXXXXXXXX".
       - key: ADMIN_USERS
         sync: false
       - key: COLLECTOR_USERS
         sync: false
+      # Which of the ADMIN_USERS phones becomes the OWNER of ORG_001 (default: the first one listed).
+      - key: LEGACY_OWNER_PHONE
+        sync: false
       - key: ADMIN_WHATSAPP
         sync: false
-      # Optional live Google Sheets backup (see backend/services/sheets_backup.py).
-      # GOOGLE_SHEETS_CREDENTIALS = the service-account JSON pasted as the value.
+      # Optional live Google Sheets backup. It mirrors ONE organisation only (ORG_001 by default);
+      # other organisations' data is never written to the sheet.
       - key: GOOGLE_SHEET_ID
         sync: false
       - key: GOOGLE_SHEETS_CREDENTIALS
         sync: false
-      # Render's free plan has no persistent disk, so data lives in Supabase
-      # Postgres. Set DATABASE_URL (Session pooler URI) in the Render dashboard.
+      - key: SHEETS_BACKUP_ORG_ID
+        value: ORG_001
+      # Render's free plan has no persistent disk, so data lives in Supabase Postgres.
+      # Set DATABASE_URL (Session pooler URI) in the Render dashboard. The multi-tenant migration
+      # (docs/MULTI_TENANT_MIGRATION.md) must have been applied to this database first.
       - key: DB_BACKEND
         value: supabase
       - key: DATABASE_URL
@@ -49,7 +60,7 @@ services:
         value: "false"
       - key: UPLOAD_DIR
         value: uploads
-      # The deployed frontend's origin — update this if the Netlify site's
-      # domain ever changes.
+      # The deployed frontend's origin - update this if the Netlify site's domain ever changes.
+      # (A Capacitor wrapper uses https://localhost; a Trusted Web Activity uses the site origin.)
       - key: CORS_ORIGINS
         value: https://digivasool.netlify.app
