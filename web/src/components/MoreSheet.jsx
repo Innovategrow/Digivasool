@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
+import { useSubscription } from '../context/SubscriptionContext';
 import { useLanguage } from '../context/LanguageContext';
 import BottomSheet from './BottomSheet';
 import {
   LayoutDashboard, Users, BookOpen, BarChart3, Receipt, UserCog, LogOut,
-  CreditCard, Languages, Trash2, ChevronRight, UserRound,
+  CreditCard, Languages, Trash2, ChevronRight, UserRound, BadgeIndianRupee, ShieldAlert,
 } from 'lucide-react';
 
 const ADMIN_NAV = [
@@ -32,7 +33,12 @@ export default function MoreSheet({ open, onClose, collectorMode = false }) {
   const { user, logout } = useAuth();
   const { derived } = useAppData();
   const { t, language, setLanguage, LANGUAGES } = useLanguage();
-  const nav = collectorMode ? COLLECTOR_NAV : ADMIN_NAV;
+  const { sub } = useSubscription();
+  const nav = collectorMode ? COLLECTOR_NAV : [
+    ...ADMIN_NAV,
+    ...(user?.member_role === 'OWNER' ? [{ to: '/subscription', icon: BadgeIndianRupee, labelKey: 'subscription' }] : []),
+    ...(sub?.is_platform_admin ? [{ to: '/platform', icon: ShieldAlert, labelKey: 'platform' }] : []),
+  ];
 
   return (
     <BottomSheet open={open} onClose={onClose} title={t('more')}>

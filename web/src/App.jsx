@@ -3,6 +3,8 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppDataProvider, useAppData } from './context/AppDataContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { SubscriptionProvider } from './context/SubscriptionContext';
+import SubscriptionBanner from './components/SubscriptionBanner';
 import { ToastProvider } from './components/Toast';
 import MoreSheet from './components/MoreSheet';
 import BottomSheet from './components/BottomSheet';
@@ -18,6 +20,8 @@ import CollectionEntry from './pages/admin/CollectionEntry';
 import Profile from './pages/admin/Profile';
 import Transactions from './pages/admin/Transactions';
 import RecycleBin from './pages/admin/RecycleBin';
+import Subscription from './pages/admin/Subscription';
+import Platform from './pages/admin/Platform';
 
 import Login from './pages/Login';
 
@@ -49,7 +53,7 @@ const HOME_FOR_ROLE = { admin: '/', collector: '/collector', borrower: '/my-loan
 const PAGE_TITLES = {
   '/': 'dashboard', '/borrowers': 'borrowers', '/ledger': 'ledger', '/expenses': 'expenses',
   '/reports': 'reports', '/staff': 'staff', '/recycle-bin': 'recycleBin', '/collection': 'collection',
-  '/profile': 'profile', '/transactions': 'ledgerBook',
+  '/profile': 'profile', '/transactions': 'ledgerBook', '/subscription': 'subscription', '/platform': 'platform',
   '/collector': 'collectPayment', '/collector/borrowers': 'borrowers', '/collector/history': 'history',
   '/collector/account': 'profile',
 };
@@ -64,15 +68,18 @@ function ProtectedRoute({ children, roles }) {
 
 function NotificationsSheet({ open, onClose, accessRequests, onRespond }) {
   const { state } = useAppData();
+  const { user } = useAuth();
   const { t } = useLanguage();
+  const isOwner = user?.member_role === 'OWNER';
   return (
     <BottomSheet open={open} onClose={onClose} title={t('notifications')}>
       {accessRequests.map(req => (
         <div key={req.id} className="notif-card notif-request">
-          <div className="notif-title"><UserCheck size={15} /> Admin access request</div>
-          <div className="notif-text"><strong>{req.name}</strong> ({req.phone}) wants admin access.</div>
+          <div className="notif-title"><UserCheck size={15} /> Request to join</div>
+          <div className="notif-text"><strong>{req.name}</strong> ({req.phone}) wants to join your organisation.</div>
           <div className="notif-actions">
-            <button type="button" className="btn btn-success" onClick={() => onRespond(req.id, true)}><Check size={15} /> Approve</button>
+            <button type="button" className="btn btn-success" onClick={() => onRespond(req.id, true, 'collector')}><Check size={15} /> Approve as collector</button>
+            {isOwner && <button type="button" className="btn btn-primary" onClick={() => onRespond(req.id, true, 'admin')}><Check size={15} /> Approve as admin</button>}
             <button type="button" className="btn btn-secondary" onClick={() => onRespond(req.id, false)}><X size={15} /> Deny</button>
           </div>
         </div>
@@ -127,7 +134,7 @@ function MobileShell({ collectorMode = false }) {
     if (collectorMode || user?.role !== 'admin') return;
     let cancelled = false;
     const load = () => {
-      apiFetch('/api/admin/access-requests')
+      apiFetch('/api/organizations/join-requests')
         .then(r => (r.ok ? r.json() : []))
         .then(data => { if (!cancelled) setAccessRequests(Array.isArray(data) ? data : []); })
         .catch(() => {});
@@ -137,10 +144,13 @@ function MobileShell({ collectorMode = false }) {
     return () => { cancelled = true; clearInterval(interval); };
   }, [collectorMode, user?.role]);
 
-  async function respondToAccessRequest(id, approve) {
+  async function respondToAccessRequest(id, approve, role = 'collector') {
     try {
-      const res = await apiFetch(`/api/admin/access-requests/${id}/${approve ? 'approve' : 'deny'}`, { method: 'POST' });
-      if (res.ok) setAccessRequests(current => current.filter(r => r.id !== id));
+      const res = await apiFetch(`/api/organizations/join-requests/${encodeURIComponent(id)}/${approve ? 'approve' : 'deny'}`,
+        { method: 'POST', body: approve ? JSON.stringify({ role }) : undefined });
+      if (res.ok) { setAccessRequests(current => current.filter(r => r.id !== id)); return; }
+      const data = await res.json().catch(() => ({}));
+      window.alert(data.detail || 'Could not update this request.');     // e.g. a collector with that name already exists
     } catch {
       // leave it in the list; the admin can retry
     }
@@ -200,6 +210,7 @@ function MobileShell({ collectorMode = false }) {
         )}
       </BottomSheet>
 
+      <SubscriptionBanner />
       <main className="page-area">
         <Suspense fallback={<ScreenLoader />}>
         <Routes>
@@ -216,6 +227,8 @@ function MobileShell({ collectorMode = false }) {
               <Route path="/profile"      element={<Profile />} />
               <Route path="/transactions" element={<Transactions />} />
               <Route path="/recycle-bin"  element={<RecycleBin />} />
+              <Route path="/subscription" element={<Subscription />} />
+              <Route path="/platform"    element={<Platform />} />
               <Route path="/settings"     element={<Navigate to="/profile" replace />} />
               <Route path="*"             element={<Navigate to="/" replace />} />
             </>
@@ -286,13 +299,15 @@ export default function App() {
   return (
     <LanguageProvider>
       <AuthProvider>
-        <AppDataProvider>
-          <div className="app-frame">
-            <ToastProvider>
-              <AppRoutes />
-            </ToastProvider>
-          </div>
-        </AppDataProvider>
+        <SubscriptionProvider>
+          <AppDataProvider>
+            <div className="app-frame">
+              <ToastProvider>
+                <AppRoutes />
+              </ToastProvider>
+            </div>
+          </AppDataProvider>
+        </SubscriptionProvider>
       </AuthProvider>
     </LanguageProvider>
   );

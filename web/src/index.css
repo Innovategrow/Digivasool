@@ -786,3 +786,32 @@ input[type="date"].form-input{min-width:0;max-width:100%;}
 .staff-head-main{flex:1 1 140px;min-width:0;}
 .staff-head-actions{display:flex;gap:6px;flex:none;}
 .staff-head-eff{text-align:right;flex:none;margin-left:auto;}
+
+/* ── Subscription ─────────────────────────────────────────────── */
+.sub-banner{display:flex;align-items:center;gap:10px;padding:10px 12px;font-size:13px;line-height:1.35;border-bottom:1px solid var(--border);}
+.sub-banner-text{flex:1;min-width:0;}
+.sub-banner-red{background:var(--red-soft);color:var(--red);}
+.sub-banner-amber{background:var(--amber-soft);color:var(--amber);}
+.sub-banner .btn{flex-shrink:0;min-height:34px;}
+.sub-banner-x{width:28px;height:28px;flex-shrink:0;}
+.sub-page{display:flex;flex-direction:column;gap:12px;padding-bottom:24px;}
+.sub-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;font-size:14px;}
+.sub-muted{color:var(--text-2);font-size:13px;}
+.sub-note{padding:0 4px;}
+.sub-section-title{display:flex;align-items:center;gap:6px;font-weight:700;font-size:14px;margin-top:6px;}
+.sub-plans{display:grid;grid-template-columns:1fr;gap:10px;}
+.sub-plan{display:flex;flex-direction:column;gap:8px;}
+.sub-plan-name{font-weight:700;font-size:16px;}
+.sub-plan-price{font-size:26px;font-weight:800;}
+.sub-expired{display:flex;gap:12px;align-items:flex-start;border-color:rgba(220,38,38,.3);background:var(--red-soft);color:var(--red);}
+.sub-expired-title{font-weight:800;margin-bottom:2px;}
+.sub-free{display:flex;gap:12px;align-items:center;padding:12px;border-radius:12px;background:var(--green-soft);color:var(--green);margin-top:6px;}
+.sub-pay{display:flex;flex-direction:column;gap:6px;}
+.sub-pay-main{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.plat-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.plat-tile{padding:12px;}
+.plat-num{font-size:20px;font-weight:800;}
+.plat-search{display:flex;align-items:center;gap:8px;}
+.plat-row{display:flex;flex-direction:column;gap:4px;text-align:left;width:100%;cursor:pointer;}
+.plat-form{display:flex;gap:8px;}
+.plat-form .form-input{flex:1;min-width:0;}

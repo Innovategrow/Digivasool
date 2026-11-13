@@ -17,6 +17,9 @@ with every record scoped to its organisation (application filters + Postgres row
 See [docs/MULTI_TENANT_MIGRATION.md](docs/MULTI_TENANT_MIGRATION.md) for the architecture, the
 production migration runbook and what is still manual.
 
+Subscriptions (7-day trial, Monthly/Annual plans via Razorpay, three lifetime-free numbers, read-only mode, platform
+dashboard) and the Phase 2 security hardening: see [docs/SUBSCRIPTIONS_AND_SECURITY.md](docs/SUBSCRIPTIONS_AND_SECURITY.md).
+
 Roles:
 
 - **Owner**: the organisation's first admin; also adds admins, transfers ownership, deletes the organisation.

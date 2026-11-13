@@ -83,7 +83,7 @@ def issue_short_token(typ: str, phone: str, name: str = "") -> str:
     if typ not in ("select", "register"):
         raise ValueError("Unknown token type")
     now = int(time.time())
-    return _encode({"typ": typ, "sub": phone, "phone_number": phone, "name": name,
+    return _encode({"typ": typ, "sub": phone, "phone_number": phone, "name": name, "jti": secrets.token_urlsafe(12),
                     "iat": now, "exp": now + SHORT_TTL_SECONDS})
 
 

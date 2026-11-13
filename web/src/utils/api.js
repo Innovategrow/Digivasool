@@ -35,7 +35,16 @@ export function setBusiness(id) {
 
 // Forget everything tied to the signed-in organisation (session, chosen book, cached books).
 export function clearSession() {
-  ['dk_user', 'dk_business', 'dk_books'].forEach(k => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
+  ['dk_user', 'dk_business', 'dk_books', 'dk_notifications_read_at'].forEach(k => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
+  // Cached app data belongs to ONE organisation: never let the next sign-in on this device paint it.
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('dk_app_data')).forEach(k => localStorage.removeItem(k));
+  } catch { /* ignore */ }
+}
+
+// The organisation of the saved session (display/cache namespacing only - the server decides access).
+export function getOrgId() {
+  return savedUser()?.organization?.id || '';
 }
 
 export function getAuthHeaders() {
@@ -71,6 +80,10 @@ export async function apiFetch(path, options = {}) {
     // Session missing or expired — send the user back to the login screen.
     clearSession();
     if (!window.location.pathname.startsWith('/login')) window.location.assign('/login');
+  }
+  if (res.status === 402) {
+    // The server refused a write because the trial/subscription ended: let the app refresh its banner.
+    try { window.dispatchEvent(new Event('dv:subscription-blocked')); } catch { /* ignore */ }
   }
   return res;
 }

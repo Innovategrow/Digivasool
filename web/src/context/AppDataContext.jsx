@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { apiFetch, getBusiness, newIdempotencyKey, readError } from '../utils/api';
+import { apiFetch, getBusiness, getOrgId, newIdempotencyKey, readError } from '../utils/api';
 
 // ── Coimbatore collection areas (location-wise sorting & filtering) ───────
 export const ZONES = [
@@ -175,7 +175,7 @@ const READ_KEY = 'dk_notifications_read_at';
 const EMPTY_RAW = { loans: [], payments: [], expenses: [], capital: [], staff: [] };
 
 // Last successful load, kept per book so the app can paint instantly while fresh data loads.
-const cacheKey = () => `dk_app_data_${getBusiness()}`;
+const cacheKey = () => `dk_app_data_${getOrgId()}_${getBusiness()}`;   // per organisation AND book
 function readCache() {
   try {
     const cached = JSON.parse(localStorage.getItem(cacheKey()) || 'null');

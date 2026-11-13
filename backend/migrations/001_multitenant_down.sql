@@ -5,6 +5,9 @@
 
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE oid = 'documents'::regclass AND relforcerowsecurity) THEN
+    RAISE EXCEPTION 'Run 002_force_rls_down first (python scripts/migrate_security.py rollback): FORCE RLS would hide the rows from this script.';
+  END IF;
   IF EXISTS (SELECT 1 FROM documents WHERE org_id NOT IN ('ORG_001', '__platform__'))
      OR EXISTS (SELECT 1 FROM files WHERE org_id <> 'ORG_001') THEN
     RAISE EXCEPTION 'Rollback refused: other organisations already hold data. Restore from backup instead.';

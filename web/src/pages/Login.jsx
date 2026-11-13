@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, Phone, ArrowLeft, Languages, Wrench, Building2, ChevronRight, User, Plus } from 'lucide-react';
+import { ShieldCheck, Phone, ArrowLeft, Languages, Wrench, Building2, ChevronRight, User, Plus, UserPlus, Clock } from 'lucide-react';
 
 const EMPTY_OTP = ['', '', '', '', '', ''];
 const ROLE_LABEL = { OWNER: 'Owner', ADMIN: 'Admin', COLLECTOR: 'Collector', BORROWER: 'Borrower' };
@@ -18,7 +18,11 @@ async function post(path, body) {
 export default function Login() {
   const { login } = useAuth();
   const { t, language, setLanguage, LANGUAGES } = useLanguage();
-  const [step, setStep] = useState('phone');           // phone | otp | select | register
+  const [step, setStep] = useState('phone');           // phone | otp | select | register | join | sent
+  const [pending, setPending] = useState([]);          // join requests still waiting for an admin
+  const [joinCode, setJoinCode] = useState('');
+  const [joinName, setJoinName] = useState('');
+  const [sentMessage, setSentMessage] = useState('');
   const [contact, setContact] = useState('');
   const [otp, setOtp] = useState(EMPTY_OTP);
   const [devOtp, setDevOtp] = useState('');
@@ -39,6 +43,7 @@ export default function Login() {
   const reset = () => {
     setStep('phone'); setOtp(EMPTY_OTP); setDevOtp(''); setError(''); setOrgs([]);
     setSelectionToken(''); setRegistrationToken(''); setOrgName(''); setAdminName('');
+    setPending([]); setJoinCode(''); setJoinName(''); setSentMessage('');
   };
 
   const requestOtp = (e) => {
@@ -59,6 +64,7 @@ export default function Login() {
       try {
         const data = await post('/api/auth/verify-otp', { contact: contact.trim(), otp: code });
         if (data.status === 'ok') return login(data);
+        setPending(data.pending_requests || []);
         if (data.status === 'select_org') { setOrgs(data.organizations); setSelectionToken(data.selection_token); setStep('select'); return; }
         setRegistrationToken(data.registration_token); setStep('register');
       } catch (err) {
@@ -78,6 +84,16 @@ export default function Login() {
       login(await post('/api/organizations/register', {
         registration_token: registrationToken || selectionToken, organization_name: orgName.trim(), admin_name: adminName.trim(),
       }));
+    });
+  };
+
+  const sendJoinRequest = (e) => {
+    e.preventDefault();
+    run(async () => {
+      const data = await post('/api/organizations/join-request', {
+        registration_token: registrationToken || selectionToken, organization_code: joinCode.trim(), name: joinName.trim(),
+      });
+      setSentMessage(data.message); setStep('sent');
     });
   };
 
@@ -102,7 +118,10 @@ export default function Login() {
     </button>
   );
   const alert = error && <div className="login-error" role="alert">{error}</div>;
-  const stepIndex = { phone: 0, otp: 1, select: 2, register: 2 }[step];
+  const stepIndex = { phone: 0, otp: 1, select: 2, register: 2, join: 2, sent: 2 }[step];
+  const pendingNote = pending.length > 0 && (
+    <div className="login-hint" style={{ marginBottom: 12 }}><Clock size={13} /> Waiting for approval: {pending.map(p => p.organization_name).join(', ')}. You can sign in once an admin approves.</div>
+  );
 
   return (
     <div className="app-scroll"><div className="login-screen">
@@ -191,7 +210,9 @@ export default function Login() {
                 <ChevronRight size={18} style={{ color: 'var(--text-2)' }} />
               </button>
             ))}
+            {pendingNote}
             <button type="button" className="login-link" onClick={() => setStep('register')}><Plus size={14} /> Create a new organisation</button>
+            <button type="button" className="login-link" onClick={() => setStep('join')}><UserPlus size={14} /> Join another organisation</button>
             {alert}
           </div>
         )}
@@ -219,14 +240,53 @@ export default function Login() {
                   value={adminName} onChange={e => setAdminName(e.target.value)} placeholder="e.g. Rahul" />
               </div>
             </div>
-            <p className="login-hint" style={{ marginBottom: 14 }}>
-              Collector or borrower? Your lender adds your number — ask them, then sign in again.
-            </p>
+            {pendingNote}
             {alert}
             <button id="register-org-btn" type="submit" className="save-btn" disabled={loading || orgName.trim().length < 2 || adminName.trim().length < 2}>
               {loading ? 'Creating…' : 'Create organisation →'}
             </button>
+            <button type="button" className="login-link" onClick={() => { setError(''); setStep('join'); }}>
+              <UserPlus size={14} /> Collector or staff? Ask to join an existing organisation instead
+            </button>
           </form>
+        )}
+
+        {step === 'join' && (
+          <form onSubmit={sendJoinRequest}>
+            {back(() => setStep(selectionToken ? 'select' : 'register'), 'Back')}
+            <h2 className="login-title" style={{ textAlign: 'left' }}>Join an organisation</h2>
+            <p className="login-sub" style={{ textAlign: 'left' }}>
+              Ask the owner or an admin for the organisation code (shown on their Staff screen). They will get your request and must approve it before you can sign in.
+            </p>
+            <div className="form-group">
+              <label className="form-label" htmlFor="join-code">Organisation code</label>
+              <div style={{ position: 'relative' }}>
+                <Building2 size={18} className="login-field-icon" />
+                <input required id="join-code" className="form-input" style={{ paddingLeft: 42, textTransform: 'uppercase' }} minLength={3} maxLength={20}
+                  value={joinCode} onChange={e => setJoinCode(e.target.value)} placeholder="e.g. ORG_005" autoFocus />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="join-name">Your name</label>
+              <div style={{ position: 'relative' }}>
+                <User size={18} className="login-field-icon" />
+                <input required id="join-name" className="form-input" style={{ paddingLeft: 42 }} minLength={2} maxLength={100}
+                  value={joinName} onChange={e => setJoinName(e.target.value)} placeholder="e.g. Rahul" />
+              </div>
+            </div>
+            {alert}
+            <button id="send-join-btn" type="submit" className="save-btn" disabled={loading || joinCode.trim().length < 3 || joinName.trim().length < 2}>
+              {loading ? 'Sending…' : 'Send request →'}
+            </button>
+          </form>
+        )}
+
+        {step === 'sent' && (
+          <div>
+            <h2 className="login-title">Request sent</h2>
+            <p className="login-sub">{sentMessage}</p>
+            <button type="button" className="save-btn" onClick={reset}>Back to sign in</button>
+          </div>
         )}
       </div>
 

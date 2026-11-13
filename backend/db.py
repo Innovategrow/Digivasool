@@ -627,9 +627,11 @@ def append_reminders_db(reminders: List[Dict[str, Any]]):
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
-def get_dashboard_summary_db() -> Dict[str, Any]:
+def get_dashboard_summary_db(collector_name: Optional[str] = None) -> Dict[str, Any]:
+    """Organisation-wide summary for admins. With `collector_name` (a collector's own view) only that person's
+    collections and assigned borrowers are counted and the ledger totals / other collectors are left out."""
     db = get_db_client()
-    txs = [d.to_dict() for d in db.collection("transactions").get()]
+    txs = [] if collector_name else [d.to_dict() for d in db.collection("transactions").get()]
     gave = [t for t in txs if t.get("type") == "GAVE"]
     got = [t for t in txs if t.get("type") == "GOT"]
 
@@ -638,13 +640,19 @@ def get_dashboard_summary_db() -> Dict[str, Any]:
     collector_totals: Dict[str, float] = {}
     for doc in db.collection("loan_payments").get():
         p = doc.to_dict()
+        if collector_name and p.get("collector_name") != collector_name:
+            continue
         if (p.get("payment_date") or "").startswith(today_str):
             today_collected += p.get("amount", 0) or 0
         cn = p.get("collector_name")
         if cn:
             collector_totals[cn] = collector_totals.get(cn, 0) + (p.get("amount", 0) or 0)
 
-    active_loans = sum(1 for d in db.collection("loans").get() if d.to_dict().get("status") == "active")
+    def _mine(loan: Dict[str, Any]) -> bool:
+        return not collector_name or collector_name in (loan.get("assigned_collectors") or [])
+
+    active_loans = sum(1 for d in db.collection("loans").get()
+                       if d.to_dict().get("status") == "active" and _mine(d.to_dict()))
 
     from services.reminders import WHATSAPP_REMINDER_DAY_OFFSETS
     return {

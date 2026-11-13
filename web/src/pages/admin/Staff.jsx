@@ -172,6 +172,11 @@ export default function Staff() {
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} />{t('addStaff')}</button>
       </div>
 
+      <div className="card" style={{ marginBottom: 16, fontSize: 13 }}>
+        New staff can ask to join with your organisation code <strong style={{ letterSpacing: .5 }}>{user?.organization?.id}</strong>.
+        Their request appears under Notifications (🔔) for you to approve or deny. Or add them yourself with “{t('addStaff')}”.
+      </div>
+
       {/* Staff Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 32 }}>
         {state.staff.map(s => {
@@ -320,8 +325,15 @@ export default function Staff() {
         onConfirm={async () => {
           setTransferBusy(true);
           try {
-            const res = await apiFetch(`/api/staff/${encodeURIComponent(transfer.id)}/make-owner`, { method: 'POST' });
-            const data = await res.json().catch(() => ({}));
+            const url = `/api/staff/${encodeURIComponent(transfer.id)}/make-owner`;
+            let res = await apiFetch(url, { method: 'POST' });
+            let data = await res.json().catch(() => ({}));
+            if (res.status === 409 && data.code === 'exemption_loss_confirmation_required') {
+              // Lifetime-free access belongs to the current owner's number: make the owner confirm it will end.
+              if (!window.confirm(data.detail)) { setTransfer(null); return; }
+              res = await apiFetch(`${url}?confirm_exemption_loss=true`, { method: 'POST' });
+              data = await res.json().catch(() => ({}));
+            }
             if (!res.ok) throw new Error(data.detail || 'Could not transfer ownership');
             showToast(`${transfer.name} is now the owner`);
             setTransfer(null);

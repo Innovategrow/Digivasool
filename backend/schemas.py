@@ -441,3 +441,43 @@ class StaffCreate(BaseModel):
     @classmethod
     def _v_phone(cls, v):
         return _clean_phone(v, "Phone")
+
+
+# ── Joining an existing organisation (needs approval) ─────────────────────────
+
+class JoinRequestCreate(BaseModel):
+    registration_token: str          # a register or select token: proof the phone passed OTP
+    organization_code: str = Field(..., min_length=3, max_length=20)
+    name: str = Field(..., min_length=2, max_length=100)
+
+
+class JoinRequestApprove(BaseModel):
+    role: Literal["collector", "admin"] = "collector"
+    name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+
+
+# ── Subscriptions ──────────────────────────────────────────────────────────────
+
+class CreateOrderRequest(BaseModel):
+    plan_type: str = Field(..., min_length=3, max_length=20)
+
+
+class RenewRequest(BaseModel):
+    plan_type: Optional[str] = Field(default=None, max_length=20)
+
+
+class VerifyPaymentRequest(BaseModel):
+    razorpay_order_id: str = Field(..., min_length=5, max_length=64)
+    razorpay_payment_id: str = Field(..., min_length=5, max_length=64)
+    razorpay_signature: str = Field(..., min_length=10, max_length=200)
+
+
+class ExtendTrialRequest(BaseModel):
+    days: int = Field(..., ge=1, le=365)
+    reason: str = Field(..., min_length=3, max_length=300)
+
+
+class SetSubscriptionStatusRequest(BaseModel):
+    status: str = Field(..., pattern="^(trial|active|cancelled|grandfathered)$")
+    end_at: Optional[str] = Field(default=None, max_length=40)
+    reason: str = Field(..., min_length=3, max_length=300)

@@ -19,11 +19,14 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
+from starlette.concurrency import run_in_threadpool
 
 load_dotenv()
 
 from auth import decode_token, issue_short_token, issue_token
 import identity
+import subscriptions
+from subscriptions import SubscriptionError
 from db import (
     LEGACY_ORG_ID,
     OrgContextError,
@@ -80,6 +83,8 @@ from schemas import (
     RegisterOrgRequest,
     SelectOrgRequest,
     SwitchOrgRequest,
+    JoinRequestCreate,
+    JoinRequestApprove,
     OTPVerify,
     PaymentResponse,
     WhatsAppLinks,
@@ -87,6 +92,11 @@ from schemas import (
     BorrowerOTPRequest,
     BorrowerOTPVerify,
     LoanMergeRequest,
+    CreateOrderRequest,
+    RenewRequest,
+    VerifyPaymentRequest,
+    ExtendTrialRequest,
+    SetSubscriptionStatusRequest,
 )
 from services.reminders import (
     WHATSAPP_REMINDER_DAY_OFFSETS,
@@ -179,10 +189,11 @@ def serve_upload(file_path: str, request: Request):
         stored = load_file(file_path)
     if stored:
         data, content_type = stored
-        return Response(content=data, media_type=content_type, headers={"Cache-Control": "private, max-age=600"})
+        return Response(content=data, media_type=content_type,
+                        headers={"Cache-Control": "private, max-age=600", "X-Content-Type-Options": "nosniff"})
     candidate = os.path.abspath(os.path.join(UPLOAD_DIR, file_path))
     if candidate.startswith(os.path.abspath(UPLOAD_DIR) + os.sep) and os.path.isfile(candidate):
-        return FileResponse(candidate, headers={"Cache-Control": "private, max-age=600"})
+        return FileResponse(candidate, headers={"Cache-Control": "private, max-age=600", "X-Content-Type-Options": "nosniff"})
     raise HTTPException(status_code=404, detail="Not found")
 
 
@@ -305,8 +316,48 @@ def _safe_org():
         return None
 
 
+class SubscriptionMiddleware:
+    """Read-only mode, enforced on the server for EVERY write.
+
+    When an organisation's trial or subscription has ended, any POST/PUT/PATCH/DELETE under /api/ is refused
+    (HTTP 402) - GETs keep working so records, reports and exports stay viewable. It is deny-by-default: a new
+    write endpoint is blocked in read-only mode unless it is listed here. Runs inside TenantMiddleware (the
+    organisation comes from the verified token) and outside the business/upload middlewares."""
+
+    WRITES = ("POST", "PUT", "PATCH", "DELETE")
+    # login/OTP/organisation selection, subscription checkout + renewal, the payment webhook, platform admin,
+    # and leaving / deleting your own account must keep working when the subscription has ended.
+    ALWAYS_ALLOWED = ("/api/auth/", "/api/organizations/", "/api/subscriptions/", "/api/webhooks/",
+                      "/api/platform/", "/api/account/")
+
+    def __init__(self, app):
+        self.inner = app
+
+    @classmethod
+    def _exempt_path(cls, method: str, path: str) -> bool:
+        if path.startswith("/api/organizations/join-requests/") and path.endswith("/approve"):
+            return False                                                       # adding a person is a write
+        return (path.startswith(cls.ALWAYS_ALLOWED)
+                or path == "/api/admin/sheet-backup/sync"                      # a backup, not a financial write
+                or (method == "DELETE" and path.startswith("/api/staff/")))    # removing someone's access is always allowed
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["method"] in self.WRITES and scope["path"].startswith("/api/") \
+                and not self._exempt_path(scope["method"], scope["path"]):
+            org = _safe_org()
+            if org:
+                access = await run_in_threadpool(subscriptions.access_for_org, org)
+                if access["read_only"]:
+                    resp = JSONResponse(status_code=402, content={
+                        "detail": subscriptions.read_only_message(access["state"]),
+                        "code": "subscription_read_only", "state": access["state"]})
+                    return await resp(scope, receive, send)
+        await self.inner(scope, receive, send)
+
+
 app.add_middleware(UploadSigningMiddleware)
 app.add_middleware(BusinessMiddleware)
+app.add_middleware(SubscriptionMiddleware)
 app.add_middleware(TenantMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -316,9 +367,15 @@ def on_startup():
     if _env_flag("OTP_DEV_MODE") and os.environ.get("ENVIRONMENT", "").lower() == "production":
         raise RuntimeError("OTP_DEV_MODE must be false when ENVIRONMENT=production (it returns OTPs to the caller).")
     init_db()
+    subscriptions.sync_plans()  # mirror the configured plan prices into the database (no organisation data touched)
     identity.seed_legacy_org()  # idempotent: gives every existing admin/collector a membership in ORG_001
     sheets_backup.request_sync()  # fill/refresh the Google Sheet backup shortly after every start
     print(f"DigiVasool API ready — storage={get_backend_name()} otp_dev_mode={OTP_DEV_MODE}")
+
+
+@app.exception_handler(SubscriptionError)
+async def subscription_error_handler(request: Request, exc: SubscriptionError):
+    return JSONResponse(status_code=exc.status, content={"detail": exc.detail, "code": exc.code})
 
 
 @app.exception_handler(RequestValidationError)
@@ -376,6 +433,14 @@ def require_admin(user=Depends(get_current_user)):
 def require_owner(user=Depends(get_current_user)):
     if user["member_role"] != identity.OWNER:
         raise HTTPException(status_code=403, detail="Only the organisation owner can do this")
+    return user
+
+
+def require_platform_admin(user=Depends(get_current_user)):
+    """DigiVasool operators only (PLATFORM_ADMIN_PHONES, separate from the exempt numbers). The phone in the
+    session was verified by OTP; an organisation Owner/Admin is NOT a platform admin."""
+    if not subscriptions.is_platform_admin(user["phone"]):
+        raise HTTPException(status_code=403, detail="Platform administrator access required")
     return user
 
 
@@ -556,13 +621,29 @@ def _matching_member(phone: str, organization_id: str, role: Optional[str]) -> D
     return matches[0]
 
 
+def _client_ip(request: Request) -> str:
+    """The caller's IP for rate limiting. Behind a reverse proxy (Render) the socket address is the proxy's, which
+    would make every user share one limit. TRUSTED_PROXY_HOPS=N (default 0 = use the socket address) takes the N-th
+    entry from the RIGHT of X-Forwarded-For, i.e. the one added by your own proxy, which a client cannot forge."""
+    peer = request.client.host if request.client else "?"
+    try:
+        hops = int(os.environ.get("TRUSTED_PROXY_HOPS", "0") or 0)
+    except ValueError:
+        hops = 0
+    if hops > 0:
+        parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+        if len(parts) >= hops:
+            return parts[-hops]
+    return peer
+
+
 @app.post("/api/auth/request-otp")
 async def request_otp(body: OTPRequest, request: Request):
     """Step 1: send an OTP to any valid mobile number (an unknown number may register a new organisation)."""
     contact = body.contact.strip()
     if len(normalize_phone(contact)) != 10:
         raise HTTPException(status_code=400, detail="Enter a valid 10-digit mobile number.")
-    ip = request.client.host if request.client else "?"
+    ip = _client_ip(request)
     if not (otp_store.allow(f"otp-phone:{normalize_phone(contact)}", 5) and otp_store.allow(f"otp-ip:{ip}", 150)):
         raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait a few minutes and try again.")
     otp = otp_store.generate_and_store(_otp_key("login", contact))
@@ -574,18 +655,20 @@ async def verify_otp(body: OTPVerify, request: Request):
     """Step 2: verify the OTP. Returns a session (one membership), an organisation choice (several),
     or a registration token (none)."""
     contact = body.contact.strip()
-    ip = request.client.host if request.client else "?"
+    ip = _client_ip(request)
     if not otp_store.allow(f"verify-ip:{ip}", 300):
         raise HTTPException(status_code=429, detail="Too many attempts. Please wait a few minutes.")
     if not otp_store.verify(_otp_key("login", contact), body.otp):
         raise HTTPException(status_code=401, detail="Wrong or expired OTP. Please try again.")
     members = identity.all_memberships_for_phone(contact)
+    pending = identity.pending_join_requests_for_phone(contact)    # asked to join somewhere, waiting for approval
     if not members:
-        return {"status": "register", "registration_token": issue_short_token("register", contact)}
+        return {"status": "register", "registration_token": issue_short_token("register", contact),
+                "pending_requests": pending}
     if len(members) == 1:
         return _login_response(members[0], contact)
     return {"status": "select_org", "selection_token": issue_short_token("select", contact),
-            "organizations": [_org_summary(m) for m in members]}
+            "organizations": [_org_summary(m) for m in members], "pending_requests": pending}
 
 
 @app.post("/api/organizations/select")
@@ -605,12 +688,76 @@ async def register_organization(body: RegisterOrgRequest):
     if not claims:
         raise HTTPException(status_code=401, detail="This step expired. Please verify your number again.")
     phone = claims["phone_number"]
+    if not identity.consume_token(claims):      # one verified phone = one registration (no replaying the token)
+        raise HTTPException(status_code=401, detail="This step was already used. Please verify your number again.")
     try:
         org = identity.create_org(body.organization_name, phone, body.admin_name)
     except ValueError as e:
+        identity.release_token(claims)
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        identity.release_token(claims)           # nothing was created (create_org rolls back): let them retry
+        raise
     member = identity.get_membership(identity.membership_id(org["id"], phone))
     return _login_response({**member, "organization_name": org["organization_name"]}, phone)
+
+
+@app.post("/api/organizations/join-request")
+async def request_to_join(body: JoinRequestCreate):
+    """A verified phone asks to join an existing organisation. It gets NO access: an admin/owner of that
+    organisation must approve it first (they see it under Notifications)."""
+    claims = decode_token(body.registration_token, "register") or decode_token(body.registration_token, "select")
+    if not claims:
+        raise HTTPException(status_code=401, detail="This step expired. Please verify your number again.")
+    phone = claims["phone_number"]
+    if not otp_store.allow(f"join:{normalize_phone(phone)}", 5, 3600):
+        raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+    try:
+        req = identity.create_join_request(body.organization_code.strip().upper(), phone, body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "pending", "organization_name": req["organization_name"],
+            "message": f"Your request was sent to {req['organization_name']}. You can sign in once an admin approves it."}
+
+
+@app.get("/api/organizations/join-requests")
+async def list_join_requests(user=Depends(require_admin)):
+    """People waiting for approval to join YOUR organisation."""
+    return [{"id": r["id"], "name": r["name"], "phone": r["phone"], "requested_at": r["requested_at"]}
+            for r in identity.pending_join_requests(user["org_id"])]
+
+
+@app.post("/api/organizations/join-requests/{request_id}/approve")
+async def approve_join_request(request_id: str, body: JoinRequestApprove, user=Depends(require_admin)):
+    """Approve as a collector (any admin) or as an admin (owner only). Creates the normal membership."""
+    role = identity.ADMIN if body.role == "admin" else identity.COLLECTOR
+    _assert_can_manage(user, role)
+    req = identity.get_join_request(user["org_id"], request_id)
+    if not req or req.get("status") != "pending":
+        raise HTTPException(status_code=404, detail="Request not found")
+    name = (body.name or req["name"]).strip()
+    if role == identity.COLLECTOR and any(p["name"].strip().lower() == name.lower() for p in _all_collectors()):
+        raise HTTPException(status_code=400, detail="A collector with this name already exists. Give them a different name.")
+    try:
+        member = identity.resolve_join_request(user["org_id"], request_id, True, user["name"], role, name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Request not found")
+    get_db_client().collection("staff").document(member["id"]).set({
+        "id": member["id"], "name": name, "role": body.role, "phone": req["phone"], "email": "", "target": 0,
+        "is_active": True, "created_at": _now(), "created_by": user["name"]})
+    identity.clear_cache()
+    _write_audit(user["name"], "JOIN_APPROVED", f"Approved {name} ({req['phone']}) as {body.role}")
+    return {"status": "approved", "role": body.role}
+
+
+@app.post("/api/organizations/join-requests/{request_id}/deny")
+async def deny_join_request(request_id: str, user=Depends(require_admin)):
+    try:
+        req = identity.resolve_join_request(user["org_id"], request_id, False, user["name"])
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Request not found")
+    _write_audit(user["name"], "JOIN_DENIED", f"Denied {req['name']} ({req['phone']})")
+    return {"status": "denied"}
 
 
 @app.get("/api/organizations/my-memberships")
@@ -727,6 +874,8 @@ async def upload_proof(loan_id: str, file: UploadFile = File(...), user=Depends(
     """Upload a proof document for a loan/user."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", loan_id or ""):
         raise HTTPException(status_code=400, detail="Invalid loan id")
+    if file.content_type not in ALLOWED_PROOF_TYPES:
+        raise HTTPException(status_code=400, detail="Only image or PDF files are allowed")
     url = _save_upload(file, loan_id)
     _write_audit(user["name"], "UPLOAD_PROOF", f"Document uploaded for loan {loan_id}: {os.path.basename(url)}")
     return {"status": "success", "file_path": url}
@@ -880,7 +1029,8 @@ async def create_transaction(
 @app.get("/api/dashboard/", response_model=DashboardSummaryResponse)
 async def get_dashboard_summary(user=Depends(require_role("admin", "collector"))):
     """Return overview summary including today's collections and by-collector breakdown."""
-    return DashboardSummaryResponse(**get_dashboard_summary_db())
+    # A collector only ever sees their own numbers, never other collectors' totals or the organisation ledger.
+    return DashboardSummaryResponse(**get_dashboard_summary_db(user["name"] if user["role"] == "collector" else None))
 
 
 @app.get("/api/admin/lendings/", response_model=List[AdminLendingRecord])
@@ -1048,14 +1198,17 @@ async def delete_staff(staff_id: str, user=Depends(require_admin)):
 
 
 @app.post("/api/staff/{staff_id}/make-owner")
-async def transfer_ownership(staff_id: str, user=Depends(require_owner)):
-    """Owner hands ownership to another ADMIN of the organisation (the previous owner becomes an admin)."""
+async def transfer_ownership(staff_id: str, confirm_exemption_loss: bool = False, user=Depends(require_owner)):
+    """Owner hands ownership to another ADMIN of the organisation (the previous owner becomes an admin).
+    A lifetime-free organisation can only go to a non-exempt number if the owner confirms that its free access ends."""
     target = _member_in_org(staff_id)
     if target is None or target["role"] != identity.ADMIN:
         raise HTTPException(status_code=400, detail="Ownership can only be given to one of your admins")
+    subscriptions.check_ownership_transfer(user["org_id"], target.get("phone", ""), confirm_exemption_loss)
     identity.update_membership(target["id"], role=identity.OWNER)
     identity.update_membership(user["membership_id"], role=identity.ADMIN)
     identity.clear_cache()
+    subscriptions.on_ownership_transferred(user["org_id"], target.get("phone", ""), actor=user["name"])
     _write_audit(user["name"], "OWNERSHIP_TRANSFERRED", f"Ownership given to {target['name']}")
     return {"status": "ok", "message": f"{target['name']} is now the owner. Sign in again to refresh your permissions."}
 
@@ -1961,6 +2114,105 @@ async def get_cashflow_forecast(user=Depends(require_admin)):
     }
 
 
+# ==============================
+# SUBSCRIPTIONS (owner) + PAYMENT WEBHOOK + PLATFORM ADMIN
+# ==============================
+# Subscription payments are completely separate from borrower payments: different collections, different
+# endpoints, and they live in the platform scope that tenant data can never reach.
+
+@app.get("/api/subscriptions/current")
+def subscription_current(user=Depends(get_current_user)):
+    """Staff get the access state; the owner also gets plan, dates and payment availability."""
+    return subscriptions.describe(user["org_id"], owner=user["member_role"] == identity.OWNER, phone=user["phone"])
+
+
+@app.get("/api/subscriptions/plans")
+def subscription_plans(user=Depends(require_owner)):
+    return [{k: p[k] for k in ("id", "name", "plan_type", "price", "currency", "billing_interval", "duration_days")}
+            for p in subscriptions.get_plans()]
+
+
+def _start_checkout(user, plan_type: str):
+    order = subscriptions.create_payment_order(user["org_id"], plan_type, user["name"])
+    _write_audit(user["name"], "SUBSCRIPTION_ORDER_CREATED", f"{order['plan']['name']} plan checkout started")
+    return order
+
+
+@app.post("/api/subscriptions/create-order")
+def subscription_create_order(body: CreateOrderRequest, user=Depends(require_owner)):
+    return _start_checkout(user, body.plan_type)
+
+
+@app.post("/api/subscriptions/renew")
+def subscription_renew(body: RenewRequest, user=Depends(require_owner)):
+    """Manual renewal = a new checkout order for the chosen plan (default: the current plan, else monthly)."""
+    current = subscriptions.get_subscription(user["org_id"]).get("plan_id")
+    plan_type = body.plan_type or (current if current in ("monthly", "annual") else "monthly")
+    return _start_checkout(user, plan_type)
+
+
+@app.post("/api/subscriptions/verify-payment")
+def subscription_verify_payment(body: VerifyPaymentRequest, user=Depends(require_owner)):
+    """Called by the browser after Checkout. The signature is verified here and the payment is re-checked with
+    Razorpay; the browser saying "success" is never enough."""
+    payment = subscriptions.verify_checkout(user["org_id"], body.razorpay_order_id, body.razorpay_payment_id,
+                                            body.razorpay_signature)
+    if payment["status"] == "paid":
+        _write_audit(user["name"], "SUBSCRIPTION_PAID", f"{payment.get('plan_name')} plan paid, valid until {payment.get('period_end')}")
+    return {"payment": payment, "subscription": subscriptions.describe(user["org_id"], owner=True, phone=user["phone"])}
+
+
+@app.get("/api/subscriptions/payment-history")
+def subscription_payment_history(user=Depends(require_owner)):
+    return subscriptions.payment_history(user["org_id"])
+
+
+@app.get("/api/subscriptions/invoices")
+def subscription_invoices(user=Depends(require_owner)):
+    return subscriptions.invoices(user["org_id"])
+
+
+@app.post("/api/subscriptions/cancel")
+def subscription_cancel(user=Depends(require_owner)):
+    out = subscriptions.cancel(user["org_id"], user["name"])
+    _write_audit(user["name"], "SUBSCRIPTION_CANCELLED", "Renewal turned off; access continues until the paid-through date")
+    return out
+
+
+@app.post("/api/webhooks/razorpay", include_in_schema=False)
+async def razorpay_webhook(request: Request):
+    """Razorpay -> us. No login: authenticity is the HMAC of the RAW body with the webhook secret."""
+    raw = await request.body()
+    return await run_in_threadpool(
+        subscriptions.handle_webhook, raw, request.headers.get("x-razorpay-signature", ""),
+        request.headers.get("x-razorpay-event-id", ""))
+
+
+@app.get("/api/platform/subscriptions")
+def platform_subscriptions(q: str = "", user=Depends(require_platform_admin)):
+    return subscriptions.platform_list(q)
+
+
+@app.get("/api/platform/subscriptions/analytics")
+def platform_subscription_analytics(user=Depends(require_platform_admin)):
+    return subscriptions.platform_analytics()
+
+
+@app.get("/api/platform/subscriptions/{org_id}")
+def platform_subscription_detail(org_id: str, user=Depends(require_platform_admin)):
+    return subscriptions.platform_detail(org_id)
+
+
+@app.post("/api/platform/subscriptions/{org_id}/extend-trial")
+def platform_extend_trial(org_id: str, body: ExtendTrialRequest, user=Depends(require_platform_admin)):
+    return subscriptions.extend_trial(org_id, body.days, f"{user['name']} ({user['phone']})", body.reason)
+
+
+@app.post("/api/platform/subscriptions/{org_id}/set-status")
+def platform_set_status(org_id: str, body: SetSubscriptionStatusRequest, user=Depends(require_platform_admin)):
+    return subscriptions.set_status(org_id, body.status, body.end_at, f"{user['name']} ({user['phone']})", body.reason)
+
+
 @app.get("/api/reminders/policy/")
 async def get_reminder_policy():
     return {
@@ -1972,7 +2224,9 @@ async def get_reminder_policy():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "storage": get_backend_name(), "sheet_backup": sheets_backup.status()}
+    # Public (used by the keep-alive ping): nothing about backups or configuration. Admins get that from
+    # /api/admin/sheet-backup.
+    return {"status": "ok", "storage": get_backend_name()}
 
 
 # ==============================

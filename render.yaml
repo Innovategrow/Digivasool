@@ -64,3 +64,27 @@ services:
       # (A Capacitor wrapper uses https://localhost; a Trusted Web Activity uses the site origin.)
       - key: CORS_ORIGINS
         value: https://digivasool.netlify.app
+      # ── Subscriptions & payments ─────────────────────────────────────────────────────────────
+      # Enter the three lifetime-free numbers here in the Render dashboard (never commit them).
+      - key: SUBSCRIPTION_EXEMPT_PHONES
+        sync: false
+      - key: PLATFORM_ADMIN_PHONES
+        sync: false
+      - key: SUBSCRIPTION_TRIAL_DAYS
+        value: "7"
+      - key: SUBSCRIPTION_CURRENCY
+        value: INR
+      # Placeholder prices in rupees - change in the dashboard when pricing is decided.
+      - key: MONTHLY_PLAN_PRICE
+        value: "499"
+      - key: ANNUAL_PLAN_PRICE
+        value: "4999"
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      # Number of proxies in front of the app (see docs/SUBSCRIPTIONS_AND_SECURITY.md). 0 until verified.
+      - key: TRUSTED_PROXY_HOPS
+        value: "0"

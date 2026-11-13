@@ -86,16 +86,132 @@ def create_org(name: str, owner_phone: str, owner_name: str) -> Dict[str, Any]:
     for _ in range(25):
         org_id = _next_org_id()
         record = {"id": org_id, "organization_name": name, "organization_code": org_id, "status": "active",
-                  "created_at": _now(), "updated_at": _now(), "owner_phone": phone_key(owner_phone)}
+                  "created_at": _now(), "updated_at": _now(), "owner_phone": phone_key(owner_phone),
+                  "subscription_managed": True}   # created after subscriptions existed (legacy orgs lack this)
         with platform_scope():
             if _db().collection("organizations").document(org_id).create(record):
                 break
     else:
         raise RuntimeError("Could not allocate an organisation id")
-    ensure_user(owner_phone, owner_name)
-    add_membership(org_id, owner_phone, owner_name, OWNER, created_by="self-registration")
+    import subscriptions   # imported here: subscriptions imports this module
+    try:
+        # Trial or lifetime-free, decided on the server from the OTP-verified owner phone (never from the request).
+        subscriptions.start_for_new_org(org_id, owner_phone)
+        ensure_user(owner_phone, owner_name)
+        add_membership(org_id, owner_phone, owner_name, OWNER, created_by="self-registration")
+    except Exception:
+        # All-or-nothing: never leave an organisation without an owner behind (it would be unreachable and
+        # would keep its id). Nothing else can reference it yet, so removing it is safe.
+        _discard_new_org(org_id, owner_phone)
+        raise
     # every organisation starts with its own empty Finance / Fund books (built-in, nothing to create)
     return record
+
+
+def _discard_new_org(org_id: str, owner_phone: str):
+    mid = membership_id(org_id, owner_phone)
+    with platform_scope():
+        for coll, doc in (("memberships", mid), ("organization_subscriptions", org_id), ("organizations", org_id)):
+            try:
+                _db().collection(coll).document(doc).delete()
+            except Exception:
+                pass
+    _index_remove(phone_key(owner_phone), mid)
+    _cache.pop(mid, None)
+
+
+# ── requests to join an organisation (need an admin's approval) ─────────────
+# A verified phone that is not (yet) in an organisation can ASK to join one. It gets no access until an
+# admin/owner of that organisation approves; approval creates the ordinary membership. One request per
+# (organisation, phone): asking twice never duplicates it.
+
+JOIN_REQUESTS = "join_requests"
+
+
+def join_request_id(org_id: str, phone: str) -> str:
+    return f"{org_id}:{phone_key(phone)}"
+
+
+def create_join_request(org_id: str, phone: str, name: str) -> Dict[str, Any]:
+    org = get_org(org_id)
+    if not org or org.get("status") != "active":
+        raise ValueError("No organisation found with that code")
+    name = (name or "").strip()
+    if len(name) < 2:
+        raise ValueError("Enter your name")
+    if not phone_key(phone):
+        raise ValueError("A valid phone number is required")
+    m = get_membership(membership_id(org_id, phone))
+    if m and m.get("status") == "active":
+        raise ValueError("You are already a member of this organisation. Sign in to continue.")
+    rid = join_request_id(org_id, phone)
+    with db_lock, platform_scope():
+        ref = _db().collection(JOIN_REQUESTS).document(rid)
+        snap = ref.get()
+        if snap.exists and snap.to_dict().get("status") == "pending":
+            return {**snap.to_dict(), "organization_name": org["organization_name"]}     # already asked: keep it
+        record = {"id": rid, "org_id": org_id, "phone": phone, "phone_key": phone_key(phone), "name": name,
+                  "status": "pending", "requested_at": _now(), "resolved_at": None, "resolved_by": None}
+        ref.set(record)
+    return {**record, "organization_name": org["organization_name"]}
+
+
+def pending_join_requests(org_id: str) -> List[Dict[str, Any]]:
+    with platform_scope():
+        rows = [d.to_dict() for d in _db().collection(JOIN_REQUESTS).where("org_id", "==", org_id).get()]
+    return sorted((r for r in rows if r.get("status") == "pending"), key=lambda r: r.get("requested_at", ""))
+
+
+def pending_join_requests_for_phone(phone: str) -> List[Dict[str, Any]]:
+    key = phone_key(phone)
+    with platform_scope():
+        rows = [d.to_dict() for d in _db().collection(JOIN_REQUESTS).where("phone_key", "==", key).get()]
+    out = []
+    for r in rows:
+        org = get_org(r["org_id"]) if r.get("status") == "pending" else None
+        if org and org.get("status") == "active":
+            out.append({"organization_name": org["organization_name"], "requested_at": r["requested_at"]})
+    return out
+
+
+def get_join_request(org_id: str, rid: str) -> Optional[Dict[str, Any]]:
+    with platform_scope():
+        snap = _db().collection(JOIN_REQUESTS).document(rid).get()
+        r = snap.to_dict() if snap.exists else None
+    return r if r and r.get("org_id") == org_id else None      # a request of another organisation looks like "not found"
+
+
+def resolve_join_request(org_id: str, rid: str, approve: bool, actor: str, role: str = COLLECTOR,
+                         name: str = "") -> Dict[str, Any]:
+    """Approve (creates the membership with `role`) or deny. Only a PENDING request of THIS organisation."""
+    with db_lock:
+        r = get_join_request(org_id, rid)
+        if not r or r.get("status") != "pending":
+            raise KeyError(rid)
+        member = None
+        if approve:
+            member = add_membership(org_id, r["phone"], (name or r["name"]).strip(), role, created_by=actor)
+        with platform_scope():
+            _db().collection(JOIN_REQUESTS).document(rid).set(
+                {**r, "status": "approved" if approve else "denied", "resolved_at": _now(), "resolved_by": actor,
+                 "role": role if approve else None})
+    return member or r
+
+
+# ── one-time tokens ─────────────────────────────────────────────────────────
+
+def consume_token(claims: Dict[str, Any]) -> bool:
+    """Mark a short-lived register/select token as used. False if it was already used (replay)."""
+    key = claims.get("jti") or f"{claims.get('phone_number', '')}:{claims.get('iat', '')}"   # tokens issued before jti existed
+    with platform_scope():
+        return _db().collection("used_tokens").document(f"register:{key}").create(
+            {"used_at": _now(), "phone_key": phone_key(claims.get("phone_number", "")), "exp": claims.get("exp")})
+
+
+def release_token(claims: Dict[str, Any]):
+    key = claims.get("jti") or f"{claims.get('phone_number', '')}:{claims.get('iat', '')}"
+    with platform_scope():
+        _db().collection("used_tokens").document(f"register:{key}").delete()
 
 
 def set_org_status(org_id: str, status: str):
@@ -136,8 +252,10 @@ def add_membership(org_id: str, phone: str, name: str, role: str, created_by: st
         ref = _db().collection("memberships").document(mid)
         if ref.create(record):
             _cache.pop(mid, None)
+            _index_add(phone_key(phone), mid)
             return record
         existing = ref.get().to_dict()
+        _index_add(phone_key(phone), mid)
         if only_if_missing:
             return existing
         # already there: reactivate if removed, never silently downgrade an existing higher role
@@ -174,12 +292,52 @@ def revoke_sessions(mid: str):
     update_membership(mid, sessions_revoked_before=time.time())
 
 
+# Phone -> membership ids, so a login does not scan every membership of every organisation.
+# Maintained by add_membership; built lazily (one scan, once per phone) for phones that existed before the index.
+
+def _index_ids(key: str) -> Optional[List[str]]:
+    with platform_scope():
+        snap = _db().collection("membership_index").document(key).get()
+        return list(snap.to_dict().get("ids", [])) if snap.exists else None
+
+
+def _index_add(key: str, mid: str):
+    with db_lock:
+        ids = _index_ids(key)
+        if ids is None:
+            ids = _scan_membership_ids(key)
+        if mid not in ids:
+            ids.append(mid)
+        with platform_scope():
+            _db().collection("membership_index").document(key).set({"ids": ids})
+
+
+def _index_remove(key: str, mid: str):
+    with db_lock:
+        ids = _index_ids(key)
+        if ids is not None and mid in ids:
+            with platform_scope():
+                _db().collection("membership_index").document(key).set({"ids": [i for i in ids if i != mid]})
+
+
+def _scan_membership_ids(key: str) -> List[str]:
+    with platform_scope():
+        return [d.to_dict()["id"] for d in _db().collection("memberships").where("phone_key", "==", key).get()]
+
+
 def staff_memberships_for_phone(phone: str) -> List[Dict[str, Any]]:
     key = phone_key(phone)
     if not key:
         return []
-    with platform_scope():
-        rows = [d.to_dict() for d in _db().collection("memberships").where("phone_key", "==", key).get()]
+    ids = _index_ids(key)
+    if ids is None:                                   # first time for this phone: build the index from one scan
+        with db_lock:
+            ids = _index_ids(key)
+            if ids is None:
+                ids = _scan_membership_ids(key)
+                with platform_scope():
+                    _db().collection("membership_index").document(key).set({"ids": ids})
+    rows = [m for m in (get_membership(i) for i in ids) if m]
     out = []
     for m in rows:
         if m.get("status") != "active":
