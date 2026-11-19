@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { API_BASE_URL } from '../config';
@@ -7,8 +7,16 @@ import { ShieldCheck, Phone, ArrowLeft, Languages, Wrench, Building2, ChevronRig
 const EMPTY_OTP = ['', '', '', '', '', ''];
 const ROLE_LABEL = { OWNER: 'Owner', ADMIN: 'Admin', COLLECTOR: 'Collector', BORROWER: 'Borrower' };
 
+// The free-tier server sleeps when idle and takes up to a minute to wake: allow for it, then fail clearly.
 async function post(path, body) {
-  const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 90000);
+  let res;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal });
+  } catch (err) {
+    throw new Error(err.name === 'AbortError' ? 'The server is taking too long. Please try again.' : 'Cannot reach the server. Check your internet connection and try again.');
+  } finally { clearTimeout(timer); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Something went wrong. Please try again.');
   return data;
@@ -33,11 +41,16 @@ export default function Login() {
   const [adminName, setAdminName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [waking, setWaking] = useState(false);
   const otpRefs = useRef([]);
+
+  // Wake the server as soon as the login screen opens, so the OTP request is not the one that waits.
+  useEffect(() => { fetch(`${API_BASE_URL}/api/health`).catch(() => {}); }, []);
 
   const run = async (fn) => {
     setLoading(true); setError('');
-    try { await fn(); } catch (err) { setError(err.message); } finally { setLoading(false); }
+    const slow = setTimeout(() => setWaking(true), 4000);
+    try { await fn(); } catch (err) { setError(err.message); } finally { clearTimeout(slow); setWaking(false); setLoading(false); }
   };
 
   const reset = () => {
@@ -117,7 +130,8 @@ export default function Login() {
       <ArrowLeft size={16} /> {label}
     </button>
   );
-  const alert = error && <div className="login-error" role="alert">{error}</div>;
+  const alert = error ? <div className="login-error" role="alert">{error}</div>
+    : waking ? <div className="login-sub" role="status">Waking up the server, this can take up to a minute the first time. Please keep this screen open…</div> : null;
   const stepIndex = { phone: 0, otp: 1, select: 2, register: 2, join: 2, sent: 2 }[step];
   const pendingNote = pending.length > 0 && (
     <div className="login-hint" style={{ marginBottom: 12 }}><Clock size={13} /> Waiting for approval: {pending.map(p => p.organization_name).join(', ')}. You can sign in once an admin approves.</div>
