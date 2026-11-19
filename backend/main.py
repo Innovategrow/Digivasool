@@ -127,6 +127,11 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 app = FastAPI(title="DigiVasool API", description="3-Role Money Lending Tracker")
 
 _cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
+# The Capacitor Android/iOS app serves the web app from these origins. Auth is a bearer token (no
+# cookies, allow_credentials=False), so allowing them adds no cross-site risk, and the mobile app
+# keeps working even if CORS_ORIGINS in the hosting dashboard only lists the website.
+if "*" not in _cors_origins:
+    _cors_origins += [o for o in ("https://localhost", "capacitor://localhost", "http://localhost") if o not in _cors_origins]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
