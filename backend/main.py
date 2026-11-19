@@ -2231,7 +2231,8 @@ async def get_reminder_policy():
 async def health():
     # Public (used by the keep-alive ping): nothing about backups or configuration. Admins get that from
     # /api/admin/sheet-backup.
-    return {"status": "ok", "storage": get_backend_name()}
+    return {"status": "ok", "storage": get_backend_name(),
+            "commit": os.environ.get("RENDER_GIT_COMMIT", "")[:7], "cors_origins": len(_cors_origins)}
 
 
 # ==============================
