@@ -63,7 +63,7 @@ services:
       # The deployed frontend's origin - update this if the Netlify site's domain ever changes.
       # (A Capacitor wrapper uses https://localhost; a Trusted Web Activity uses the site origin.)
       - key: CORS_ORIGINS
-        value: https://digivasool.netlify.app
+        value: https://digivasool.netlify.app,https://localhost
       # ── Subscriptions & payments ─────────────────────────────────────────────────────────────
       # Enter the three lifetime-free numbers here in the Render dashboard (never commit them).
       - key: SUBSCRIPTION_EXEMPT_PHONES
