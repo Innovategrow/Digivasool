@@ -27,12 +27,13 @@ export default function CollectorHistory() {
   const [editingPayment, setEditingPayment] = useState(null);
 
   useEffect(() => {
-    apiFetch(`/api/collector/payments?collector_name=${encodeURIComponent(user.name)}`)
+    // Admins see every collector's payments; collectors only their own
+    apiFetch(user.role === 'admin' ? '/api/collector/payments' : `/api/collector/payments?collector_name=${encodeURIComponent(user.name)}`)
       .then(r => r.json())
       .then(data => setPayments(Array.isArray(data) ? data : []))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [user.name]);
+  }, [user.name, user.role]);
 
   const totalCollected = payments.reduce((s, p) => s + p.amount, 0);
 

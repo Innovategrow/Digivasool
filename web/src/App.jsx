@@ -9,7 +9,7 @@ import { ToastProvider } from './components/Toast';
 import MoreSheet from './components/MoreSheet';
 import BottomSheet from './components/BottomSheet';
 import { apiFetch, getBooks, saveBooks, getBusiness, setBusiness } from './utils/api';
-import { Bell, Menu, LayoutDashboard, Users, CreditCard, BookOpen, UserCheck, Check, X, Wallet, ChevronDown, Plus } from 'lucide-react';
+import { Bell, Menu, LayoutDashboard, Users, CreditCard, BookOpen, UserCheck, Check, X, Wallet, ChevronDown, Plus, ArrowLeft } from 'lucide-react';
 
 import Dashboard from './pages/admin/Dashboard';
 import Ledger from './pages/admin/Ledger';
@@ -210,6 +210,12 @@ function MobileShell({ collectorMode = false }) {
           </div>
         )}
       </BottomSheet>
+
+      {collectorMode && user?.role === 'admin' && (
+        <NavLink to="/" className="biz-switch" style={{ justifyContent: 'center', gap: 8 }}>
+          <ArrowLeft size={16} /> Viewing as collector · back to admin
+        </NavLink>
+      )}
 
       <SubscriptionBanner />
       <main className="page-area">
