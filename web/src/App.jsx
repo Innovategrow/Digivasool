@@ -62,7 +62,8 @@ function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to={HOME_FOR_ROLE[user.role] || '/login'} replace />;
+  // Admins can open every flow; collectors and borrowers only their own
+  if (roles && user.role !== 'admin' && !roles.includes(user.role)) return <Navigate to={HOME_FOR_ROLE[user.role] || '/login'} replace />;
   return children;
 }
 
@@ -277,12 +278,12 @@ function AppRoutes() {
         user ? <Navigate to={HOME_FOR_ROLE[user.role] || '/'} replace /> : <Login />
       } />
       <Route path="/my-loan" element={
-        <ProtectedRoute roles={['borrower']}>
+        <ProtectedRoute roles={['borrower', 'admin']}>
           <div className="app-scroll"><Suspense fallback={<ScreenLoader />}><MyLoan /></Suspense></div>
         </ProtectedRoute>
       } />
       <Route path="/collector/*" element={
-        <ProtectedRoute roles={['collector']}>
+        <ProtectedRoute roles={['collector', 'admin']}>
           <MobileShell collectorMode />
         </ProtectedRoute>
       } />

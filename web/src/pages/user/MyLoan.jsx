@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
@@ -109,9 +110,26 @@ export default function MyLoan() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [payFor, setPayFor] = useState(null); // loan to pay
+  // Admins can preview the borrower flow for any borrower; borrowers always see themselves
+  const isAdmin = user.role === 'admin';
+  const navigate = useNavigate();
+  const [names, setNames] = useState([]);
+  const [viewName, setViewName] = useState('');
+  const lookupName = isAdmin ? viewName : user.name;
 
   useEffect(() => {
-    apiFetch(`/api/loans/by-customer?name=${encodeURIComponent(user.name)}`)
+    if (!isAdmin) return;
+    apiFetch('/api/loans/').then(r => r.ok ? r.json() : []).then(all => {
+      const list = [...new Set(all.map(l => l.customer_name).filter(Boolean))].sort();
+      setNames(list);
+      setViewName(v => v || list[0] || '');
+      if (!list.length) setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!lookupName) return;
+    apiFetch(`/api/loans/by-customer?name=${encodeURIComponent(lookupName)}`)
       .then(res => {
         if (!res.ok) throw new Error('Not found');
         return res.json();
@@ -129,26 +147,36 @@ export default function MyLoan() {
       })
       .catch(() => setError('Could not load your loan details. Please try again.'))
       .finally(() => setLoading(false));
-  }, [user.name]);
+  }, [lookupName]);
 
-  if (loading) return (
-    <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <p style={{ color: 'var(--text-muted)' }}>Loading your details...</p>
+  const adminBar = isAdmin && (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+      <button type="button" className="btn" onClick={() => navigate('/')}>← Admin</button>
+      <select className="form-input" style={{ flex: 1 }} value={viewName} onChange={e => { setLoading(true); setError(''); setViewName(e.target.value); }}>
+        {names.map(n => <option key={n} value={n}>{n}</option>)}
+      </select>
     </div>
   );
 
+  if (loading) return (
+    <div>{adminBar}<div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <p style={{ color: 'var(--text-muted)' }}>Loading your details...</p>
+    </div></div>
+  );
+
   if (error || loans.length === 0) return (
-    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+    <div>{adminBar}<div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
       <AlertTriangle size={48} style={{ color: 'var(--warning)', marginBottom: '16px' }} />
       <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>{error || 'No loan found for your account.'}</p>
-      <button onClick={logout} className="save-btn" style={{ marginTop: '24px', maxWidth: '200px' }}>Sign Out</button>
-    </div>
+      {!isAdmin && <button onClick={logout} className="save-btn" style={{ marginTop: '24px', maxWidth: '200px' }}>Sign Out</button>}
+    </div></div>
   );
 
   const profile = loans[0]; // borrower info is shared across their loans
 
   return (
     <div style={{ minHeight: '100%', background: 'var(--background)', paddingBottom: '40px' }}>
+      {adminBar}
       {/* Header */}
       <div style={{ background: 'linear-gradient(135deg, rgba(79,70,229,0.10), rgba(139,92,246,0.06))', borderBottom: '1px solid var(--border)', padding: '24px 20px' }}>
         <div style={{ maxWidth: '500px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -160,13 +188,13 @@ export default function MyLoan() {
             </div>
             <div>
               <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '2px' }}>Welcome back,</p>
-              <h1 style={{ fontSize: '20px', fontWeight: 800 }}>{user.name}</h1>
+              <h1 style={{ fontSize: '20px', fontWeight: 800 }}>{isAdmin ? profile.customer_name : user.name}</h1>
               {user.organization?.name && <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>Loan from {user.organization.name}</p>}
             </div>
           </div>
-          <button onClick={logout} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: '12px', padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}>
+          {!isAdmin && <button onClick={logout} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)', borderRadius: '12px', padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}>
             <LogOut size={16} /> Sign Out
-          </button>
+          </button>}
         </div>
       </div>
 

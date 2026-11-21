@@ -18,6 +18,7 @@ const TRANSLATIONS = {
     navMain: 'Main', navFinance: 'Finance', navSystem: 'System', navCollector: 'Collector',
     dashboard: 'Dashboard', borrowers: 'Borrowers', collection: 'Collection', ledger: 'Ledger',
     expenses: 'Expenses', reports: 'Reports', staff: 'Staff', settings: 'Settings', recycleBin: 'Recycle Bin', subscription: 'Subscription', platform: 'Platform admin',
+    collectorView: 'Collector view', borrowerView: 'Borrower view', adminView: 'Back to admin',
     collectPayment: 'Collect Payment', history: 'History', profile: 'Profile', transactions: 'Transactions',
     home: 'Home', collect: 'Collect', more: 'More', logout: 'Logout', language: 'Language',
     notifications: 'Notifications', today: 'Today', settingsComingSoon: 'Settings coming soon',

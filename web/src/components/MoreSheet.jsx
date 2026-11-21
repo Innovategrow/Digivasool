@@ -6,7 +6,7 @@ import { useLanguage } from '../context/LanguageContext';
 import BottomSheet from './BottomSheet';
 import {
   LayoutDashboard, Users, BookOpen, BarChart3, Receipt, UserCog, LogOut,
-  CreditCard, Languages, Trash2, ChevronRight, UserRound, BadgeIndianRupee, ShieldAlert,
+  CreditCard, Languages, Trash2, ChevronRight, UserRound, BadgeIndianRupee, ShieldAlert, HandCoins, ArrowLeftRight,
 } from 'lucide-react';
 
 const ADMIN_NAV = [
@@ -28,16 +28,25 @@ const COLLECTOR_NAV = [
   { to: '/collector/account',   icon: UserRound,  labelKey: 'profile' },
 ];
 
+// Admin-only shortcuts into the other roles' flows
+const ADMIN_ROLE_VIEWS = [
+  { to: '/collector', icon: HandCoins,  labelKey: 'collectorView' },
+  { to: '/my-loan',   icon: UserRound,  labelKey: 'borrowerView' },
+];
+const BACK_TO_ADMIN = { to: '/', icon: ArrowLeftRight, labelKey: 'adminView' };
+
 // "More" menu: every destination that doesn't fit in the bottom tab bar.
 export default function MoreSheet({ open, onClose, collectorMode = false }) {
   const { user, logout } = useAuth();
   const { derived } = useAppData();
   const { t, language, setLanguage, LANGUAGES } = useLanguage();
   const { sub } = useSubscription();
-  const nav = collectorMode ? COLLECTOR_NAV : [
+  const isAdmin = user?.role === 'admin';
+  const nav = collectorMode ? [...COLLECTOR_NAV, ...(isAdmin ? [BACK_TO_ADMIN] : [])] : [
     ...ADMIN_NAV,
     ...(user?.member_role === 'OWNER' ? [{ to: '/subscription', icon: BadgeIndianRupee, labelKey: 'subscription' }] : []),
     ...(sub?.is_platform_admin ? [{ to: '/platform', icon: ShieldAlert, labelKey: 'platform' }] : []),
+    ...(isAdmin ? ADMIN_ROLE_VIEWS : []),
   ];
 
   return (
