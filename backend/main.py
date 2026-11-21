@@ -1914,11 +1914,15 @@ async def get_loan_payment_history(loan_id: str, user=Depends(require_role("admi
 
 
 @app.get("/api/loans/by-customer", response_model=List[LoanRecord])
-async def get_loans_by_customer(name: Optional[str] = None, user=Depends(require_role("admin", "borrower"))):
-    """Admins look up loans by customer name; borrowers always get their own loans (matched by phone)."""
+async def get_loans_by_customer(name: Optional[str] = None, phone: Optional[str] = None,
+                                user=Depends(require_role("admin", "borrower"))):
+    """Admins look up one borrower's loans by phone (unique) or customer name; borrowers always get their own loans
+    (matched by the phone on their session, never by anything they send). Reads are scoped to the session's organisation."""
     reminders = _reminders_by_loan()
     if user["role"] == "borrower":
         loans = _borrower_loans_for_phone(user["phone"])
+    elif phone and phone.strip():
+        loans = _borrower_loans_for_phone(phone)
     else:
         target = (name or "").strip()
         loans = []

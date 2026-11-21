@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { usePreview } from '../../context/PreviewContext';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { API_BASE_URL } from '../../config';
@@ -110,26 +111,35 @@ export default function MyLoan() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [payFor, setPayFor] = useState(null); // loan to pay
-  // Admins can preview the borrower flow for any borrower; borrowers always see themselves
+  // Admin preview: the admin stays the signed-in user (same token, same role); only the displayed borrower changes.
+  // Real borrowers always see their own loans, chosen by the server from their phone number.
   const isAdmin = user.role === 'admin';
   const navigate = useNavigate();
-  const [names, setNames] = useState([]);
-  const [viewName, setViewName] = useState('');
-  const lookupName = isAdmin ? viewName : user.name;
+  const { preview, selectBorrower, exitPreview } = usePreview();
+  const [borrowers, setBorrowers] = useState([]);
+  const picked = isAdmin ? preview?.borrower : null;
+  const lookupKey = isAdmin ? (picked ? (picked.phone || picked.name) : '') : user.name;
+
+  const backToAdmin = () => { const to = preview?.returnPath || '/'; exitPreview(); navigate(to); };
 
   useEffect(() => {
     if (!isAdmin) return;
-    apiFetch('/api/loans/').then(r => r.ok ? r.json() : []).then(all => {
-      const list = [...new Set(all.map(l => l.customer_name).filter(Boolean))].sort();
-      setNames(list);
-      setViewName(v => v || list[0] || '');
-      if (!list.length) setLoading(false);
-    }).catch(() => setLoading(false));
+    let cancelled = false;
+    apiFetch('/api/loans/').then(r => (r.ok ? r.json() : [])).then(all => {      // the server returns this organisation only
+      const seen = new Map();
+      (Array.isArray(all) ? all : []).forEach(l => {
+        const key = l.customer_phone || l.customer_name;
+        if (key && !seen.has(key)) seen.set(key, { name: l.customer_name, phone: l.customer_phone || '' });
+      });
+      if (!cancelled) { setBorrowers([...seen.values()].sort((a, b) => a.name.localeCompare(b.name))); setLoading(false); }
+    }).catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [isAdmin]);
 
   useEffect(() => {
-    if (!lookupName) return;
-    apiFetch(`/api/loans/by-customer?name=${encodeURIComponent(lookupName)}`)
+    if (!lookupKey) return;
+    const query = isAdmin && picked?.phone ? `phone=${encodeURIComponent(picked.phone)}` : `name=${encodeURIComponent(lookupKey)}`;
+    apiFetch(`/api/loans/by-customer?${query}`)
       .then(res => {
         if (!res.ok) throw new Error('Not found');
         return res.json();
@@ -147,14 +157,38 @@ export default function MyLoan() {
       })
       .catch(() => setError('Could not load your loan details. Please try again.'))
       .finally(() => setLoading(false));
-  }, [lookupName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookupKey]);
+
+  const pickBorrower = (b) => { setLoading(true); setError(''); selectBorrower(b); };
 
   const adminBar = isAdmin && (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-      <button type="button" className="btn" onClick={() => navigate('/')}>← Admin</button>
-      <select className="form-input" style={{ flex: 1 }} value={viewName} onChange={e => { setLoading(true); setError(''); setViewName(e.target.value); }}>
-        {names.map(n => <option key={n} value={n}>{n}</option>)}
-      </select>
+      <button type="button" className="btn" onClick={backToAdmin}>← Back to admin</button>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 700 }}>Admin preview</span>
+      {picked && (
+        <select className="form-input" style={{ flex: 1, minWidth: 0 }} value={picked.phone || picked.name}
+          onChange={e => pickBorrower(borrowers.find(b => (b.phone || b.name) === e.target.value) || picked)}>
+          {!borrowers.some(b => (b.phone || b.name) === (picked.phone || picked.name)) && <option value={picked.phone || picked.name}>{picked.name}</option>}
+          {borrowers.map(b => <option key={b.phone || b.name} value={b.phone || b.name}>{b.name}</option>)}
+        </select>
+      )}
+    </div>
+  );
+
+  if (isAdmin && !picked) return (
+    <div>{adminBar}
+      <div style={{ maxWidth: 500, margin: '0 auto', padding: 20 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 800, marginBottom: 12 }}>Choose a borrower to preview</h1>
+        {loading ? <p style={{ color: 'var(--text-muted)' }}>Loading borrowers...</p>
+          : borrowers.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No borrowers in this organisation yet.</p>
+          : borrowers.map(b => (
+            <button key={b.phone || b.name} type="button" className="org-row" onClick={() => pickBorrower(b)}>
+              <span style={{ flex: 1, textAlign: 'left' }}>{b.name}</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{b.phone}</span>
+            </button>
+          ))}
+      </div>
     </div>
   );
 

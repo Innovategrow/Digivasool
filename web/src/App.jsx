@@ -1,8 +1,9 @@
-import { Routes, Route, Navigate, useLocation, NavLink } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate, NavLink } from 'react-router-dom';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppDataProvider, useAppData } from './context/AppDataContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
+import { PreviewProvider, usePreview } from './context/PreviewContext';
 import { SubscriptionProvider } from './context/SubscriptionContext';
 import SubscriptionBanner from './components/SubscriptionBanner';
 import { ToastProvider } from './components/Toast';
@@ -58,12 +59,18 @@ const PAGE_TITLES = {
   '/collector/account': 'profile',
 };
 
-function ProtectedRoute({ children, roles }) {
+// Routes are decided by the REAL role. An admin only gets into the collector / borrower screens while an
+// in-memory preview of that kind is active (started from the More menu), never by typing the URL.
+function ProtectedRoute({ children, roles, previewMode }) {
   const { user, loading } = useAuth();
+  const { preview, getReturnPath } = usePreview();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  // Admins can open every flow; collectors and borrowers only their own
-  if (roles && user.role !== 'admin' && !roles.includes(user.role)) return <Navigate to={HOME_FOR_ROLE[user.role] || '/login'} replace />;
+  const previewing = user.role === 'admin' && previewMode && preview?.mode === previewMode;
+  if (roles && !roles.includes(user.role) && !previewing) {
+    // an admin leaving a preview goes back to where they were; anyone else goes to their own home
+    return <Navigate to={user.role === 'admin' ? getReturnPath() : (HOME_FOR_ROLE[user.role] || '/login')} replace />;
+  }
   return children;
 }
 
@@ -104,6 +111,8 @@ function MobileShell({ collectorMode = false }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [accessRequests, setAccessRequests] = useState([]);
   const { user } = useAuth();
+  const { preview, exitPreview } = usePreview();
+  const navigate = useNavigate();
   const { derived, actions } = useAppData();
   const { t } = useLanguage();
   const location = useLocation();
@@ -212,9 +221,10 @@ function MobileShell({ collectorMode = false }) {
       </BottomSheet>
 
       {collectorMode && user?.role === 'admin' && (
-        <NavLink to="/" className="biz-switch" style={{ justifyContent: 'center', gap: 8 }}>
+        <button type="button" className="biz-switch" style={{ justifyContent: 'center', gap: 8 }}
+          onClick={() => { const to = preview?.returnPath || '/'; exitPreview(); navigate(to); }}>
           <ArrowLeft size={16} /> Viewing as collector · back to admin
-        </NavLink>
+        </button>
       )}
 
       <SubscriptionBanner />
@@ -284,12 +294,12 @@ function AppRoutes() {
         user ? <Navigate to={HOME_FOR_ROLE[user.role] || '/'} replace /> : <Login />
       } />
       <Route path="/my-loan" element={
-        <ProtectedRoute roles={['borrower', 'admin']}>
+        <ProtectedRoute roles={['borrower']} previewMode="borrower">
           <div className="app-scroll"><Suspense fallback={<ScreenLoader />}><MyLoan /></Suspense></div>
         </ProtectedRoute>
       } />
       <Route path="/collector/*" element={
-        <ProtectedRoute roles={['collector', 'admin']}>
+        <ProtectedRoute roles={['collector']} previewMode="collector">
           <MobileShell collectorMode />
         </ProtectedRoute>
       } />
@@ -306,6 +316,7 @@ export default function App() {
   return (
     <LanguageProvider>
       <AuthProvider>
+        <PreviewProvider>
         <SubscriptionProvider>
           <AppDataProvider>
             <div className="app-frame">
@@ -315,6 +326,7 @@ export default function App() {
             </div>
           </AppDataProvider>
         </SubscriptionProvider>
+        </PreviewProvider>
       </AuthProvider>
     </LanguageProvider>
   );

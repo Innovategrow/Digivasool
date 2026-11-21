@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { usePreview } from '../context/PreviewContext';
 import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -30,10 +31,10 @@ const COLLECTOR_NAV = [
 
 // Admin-only shortcuts into the other roles' flows
 const ADMIN_ROLE_VIEWS = [
-  { to: '/collector', icon: HandCoins,  labelKey: 'collectorView' },
-  { to: '/my-loan',   icon: UserRound,  labelKey: 'borrowerView' },
+  { to: '/collector', icon: HandCoins,  labelKey: 'collectorView', previewMode: 'collector' },
+  { to: '/my-loan',   icon: UserRound,  labelKey: 'borrowerView',  previewMode: 'borrower' },
 ];
-const BACK_TO_ADMIN = { to: '/', icon: ArrowLeftRight, labelKey: 'adminView' };
+const BACK_TO_ADMIN = { to: '/', icon: ArrowLeftRight, labelKey: 'adminView', exitPreview: true };
 
 // "More" menu: every destination that doesn't fit in the bottom tab bar.
 export default function MoreSheet({ open, onClose, collectorMode = false }) {
@@ -41,6 +42,9 @@ export default function MoreSheet({ open, onClose, collectorMode = false }) {
   const { derived } = useAppData();
   const { t, language, setLanguage, LANGUAGES } = useLanguage();
   const { sub } = useSubscription();
+  const { preview, startPreview, exitPreview } = usePreview();
+  const navigate = useNavigate();
+  const location = useLocation();
   const isAdmin = user?.role === 'admin';
   const nav = collectorMode ? [...COLLECTOR_NAV, ...(isAdmin ? [BACK_TO_ADMIN] : [])] : [
     ...ADMIN_NAV,
@@ -60,7 +64,17 @@ export default function MoreSheet({ open, onClose, collectorMode = false }) {
       </div>
 
       <nav className="more-nav">
-        {nav.map(item => (
+        {nav.map(item => (item.previewMode || item.exitPreview) ? (
+          <button key={item.to} type="button" className="more-nav-item" style={{ width: '100%', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer' }} onClick={() => {
+            onClose();
+            if (item.exitPreview) { const to = preview?.returnPath || '/'; exitPreview(); navigate(to); return; }
+            if (startPreview(item.previewMode, { returnPath: location.pathname })) navigate(item.to);
+          }}>
+            <item.icon size={20} />
+            <span>{t(item.labelKey)}</span>
+            <ChevronRight size={16} className="more-chevron" />
+          </button>
+        ) : (
           <NavLink key={item.to} to={item.to} end={item.to === '/' || item.to === '/collector'} onClick={onClose}
             className={({ isActive }) => `more-nav-item${isActive ? ' active' : ''}`}>
             <item.icon size={20} />
