@@ -2,8 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { API_BASE_URL } from '../config';
-import { ShieldCheck, Phone, ArrowLeft, Languages, Wrench, Building2, ChevronRight, User, Plus, UserPlus, Clock } from 'lucide-react';
+import { ShieldCheck, Phone, ArrowLeft, Languages, Wrench, Building2, Briefcase, Users, Wallet, ChevronRight, User, Plus, UserPlus, Clock } from 'lucide-react';
 
+const ROLES = [
+  { key: 'ADMIN', label: 'Admin', Icon: Briefcase, match: ['OWNER', 'ADMIN'] },
+  { key: 'COLLECTOR', label: 'Collector', Icon: Users, match: ['COLLECTOR'] },
+  { key: 'BORROWER', label: 'Borrower', Icon: Wallet, match: ['BORROWER'] },
+];
+const roleMatches = (key, r) => ROLES.find(x => x.key === key).match.includes(String(r || '').toUpperCase());
 const EMPTY_OTP = ['', '', '', '', '', ''];
 const ROLE_LABEL = { OWNER: 'Owner', ADMIN: 'Admin', COLLECTOR: 'Collector', BORROWER: 'Borrower' };
 
@@ -31,6 +37,7 @@ export default function Login() {
   const [joinCode, setJoinCode] = useState('');
   const [joinName, setJoinName] = useState('');
   const [sentMessage, setSentMessage] = useState('');
+  const [roleKey, setRoleKey] = useState('ADMIN');
   const [contact, setContact] = useState('');
   const [otp, setOtp] = useState(EMPTY_OTP);
   const [devOtp, setDevOtp] = useState('');
@@ -76,9 +83,19 @@ export default function Login() {
     run(async () => {
       try {
         const data = await post('/api/auth/verify-otp', { contact: contact.trim(), otp: code });
-        if (data.status === 'ok') return login(data);
+        const roleName = ROLES.find(x => x.key === roleKey).label;
+        if (data.status === 'ok') {
+          if (!roleMatches(roleKey, data.member_role) && !roleMatches(roleKey, data.role)) {
+            throw new Error(`This number is not registered as ${roleName}. Pick the right role above and try again.`);
+          }
+          return login(data);
+        }
         setPending(data.pending_requests || []);
-        if (data.status === 'select_org') { setOrgs(data.organizations); setSelectionToken(data.selection_token); setStep('select'); return; }
+        if (data.status === 'select_org') {
+          const mine = data.organizations.filter(o => roleMatches(roleKey, o.role));
+          if (mine.length === 0) throw new Error(`This number is not registered as ${roleName}. Pick the right role above and try again.`);
+          setOrgs(mine); setSelectionToken(data.selection_token); setStep('select'); return;
+        }
         setRegistrationToken(data.registration_token); setStep('register');
       } catch (err) {
         setOtp(EMPTY_OTP); otpRefs.current[0]?.focus();
@@ -166,6 +183,15 @@ export default function Login() {
           <form onSubmit={requestOtp}>
             <h2 className="login-title">{t('welcome')}</h2>
             <p className="login-sub">Enter your mobile number. New here? You can set up your own organisation in the next steps.</p>
+            <div className="form-label" id="role-label">Sign in as</div>
+            <div className="role-tabs" role="radiogroup" aria-labelledby="role-label">
+              {ROLES.map((r) => { const { key, label } = r; return (
+                <button key={key} type="button" role="radio" aria-checked={roleKey === key} id={`role-${key.toLowerCase()}`}
+                  className={`role-tab${roleKey === key ? ' is-active' : ''}`} onClick={() => { setRoleKey(key); setError(''); }}>
+                  <r.Icon size={20} /><span>{label}</span>
+                </button>
+              ); })}
+            </div>
             <div className="form-group">
               <label className="form-label" htmlFor="contact-input">Mobile number</label>
               <div style={{ position: 'relative' }}>
@@ -174,7 +200,7 @@ export default function Login() {
                   style={{ paddingLeft: 42 }} value={contact} onChange={e => { setContact(e.target.value); setError(''); }}
                   placeholder="+91 9876543210" autoFocus />
               </div>
-              <p className="login-hint">Admins, collectors and borrowers all sign in here — we'll find your organisation automatically.</p>
+              <p className="login-hint">We'll find your organisation automatically.</p>
             </div>
             {alert}
             <button id="send-otp-btn" type="submit" className="save-btn" disabled={loading || !contact.trim()}>
